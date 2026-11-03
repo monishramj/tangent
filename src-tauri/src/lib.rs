@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
+mod llm;
 use tauri::{Manager, RunEvent, State};
 
 #[derive(Default)]
@@ -67,7 +68,7 @@ fn sidecar_call(state: State<State_>, method: String, params: Value) -> Result<V
 pub fn run() {
     tauri::Builder::default()
         .manage(State_(Mutex::new(Sidecar::default())))
-        .invoke_handler(tauri::generate_handler![sidecar_call])
+        .invoke_handler(tauri::generate_handler![sidecar_call, llm::llm_complete])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {

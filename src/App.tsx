@@ -14,13 +14,14 @@ import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import type { LLMProvider } from "./llm/provider";
+import { providers } from "./llm/registry";
 import Panel from "./Panel";
 import Stage from "./Stage";
 import { Player } from "./player/player";
 import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
 import type { Annotation } from "./tutor/annotations";
-import { beatStarts, stubProvider } from "./tutor/glue";
+import { beatStarts } from "./tutor/glue";
 import { ask, buildTutorContext, resumeTime } from "./tutor/tutor";
 
 const DURATION = timeline.totalSec;
@@ -48,7 +49,9 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
-export default function App({ provider = stubProvider }: { provider?: LLMProvider }) {
+export default function App({ provider: injected }: { provider?: LLMProvider }) {
+  const provider = injected ?? providers.claude; // ponytail: provider choice moves to a settings page later
+
   const [sidecar, setSidecar] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
@@ -248,7 +251,9 @@ export default function App({ provider = stubProvider }: { provider?: LLMProvide
                 if (q) submitQuestion(q);
               }}
             >
-              <label htmlFor="ask" className="text-sm text-muted">Ask about this moment in the video</label>
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="ask" className="text-sm text-muted">Ask about this moment in the video</label>
+              </div>
               <div className="flex gap-2">
                 <input id="ask" name="q" autoFocus onFocus={interrupt} autoComplete="off" className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-fg placeholder:text-subtle" placeholder="Why the bigger child?" />
                 <button type="submit" aria-label="Send" className="grid size-11 place-items-center rounded-lg bg-accent text-bg hover:opacity-90">

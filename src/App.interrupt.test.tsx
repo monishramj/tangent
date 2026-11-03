@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { RefObject } from "react";
 import type { LLMProvider } from "./llm/provider";
 import type { Annotation } from "./tutor/annotations";
-import { beatStarts } from "./tutor/glue";
+import { beatStarts, stubProvider } from "./tutor/glue";
 import { timeline } from "./stage/demo";
 import App from "./App";
 
@@ -87,8 +87,8 @@ it("provider failure shows an error status and no annotations; can retry", async
   expect(screen.getByLabelText(/ask about this moment/i)).toBeTruthy();
 });
 
-it("default stub provider answers without props", async () => {
-  render(<App />);
+it("injected stub provider answers", async () => {
+  render(<App provider={stubProvider} />);
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
   send("q");
   expect(await screen.findByRole("button", { name: "Resume" })).toBeTruthy();
