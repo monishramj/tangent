@@ -5,3 +5,13 @@ dist
 __pycache__
 .DS_Store
 .pytest_cache
+# secrets: never commit; keys live in the OS keychain, not files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# generated
+src-tauri/gen
+*.log
+.vite
