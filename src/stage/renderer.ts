@@ -3,6 +3,8 @@ import { Container, Graphics, Text, type Application } from "pixi.js";
 import katex from "katex";
 import type { Scene, SceneObject, TreeNode } from "@/dsl/schema";
 import { fromLevel } from "@/dsl/trees/shared";
+import type { Annotation } from "@/tutor/annotations";
+import { annotationShapes, type Pt } from "./annotate";
 import { easeOut, type ObjState, type SceneState } from "./scene";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
@@ -15,6 +17,10 @@ export class SceneRenderer {
   private reaction: Text;
   private fg: string;
   private bg: string;
+  private pts = new Map<string, Pt>(); // laid-out target positions (px), refreshed every draw: annotations read these
+  private anns: Annotation[] = [];
+  private annG = new Graphics();
+  private annTexts: Text[] = [];
 
   constructor(private app: Application, scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
@@ -27,7 +33,11 @@ export class SceneRenderer {
     this.reaction = this.text("", 64, "bold");
     this.reaction.anchor.set(0.5);
     this.root.addChild(this.reaction);
+    app.stage.addChild(this.annG); // above root so transitions don't move marks
   }
+
+  /** Replace the tutor's marks; they paint on the next draw(). [] clears. */
+  setAnnotations(a: Annotation[]) { this.anns = a; }
 
   private text(s: string, size: number, weight: "normal" | "bold" = "normal", mono = false) {
     return new Text({ text: s, style: { fill: this.fg, fontSize: size, fontWeight: weight, fontFamily: mono ? MONO : FONT, letterSpacing: weight === "bold" ? -size * 0.03 : 0 } });
@@ -115,6 +125,7 @@ export class SceneRenderer {
             t.style.fontSize = size * 0.45;
             t.style.fill = slot.hl > 0.5 ? this.bg : this.fg;
             t.position.set(x, lift);
+            this.pts.set(`${o.id}.slot[${i}]`, { x: s.x * w + x * s.scale, y: s.y * h + lift * s.scale, r: (size / 2) * s.scale });
           });
         } };
       }
@@ -156,6 +167,7 @@ export class SceneRenderer {
             labels[i].position.set(x, y);
             labels[i].style.fontSize = r * 0.9;
             labels[i].style.fill = hl > 0.5 ? this.bg : this.fg;
+            for (const k of n.keys) this.pts.set(`${o.id}.val(${k})`, { x: s.x * w + x * s.scale, y: s.y * h + y * s.scale, r: r * s.scale });
           });
         } };
       }
@@ -166,7 +178,12 @@ export class SceneRenderer {
 
   draw(st: SceneState) {
     const { width: w, height: h } = this.app.screen;
-    for (const [id, d] of this.draws) d.draw(st.objects.get(id)!, w, h, st.objects);
+    for (const [id, d] of this.draws) {
+      const s = st.objects.get(id)!;
+      d.draw(s, w, h, st.objects);
+      this.pts.set(id, { x: s.x * w, y: s.y * h, r: 0.12 * h * s.scale });
+    }
+    this.paintAnnotations(w, h);
     this.reaction.visible = !!st.reaction;
     this.reaction.text = st.reaction ?? "";
     this.reaction.style.fontSize = 0.1 * h;
@@ -178,7 +195,30 @@ export class SceneRenderer {
     this.app.render();
   }
 
+  private paintAnnotations(w: number, h: number) {
+    const g = this.annG.clear();
+    this.annTexts.forEach((x) => x.destroy());
+    this.annTexts = [];
+    for (const s of annotationShapes(this.anns, this.pts, w, h)) {
+      if (s.k === "circle") g.circle(s.x, s.y, s.r).stroke({ width: 4, color: this.fg });
+      else if (s.k === "rect") g.roundRect(s.x, s.y, s.w, s.h, 8).fill({ color: this.fg, alpha: 0.18 }).stroke({ width: 2, color: this.fg, alpha: 0.8 });
+      else if (s.k === "arrow") {
+        const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1), k = 0.025 * h;
+        g.moveTo(s.x1, s.y1).lineTo(s.x2, s.y2)
+          .moveTo(s.x2 - k * Math.cos(a - 0.45), s.y2 - k * Math.sin(a - 0.45)).lineTo(s.x2, s.y2).lineTo(s.x2 - k * Math.cos(a + 0.45), s.y2 - k * Math.sin(a + 0.45))
+          .stroke({ width: 4, color: this.fg });
+      } else {
+        const t = this.text(s.text, 0.035 * h, "bold");
+        t.anchor.set(0.5);
+        t.position.set(s.x, s.y);
+        this.app.stage.addChild(t);
+        this.annTexts.push(t);
+      }
+    }
+  }
+
   destroy() {
+    this.annTexts.forEach((x) => x.destroy());
     this.draws.forEach((d) => d.node instanceof HTMLElement && d.node.remove());
     this.root.destroy({ children: true });
   }

@@ -13,13 +13,18 @@ import {
 import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
+import type { LLMProvider } from "./llm/provider";
 import Panel from "./Panel";
 import Stage from "./Stage";
 import { Player } from "./player/player";
 import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
+import type { Annotation } from "./tutor/annotations";
+import { beatStarts, stubProvider } from "./tutor/glue";
+import { ask, buildTutorContext, resumeTime } from "./tutor/tutor";
 
 const DURATION = timeline.totalSec;
+const STARTS = beatStarts(timeline);
 const SECTIONS = ["Binary heaps", "Heap order property", "Heapify", "Building a heap in O(n)", "Heapsort"];
 const IDLE_MS = 3000;
 
@@ -43,11 +48,14 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
-export default function App() {
+export default function App({ provider = stubProvider }: { provider?: LLMProvider }) {
   const [sidecar, setSidecar] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const drawRef = useRef<((t: number) => void) | null>(null);
+  const annotateRef = useRef<((a: Annotation[]) => void) | null>(null);
+  const priorQs = useRef<string[]>([]);
+  const askedAt = useRef(0);
   // One clock: the <audio> element. The Player paces redraws from audio.currentTime.
   const [audio] = useState(() => Object.assign(new Audio(AUDIO_URL), { preload: "auto" }));
   const [player] = useState(() => new Player({ timeline, audio, render: (t) => {
@@ -62,7 +70,7 @@ export default function App() {
   }, [audio, player]);
   const [panel, setPanel] = useState<"Sections" | "Ask" | null>(null);
   const [active, setActive] = useState(2);
-  const [asked, setAsked] = useState("");
+  const [tutor, setTutor] = useState<{ s: "idle" | "loading" | "error" | "answered"; answer?: string }>({ s: "idle" });
   const [idle, setIdle] = useState(false);
   const close = useCallback(() => setPanel(null), []);
 
@@ -101,12 +109,38 @@ export default function App() {
     }
     setPlaying(!playing);
   };
-  const toggle = (name: "Sections" | "Ask") => setPanel((p) => (p === name ? null : name));
+  const toggle = (name: "Sections" | "Ask") => {
+    if (name === "Ask" && panel !== "Ask") { player.pause(); setPlaying(false); } // opening Ask interrupts
+    setPanel((p) => (p === name ? null : name));
+  };
+  const submitQuestion = async (question: string) => {
+    askedAt.current = player.time;
+    setTutor({ s: "loading" });
+    annotateRef.current?.([]);
+    try {
+      // ponytail: transcript left empty until the timeline exposes words up to t; scene ids/types are enough to ground marks.
+      const context = buildTutorContext({ objects: scene.objects.map((o) => ({ id: o.id, type: o.type })), transcript: "", section: "Heapify", priorQuestions: priorQs.current });
+      const r = await ask({ question, context, provider });
+      priorQs.current.push(question);
+      annotateRef.current?.(r.annotations);
+      setTutor({ s: "answered", answer: r.answer });
+    } catch {
+      setTutor({ s: "error" });
+    }
+  };
+  const resume = () => {
+    annotateRef.current?.([]);
+    setTutor({ s: "idle" });
+    player.seek(resumeTime(STARTS, askedAt.current));
+    player.play();
+    setPlaying(true);
+    setPanel(null);
+  };
   const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.());
 
   return (
     <main className={`relative h-screen overflow-hidden bg-bg ${idle ? "cursor-none" : ""}`}>
-      <Stage scene={scene} timeline={timeline} drawRef={drawRef} />
+      <Stage scene={scene} timeline={timeline} drawRef={drawRef} annotateRef={annotateRef} />
 
       <div data-idle={idle} className={`absolute inset-0 transition-opacity duration-300 ${idle ? "opacity-0" : "opacity-100"}`}>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-bg via-bg/60 to-transparent" />
@@ -208,8 +242,8 @@ export default function App() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const q = new FormData(e.currentTarget).get("q")?.toString().trim();
-                if (q) setAsked(q);
                 e.currentTarget.reset();
+                if (q) submitQuestion(q);
               }}
             >
               <label htmlFor="ask" className="text-sm text-muted">Ask about this moment in the video</label>
@@ -219,9 +253,23 @@ export default function App() {
                   <Icon icon={ArrowRight02Icon} size={20} />
                 </button>
               </div>
-              <p aria-live="polite" className="text-sm text-muted">
-                {asked && `Asked: "${asked}". The tutor is not wired up yet.`}
-              </p>
+              {tutor.s === "loading" && (
+                <p role="status" aria-label="Thinking" className="text-sm text-muted">
+                  <ShinyText text="Thinking..." color={css("--fg-subtle")} shineColor={css("--fg")} />
+                </p>
+              )}
+              {tutor.s === "error" && (
+                <p role="status" aria-label="Error" className="text-sm text-fg">The tutor couldn't answer. Try again.</p>
+              )}
+              {tutor.s === "answered" && (
+                <>
+                  <p aria-live="polite" className="text-base text-fg">{tutor.answer}</p>
+                  <button type="button" onClick={resume} className="flex h-11 items-center justify-center gap-2 rounded-lg bg-accent text-bg hover:opacity-90">
+                    <Icon icon={PlayIcon} size={20} className="fill-current" />
+                    Resume
+                  </button>
+                </>
+              )}
             </form>
           )}
         </Panel>
