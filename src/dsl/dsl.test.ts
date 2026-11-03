@@ -47,6 +47,8 @@ describe("validateScene", () => {
     ["op not defined", (s) => (s.beats[1].actions[0].op = "rotateLeft"), "unknown-op", 1],
     ["op on primitive", (s) => (s.beats[1].actions[0].target = "title"), "unknown-op", 1],
     ["slot out of range", (s) => (s.beats[0].actions[2].target = "h.slot[5]"), "slot-out-of-range", 0],
+    ["fade to out of [0,1]", (s) => s.beats[1].actions.push({ at: "child", do: "fade", target: "title", to: 2 }), "schema", 1],
+    ["anchor occurs twice in say", (s) => ((s.beats[1].say += " Again!"), (s.beats[1].actions[0].at = "again")), "ambiguous-anchor", 1],
   ];
 
   it.each(broken)("%s", (_name, mutate, code, beat) => {
@@ -63,6 +65,14 @@ describe("validateScene", () => {
   it("create in an earlier beat counts", () => {
     const s = clone();
     s.beats[1].actions.unshift({ at: "parent", do: "indicate", target: "title" });
+    expect(validateScene(s)).toEqual([]);
+  });
+
+  it("fade is opacity only: a faded object stays addressable", () => {
+    const s = clone();
+    s.beats[0].actions.push({ at: "heap", do: "fade", target: "title" }); // default to: 0
+    s.beats[1].actions.push({ at: "parent", do: "fade", target: "title", to: 0.5 });
+    s.beats[1].actions.push({ at: "child", do: "indicate", target: "title" });
     expect(validateScene(s)).toEqual([]);
   });
 

@@ -15,7 +15,7 @@
       "cite": "p. 287"
     },
     {
-      "say": "The parent swaps with its bigger child. Then we check again, one level down.",
+      "say": "So the parent swaps with its bigger child. Then we check again, one level down.",
       "actions": [
         { "at": "swaps", "do": "op", "target": "h", "op": "siftDown", "args": [0] }
       ],

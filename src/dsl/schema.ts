@@ -28,7 +28,7 @@ const act = <K extends string, T extends z.ZodRawShape>(verb: K, shape: T, targe
 
 export const Action = z.discriminatedUnion("do", [
   act("create", {}),
-  act("fade", {}),
+  act("fade", { to: z.number().min(0).max(1).optional() }), // opacity only (default 0); a faded object stays addressable
   act("move", {}),
   act("transform", {}),
   act("highlight", {}),

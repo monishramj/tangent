@@ -4,6 +4,7 @@ export type ErrorCode =
   | "schema"
   | "duplicate-id"
   | "anchor-not-found"
+  | "ambiguous-anchor"
   | "bad-target"
   | "unknown-target"
   | "not-created"
@@ -21,9 +22,8 @@ const OPS: Record<string, string[]> = {
 };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-// Case-insensitive, whole-word; returns the char offset in `say` or -1.
-const anchorPos = (say: string, at: string) =>
-  say.search(new RegExp(`(?<![\\w'])${escape(at)}(?![\\w'])`, "i"));
+// Case-insensitive, whole-word.
+const anchorRe = (at: string) => new RegExp(`(?<![\\w'])${escape(at)}(?![\\w'])`, "gi");
 
 export function validateScene(json: unknown): DslError[] {
   const parsed = Scene.safeParse(json);
@@ -51,8 +51,10 @@ export function validateScene(json: unknown): DslError[] {
 
     const placed: { a: number; act: Action; pos: number }[] = [];
     beat.actions.forEach((act, a) => {
-      const pos = anchorPos(beat.say, act.at);
+      const hits = [...beat.say.matchAll(anchorRe(act.at))];
+      const pos = hits[0]?.index ?? -1;
       if (pos < 0) err(a, "at", "anchor-not-found", `anchor "${act.at}" is not a whole phrase in say: "${beat.say}"`);
+      if (hits.length > 1) err(a, "at", "ambiguous-anchor", `anchor "${act.at}" occurs ${hits.length} times in say; use a longer phrase`);
       if (act.target === undefined) return; // camera/wait may be untargeted
       const t = parseTarget(act.target);
       if (!t) return err(a, "target", "bad-target", `malformed target "${act.target}" (want id, id.slot[i] or id.val(x))`);
