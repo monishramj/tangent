@@ -55,7 +55,7 @@ Every source goes through an adapter into one normalized IR; everything downstre
   2. Lecture slides (PPTX → PDF, same adapter path)
   3. Handwritten notes / photos (vision-model OCR)
   4. zyBooks / web: a **"capture this page" from the user's own logged-in session**, never a scraper holding credentials. Personal use only; content is copyrighted.
-- **PDF parser: benchmark before choosing.** Docling (MIT) vs Marker (GPL code, restricted weights; often best on math) on 3 real chapters (CS 251, STAT 350, CS 334). Scoring: LaTeX fidelity, figure extraction + captions, section tree accuracy, exercises captured, speed on the M4 Max. Licensing note: Marker pushes Tangent toward GPL unless it's strictly isolated as a separate process; Docling keeps MIT/Apache open.
+- **PDF parser: benchmark before choosing.** Docling (MIT) vs Marker (Apache-2.0 code, restricted OpenRAIL-M weights, needs llama-server for full mode; often best on math) on 3 real chapters (CS 251, STAT 350, CS 334). Scoring: LaTeX fidelity, figure extraction + captions, section tree accuracy, exercises captured, speed on the M4 Max. Licensing note: Marker pushes Tangent toward GPL unless it's strictly isolated as a separate process; Docling keeps MIT/Apache open.
 - v1: **merge sources per topic** (textbook section + matching lecture slides → one video).
 
 ### Rendering: custom engine + scene DSL (decided)
@@ -214,3 +214,14 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 - Prefer the smallest thing that de-risks the next unknown; no speculative abstractions.
 - The speech-first script, word-anchored timing, and computed visuals are non-negotiable quality bars.
 - Subagents: use `worker` (Sonnet) for implementation and spikes, `util` (Haiku, read-only) for review/verify/search. Never pass `model: opus` unless Monish asks for it in that message.
+
+## Packaging: one downloadable app
+- Goal: a single installer. Nothing the user must install or hunt for (no brew, no separate Python, no ollama).
+- Bundle as Tauri `externalBin` sidecars: the Python sidecar (frozen with PyInstaller or an embedded uv Python), `llama-server` (llama.cpp, small), ffmpeg if needed.
+- Large model weights (TTS, VLM, alignment) are NOT in the installer. Download once on first run into the app data dir, with a progress UI and checksum. Small models (Kokoro ~330 MB) may be bundled if installer size allows.
+- Licence limits what we bundle: Marker weights are restricted (no bundle, opt-in only); Docling is MIT and can ship.
+- Remove the dev-only hardcoded sidecar path in `src-tauri/src/lib.rs` before any packaged build.
+
+## Tree component
+- `Tree` has a `kind`: `bst` (default), `avl`, `redblack`, `btree`, `heap`, `generic`. Each kind owns its ops, registered by kind. Node data is nested (`keys`, `children`, optional `color`) so B-trees (many keys per node) fit; level-order arrays stay as shorthand for binary kinds.
+- Array heaps: max by default, `heap: "min"` option.
