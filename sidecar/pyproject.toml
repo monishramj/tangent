@@ -1,8 +1,23 @@
 [project]
 name = "tangent-sidecar"
 version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = []
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "en-core-web-sm",
+    "kokoro>=0.9.4",
+    "misaki[en]",
+    "numpy",
+    "soundfile",
+    "torch==2.15.0",
+    "torchaudio==2.11.1",
+]
 
 [dependency-groups]
 dev = ["pytest"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not slow'"
+markers = ["slow: real model integration (downloads weights and runs synthesis/alignment)"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

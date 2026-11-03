@@ -2,6 +2,8 @@ import json
 import sys
 from typing import Any, NotRequired, TypedDict
 
+from .tts import tts_align
+
 
 class Request(TypedDict):
     id: int
@@ -15,7 +17,7 @@ class Response(TypedDict):
     error: NotRequired[str]
 
 
-HANDLERS = {"ping": lambda params: "pong"}
+HANDLERS = {"ping": lambda params: "pong", "tts_align": tts_align}
 
 
 def handle(req: Request) -> Response:
