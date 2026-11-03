@@ -1,0 +1,8 @@
+[project]
+name = "docling-bench"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "docling>=2.60",
+    "pytest>=9.2.0",
+]
