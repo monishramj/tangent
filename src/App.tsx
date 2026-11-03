@@ -110,10 +110,12 @@ export default function App({ provider = stubProvider }: { provider?: LLMProvide
     setPlaying(!playing);
   };
   const toggle = (name: "Sections" | "Ask") => {
-    if (name === "Ask" && panel !== "Ask") { player.pause(); setPlaying(false); } // opening Ask interrupts
+    if (name === "Ask" && panel !== "Ask") interrupt(); // opening Ask interrupts
     setPanel((p) => (p === name ? null : name));
   };
+  const interrupt = () => { player.pause(); setPlaying(false); };
   const submitQuestion = async (question: string) => {
+    interrupt(); // typing/submitting always stops the video, even if it was resumed with the panel open
     askedAt.current = player.time;
     setTutor({ s: "loading" });
     annotateRef.current?.([]);
@@ -248,7 +250,7 @@ export default function App({ provider = stubProvider }: { provider?: LLMProvide
             >
               <label htmlFor="ask" className="text-sm text-muted">Ask about this moment in the video</label>
               <div className="flex gap-2">
-                <input id="ask" name="q" autoFocus autoComplete="off" className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-fg placeholder:text-subtle" placeholder="Why the bigger child?" />
+                <input id="ask" name="q" autoFocus onFocus={interrupt} autoComplete="off" className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-fg placeholder:text-subtle" placeholder="Why the bigger child?" />
                 <button type="submit" aria-label="Send" className="grid size-11 place-items-center rounded-lg bg-accent text-bg hover:opacity-90">
                   <Icon icon={ArrowRight02Icon} size={20} />
                 </button>
