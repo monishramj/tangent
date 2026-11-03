@@ -1,0 +1,86 @@
+import { Scene, parseTarget, type Action, type SceneObject } from "./schema";
+
+export type ErrorCode =
+  | "schema"
+  | "duplicate-id"
+  | "anchor-not-found"
+  | "bad-target"
+  | "unknown-target"
+  | "not-created"
+  | "conflict"
+  | "unknown-op"
+  | "slot-out-of-range";
+
+// beat is set whenever the error is local to one beat, so the caller can regenerate just that beat.
+export type DslError = { path: string; code: ErrorCode; message: string; beat?: number };
+
+// MVP placeholders: the real ops (and their algorithms) land with the computed components.
+const OPS: Record<string, string[]> = {
+  Array: ["swap", "compare", "set", "siftDown", "siftUp"],
+  Tree: ["insert", "remove", "rotateLeft", "rotateRight"],
+};
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Case-insensitive, whole-word; returns the char offset in `say` or -1.
+const anchorPos = (say: string, at: string) =>
+  say.search(new RegExp(`(?<![\\w'])${escape(at)}(?![\\w'])`, "i"));
+
+export function validateScene(json: unknown): DslError[] {
+  const parsed = Scene.safeParse(json);
+  if (!parsed.success)
+    return parsed.error.issues.map((i) => ({
+      path: i.path.map((p) => (typeof p === "number" ? `[${p}]` : `.${String(p)}`)).join("").replace(/^\./, "") || "$",
+      code: "schema",
+      message: i.message,
+      beat: i.path[0] === "beats" && typeof i.path[1] === "number" ? i.path[1] : undefined,
+    }));
+
+  const scene = parsed.data;
+  const errs: DslError[] = [];
+  const objs = new Map<string, SceneObject>();
+  scene.objects.forEach((o, i) => {
+    if (objs.has(o.id)) errs.push({ path: `objects[${i}].id`, code: "duplicate-id", message: `duplicate object id "${o.id}"` });
+    else objs.set(o.id, o);
+  });
+
+  const created = new Set<string>();
+  scene.beats.forEach((beat, b) => {
+    if (!("say" in beat)) return;
+    const err = (a: number, field: string, code: ErrorCode, message: string) =>
+      errs.push({ path: `beats[${b}].actions[${a}].${field}`, code, message, beat: b });
+
+    const placed: { a: number; act: Action; pos: number }[] = [];
+    beat.actions.forEach((act, a) => {
+      const pos = anchorPos(beat.say, act.at);
+      if (pos < 0) err(a, "at", "anchor-not-found", `anchor "${act.at}" is not a whole phrase in say: "${beat.say}"`);
+      if (act.target === undefined) return; // camera/wait may be untargeted
+      const t = parseTarget(act.target);
+      if (!t) return err(a, "target", "bad-target", `malformed target "${act.target}" (want id, id.slot[i] or id.val(x))`);
+      const o = objs.get(t.id);
+      if (!o) return err(a, "target", "unknown-target", `no object with id "${t.id}"`);
+      const ops = OPS[o.type];
+      if (("slot" in t || "val" in t) && !ops)
+        return err(a, "target", "bad-target", `"${t.id}" is a ${o.type}; slot/val addressing needs a computed component`);
+      if ("slot" in t && o.type === "Array" && t.slot >= o.init.length)
+        err(a, "target", "slot-out-of-range", `slot ${t.slot} out of range for "${t.id}" (length ${o.init.length})`);
+      if (act.do === "op" && (!ops || "slot" in t || "val" in t || !ops.includes(act.op)))
+        err(a, "op", "unknown-op", ops ? `${o.type} has no op "${act.op}" (has: ${ops.join(", ")})` : `op on non-component ${o.type} "${t.id}"`);
+      if (pos >= 0) placed.push({ a, act, pos });
+    });
+
+    // Order by anchor; at the same word, creates go first.
+    placed.sort((x, y) => x.pos - y.pos || Number(y.act.do === "create") - Number(x.act.do === "create"));
+    const seen = new Set<string>();
+    for (const { a, act, pos } of placed) {
+      const id = parseTarget(act.target!)!.id;
+      if (act.do === "create") created.add(id);
+      else if (!created.has(id)) err(a, "target", "not-created", `"${id}" is used at "${act.at}" before it is created`);
+      const key = `${pos}|${act.target}`;
+      if (seen.has(key)) err(a, "at", "conflict", `two actions hit "${act.target}" at "${act.at}"`);
+      seen.add(key);
+    }
+    // Creates with a bad anchor still count, so one broken beat doesn't cascade into later beats.
+    for (const act of beat.actions) if (act.do === "create" && act.target) created.add(parseTarget(act.target)?.id ?? "");
+  });
+  return errs;
+}

@@ -1,0 +1,26 @@
+{
+  "scene": "s03-heapify",
+  "objects": [
+    { "id": "title", "type": "KineticText", "text": "HEAPIFY", "variant": "slam" },
+    { "id": "h", "type": "Array", "init": [3, 9, 7, 1, 4] }
+  ],
+  "beats": [
+    {
+      "say": "Heapify fixes one broken spot in a heap.",
+      "actions": [
+        { "at": "Heapify", "do": "create", "target": "title" },
+        { "at": "fixes", "do": "create", "target": "h" },
+        { "at": "broken spot", "do": "highlight", "target": "h.slot[0]", "color": "burgundy" }
+      ],
+      "cite": "p. 287"
+    },
+    {
+      "say": "The parent swaps with its bigger child. Then we check again, one level down.",
+      "actions": [
+        { "at": "swaps", "do": "op", "target": "h", "op": "siftDown", "args": [0] }
+      ],
+      "transition": "cut"
+    },
+    { "reaction": { "intent": "satisfying click", "maxSec": 2 } }
+  ]
+}
