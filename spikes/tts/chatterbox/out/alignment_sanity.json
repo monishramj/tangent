@@ -1,0 +1,69 @@
+{
+  "device": "cpu",
+  "load_sec": 0.6680226250027772,
+  "per_sentence": [
+    {
+      "sentence": 1,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.3425563909774434,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 2,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.38262068965517226,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 3,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.3415111111111111,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 4,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.2811336032388665,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 5,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.3814671814671815,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 6,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.22087649402390408,
+      "last_end_within_150ms": false
+    },
+    {
+      "sentence": 7,
+      "failed_words": [],
+      "monotonic": true,
+      "no_zero_length_words": true,
+      "within_audio": true,
+      "last_word_end_gap_sec": 0.30078328981723157,
+      "last_end_within_150ms": false
+    }
+  ]
+}

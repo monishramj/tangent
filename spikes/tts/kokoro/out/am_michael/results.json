@@ -1,0 +1,51 @@
+{
+ "model": "Kokoro-82M",
+ "device": "mps",
+ "voice": "am_michael",
+ "load_sec": 2.026594638824463,
+ "per_sentence": [
+  {
+   "text": "Heapify fixes one broken spot in a heap.",
+   "audio_sec": 3.475,
+   "gen_sec": 0.21365833282470703,
+   "rtf": 16.264284917223495
+  },
+  {
+   "text": "A max heap keeps the biggest value at the root.",
+   "audio_sec": 3.45,
+   "gen_sec": 0.20375299453735352,
+   "rtf": 16.9322664819413
+  },
+  {
+   "text": "Here the root is three, but its child is nine. That breaks the rule.",
+   "audio_sec": 4.925,
+   "gen_sec": 0.2211780548095703,
+   "rtf": 22.26712774122334
+  },
+  {
+   "text": "So the parent swaps with its bigger child. Then we check again, one level down.",
+   "audio_sec": 6.05,
+   "gen_sec": 0.2489309310913086,
+   "rtf": 24.303930304992278
+  },
+  {
+   "text": "Sifting down costs big O of log n, because the tree has log n levels.",
+   "audio_sec": 5.775,
+   "gen_sec": 0.2579610347747803,
+   "rtf": 22.3871020095807
+  },
+  {
+   "text": "Building the whole heap takes big O of n, not n log n. That surprises most people.",
+   "audio_sec": 6.2,
+   "gen_sec": 0.27758097648620605,
+   "rtf": 22.335824588858664
+  },
+  {
+   "text": "The array is three, nine, seven, one, four. After one sift down it becomes nine, four, seven, one, three.",
+   "audio_sec": 7.6,
+   "gen_sec": 0.32643818855285645,
+   "rtf": 23.281589797112286
+  }
+ ],
+ "overall_rtf": 21.420399548265404
+}

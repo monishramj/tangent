@@ -1,0 +1,13 @@
+[project]
+name = "chatterbox-tts-spike"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # shortcut: upstream master is unpinned, pin a revision for repeatable benchmarks.
+    "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox.git@master",
+    "pytest>=8,<10",
+    "soundfile>=0.12",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test_spike.py"]

@@ -1,0 +1,15 @@
+import json
+T={"ch-1_cs250_txtbook":(117,20.7,2200),"ch-2_cs250_txtbook":(239,37.8,3422),"cs-3_cs250_txtbook":(125,19.2,2344),"ch-4_cs250_txtbook":(243,30.3,3764),"stat350_ch5_joint_pmfs":(13,5.9,803)}
+S={
+"ch-1_cs250_txtbook":(1,4,3,3,2,"No equations to score; '$' hits are prices. 20/20 'Figure 1.x.y' captions kept as plain lines before ![](..jpeg). 169 headings, 9/16 'EXERCISE 1.15.n' items labelled (rest unverified). '1.15 Exercises' block found."),
+"ch-2_cs250_txtbook":(1,4,3,3,2,"Sections 2.1-2.24 all present, but 8 are '####' not '#' because zyBooks watermark leaks into heading: '#### 2.2 Operations of the computer hardware (c)zyBooks 09/01/26 ... Monish Ramesh Jayakumar'. Code flattened, 0 fences, asm comment becomes heading: '# Temporary reg X9 gets A[8] LDUR X9, [X22, #8] # g = h + A[8] ADD X20, X21, X9'. Tables OK: '| add | ADD X1, X2, X3 | X1 = X2 + X3 |' (32 tables). Figures: 35/37 captions, 63 jpeg. Ligature corruption 'overKow' (15x). Exercises 40/49 'EXERCISE 2.23.n' found under '# 2.23 Exercises'."),
+"cs-3_cs250_txtbook":(1,4,3,4,2,"25/25 figure captions, 29 images. 43/47 EXERCISE items found under '# 3.13 Exercises'. 0 fences; 50 table rows (7 tables). Section 3.6-3.9 numbered headings present but at inconsistent levels."),
+"ch-4_cs250_txtbook":(1,3,3,2,2,"86/87 figure captions but 172 images for ~87 figures (diagrams split into fragments; datapath not verified visually). Only 18/33 EXERCISE items found; remainder unverified (likely other formatting). 0 fences, only 6 tables."),
+"stat350_ch5_joint_pmfs":(0,2,2,3,1,"Run with --disable_ocr (no VLM): all 13 equations lost or corrupted; 0 '$'. Variables dropped: 'Two discrete random variables and are independent'; garbage glyphs: 'U+FFFD,U+FFFD (x,y) = ...'. Sections 5.2.1 and 5.2.2 (pages 2-3) missing entirely from md; 5.2.3-5.2.5 present. Exercises block '5.2.5 Exercises' present but exercises 1-3 absent. 'Table 5.3' captions kept but table bodies absent (0 pipe rows); 2/3 'Fig 5.x' captions, 4 images (2 are YouTube thumbnails). stat350_ch1.pdf is a 1-page index stub (md = 2 headings), so ch5 used instead."),}
+inp=[]
+for f,(p,s,r) in T.items():
+    l,fi,se,ex,ct,n=S[f]
+    inp.append(dict(file=f+".pdf",pages=p,sec=s,sec_per_page=round(s/p,3),peak_rss_mb=r,scores=dict(latex=l,figures=fi,sections=se,exercises=ex,code_tables=ct),notes=n))
+inp.insert(4,dict(file="stat350_ch1.pdf",pages=1,sec=4.4,sec_per_page=4.4,peak_rss_mb=511,scores=dict(latex=0,figures=0,sections=1,exercises=0,code_tables=0),notes="1-page index stub, not math content; md is 2 headings. Not meaningful."))
+json.dump(dict(tool="marker",version="marker-pdf 2.1.0 (surya-ocr 0.23.0, torch 2.15.0, mlx-vlm installed unused)",options=dict(mode="fast",disable_ocr=True,llm=False,device="mps default",images="extracted"),
+ caveat="Full pipeline needs llama-server (llama.cpp) for the surya VLM; not installable here (downloaded binary denied by sandbox, Highlight's bundled llama-server is b3525, too old). Ran fast mode with --disable_ocr: text layer + lightweight detectors only. Equations/tables/OCR NOT representative of full marker.",inputs=inp),open("out/results.json","w"),indent=1)

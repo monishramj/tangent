@@ -1,0 +1,7 @@
+Heapify fixes one broken spot in a heap.
+A max heap keeps the biggest value at the root.
+Here the root is three, but its child is nine. That breaks the rule.
+So the parent swaps with its bigger child. Then we check again, one level down.
+Sifting down costs big O of log n, because the tree has log n levels.
+Building the whole heap takes big O of n, not n log n. That surprises most people.
+The array is three, nine, seven, one, four. After one sift down it becomes nine, four, seven, one, three.

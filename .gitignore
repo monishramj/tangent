@@ -21,3 +21,4 @@ spikes/pdf/inputs
 spikes/pdf/**/out
 spikes/**/.venv
 spikes/**/out/*.wav
+spikes/**/*.wav

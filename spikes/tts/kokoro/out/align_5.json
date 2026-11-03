@@ -1,0 +1,87 @@
+[
+ {
+  "word": "Building",
+  "start": 0.321,
+  "end": 0.642
+ },
+ {
+  "word": "the",
+  "start": 0.662,
+  "end": 0.743
+ },
+ {
+  "word": "whole",
+  "start": 0.803,
+  "end": 1.004
+ },
+ {
+  "word": "heap",
+  "start": 1.044,
+  "end": 1.225
+ },
+ {
+  "word": "takes",
+  "start": 1.305,
+  "end": 1.546
+ },
+ {
+  "word": "big",
+  "start": 1.606,
+  "end": 1.767
+ },
+ {
+  "word": "O",
+  "start": 1.827,
+  "end": 1.847
+ },
+ {
+  "word": "of",
+  "start": 1.947,
+  "end": 2.028
+ },
+ {
+  "word": "n,",
+  "start": 2.188,
+  "end": 2.208
+ },
+ {
+  "word": "not",
+  "start": 2.69,
+  "end": 2.851
+ },
+ {
+  "word": "n",
+  "start": 2.951,
+  "end": 2.971
+ },
+ {
+  "word": "log",
+  "start": 3.031,
+  "end": 3.292
+ },
+ {
+  "word": "n.",
+  "start": 3.453,
+  "end": 3.473
+ },
+ {
+  "word": "That",
+  "start": 3.573,
+  "end": 3.694
+ },
+ {
+  "word": "surprises",
+  "start": 3.734,
+  "end": 4.256
+ },
+ {
+  "word": "most",
+  "start": 4.316,
+  "end": 4.537
+ },
+ {
+  "word": "people.",
+  "start": 4.577,
+  "end": 4.898
+ }
+]

@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status: **ideation complete, MVP locked.** No code yet. Next: benchmarks + DSL v0 review (see *First tasks*).
+> Status: **MVP locked; tasks 1–4 largely built** (scaffold, sidecar, TTS spike, DSL + compiler + player). Next: PDF benchmark result, then LLM → DSL (see *First tasks*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -180,7 +180,7 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 - One textbook PDF → IR (parser chosen by benchmark) → pick a section
 - Outline → speech-first script (beats) → math-to-speech → TTS → forced alignment → scene DSL compiled against real timestamps + validator
 - PixiJS player on the audio clock: primitives, KineticText, ~8 actions, KaTeX, cut/whip transitions, `Array` + `Tree` as computed components
-- Dark academia × Code Report style pack v0 (reaction gifs optional in MVP if time allows)
+- Black × Code Report style pack v0 (reaction gifs optional in MVP if time allows)
 - Scene-by-scene streaming
 - **Typed** interrupt → tutor voice answer + annotations on the current scene
 - Providers: Claude Code CLI + Ollama behind one interface; TTS: Chatterbox/Kokoro behind one interface
@@ -225,3 +225,7 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Tree component
 - `Tree` has a `kind`: `bst` (default), `avl`, `redblack`, `btree`, `heap`, `generic`. Each kind owns its ops, registered by kind. Node data is nested (`keys`, `children`, optional `color`) so B-trees (many keys per node) fit; level-order arrays stay as shorthand for binary kinds.
 - Array heaps: max by default, `heap: "min"` option.
+
+## Decisions (Monish)
+- PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
+- Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
