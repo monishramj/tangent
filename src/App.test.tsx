@@ -6,6 +6,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("pong
 vi.mock("./Stage", () => ({ default: () => null })); // jsdom has no WebGL
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> })); // jsdom has no IntersectionObserver
 
+HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined); // jsdom: not implemented
+HTMLMediaElement.prototype.pause = vi.fn();
+
 // jsdom lacks these browser APIs that AnimatedList uses.
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 window.matchMedia ??= ((query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;

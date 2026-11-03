@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft02Icon,
   ArrowRight02Icon,
@@ -15,10 +15,11 @@ import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import Panel from "./Panel";
 import Stage from "./Stage";
+import { Player } from "./player/player";
+import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
 
-// Mock data until real playback lands.
-const DURATION = 564;
+const DURATION = timeline.totalSec;
 const SECTIONS = ["Binary heaps", "Heap order property", "Heapify", "Building a heap in O(n)", "Heapsort"];
 const IDLE_MS = 3000;
 
@@ -45,7 +46,20 @@ const iconBtn = "grid size-11 place-items-center rounded-full text-muted transit
 export default function App() {
   const [sidecar, setSidecar] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [time, setTime] = useState(132);
+  const [time, setTime] = useState(0);
+  const drawRef = useRef<((t: number) => void) | null>(null);
+  // One clock: the <audio> element. The Player paces redraws from audio.currentTime.
+  const [audio] = useState(() => Object.assign(new Audio(AUDIO_URL), { preload: "auto" }));
+  const [player] = useState(() => new Player({ timeline, audio, render: (t) => {
+    drawRef.current?.(t);
+    setTime((p) => (Math.abs(p - t) < 0.1 ? p : t)); // don't re-render React at 60fps
+  } }));
+  useEffect(() => {
+    const stop = () => { setPlaying(false); setTime(audio.currentTime); };
+    audio.addEventListener("ended", stop);
+    audio.addEventListener("pause", stop);
+    return () => { audio.removeEventListener("ended", stop); audio.removeEventListener("pause", stop); player.pause(); };
+  }, [audio, player]);
   const [panel, setPanel] = useState<"Sections" | "Ask" | null>(null);
   const [active, setActive] = useState(2);
   const [asked, setAsked] = useState("");
@@ -74,13 +88,25 @@ export default function App() {
     };
   }, [playing, panel]);
 
-  const seek = (s: number) => setTime(Math.min(DURATION, Math.max(0, s)));
+  const seek = (s: number) => {
+    const t = Math.min(DURATION, Math.max(0, s));
+    player.seek(t);
+    setTime(t);
+  };
+  const togglePlay = () => {
+    if (playing) player.pause();
+    else {
+      if (player.time >= DURATION - 0.05) player.seek(0);
+      player.play();
+    }
+    setPlaying(!playing);
+  };
   const toggle = (name: "Sections" | "Ask") => setPanel((p) => (p === name ? null : name));
   const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.());
 
   return (
     <main className={`relative h-screen overflow-hidden bg-bg ${idle ? "cursor-none" : ""}`}>
-      <Stage />
+      <Stage scene={scene} timeline={timeline} drawRef={drawRef} />
 
       <div data-idle={idle} className={`absolute inset-0 transition-opacity duration-300 ${idle ? "opacity-0" : "opacity-100"}`}>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-bg via-bg/60 to-transparent" />
@@ -101,7 +127,7 @@ export default function App() {
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
-            onClick={() => setPlaying((p) => !p)}
+            onClick={togglePlay}
             className="grid size-20 place-items-center rounded-full border border-line bg-fg/10 text-fg backdrop-blur-md transition-colors hover:bg-fg/20"
           >
             <Icon icon={playing ? PauseIcon : PlayIcon} size={30} className={`fill-current ${playing ? "" : "translate-x-0.5"}`} />
@@ -140,6 +166,7 @@ export default function App() {
               aria-valuetext={`${clock(time)} of ${clock(DURATION)}`}
               min={0}
               max={DURATION}
+              step="any"
               value={time}
               onChange={(e) => seek(Number(e.target.value))}
               className="scrubber h-11 flex-1"
