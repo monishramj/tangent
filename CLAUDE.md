@@ -114,9 +114,9 @@ Visuals are scheduled *to* the audio, never the reverse.
 5. **One clock.** Player time = audio clock (`AudioContext.currentTime`), never rAF time. Pause, seek, interrupt, and playback speed all derive from it, so there is zero drift.
 6. (v1, optional) VLM spot check: render keyframes at anchor times and ask "does this frame show what's being said?"
 
-### Visual style: first style pack = "dark academia × Code Report"
-- **Palette:** deep walnut / ink-black base; accents in burgundy, forest green, aged brass/gold; parchment-toned text. Subtle paper grain + vignette.
-- **Type:** high-contrast serif for big kinetic headlines (Cormorant / EB Garamond family), mono for code and LEGv8.
+### Visual style: first style pack = "black × Code Report" (decided; replaces dark academia)
+- **App UI and scenes share it:** pure black base, white type at a few opacities, neutral grays, one restrained accent. No hues by default. The app shell UI (React + React Bits + Hugeicons) is already built this way.
+- **Type:** clean system sans for headlines and UI (big kinetic headlines stay bold and tight), mono for code and LEGv8.
 - **Motion:** Code Report-style energy (fast cuts, whip transitions, big animated text that slams in, keyword scale-punches, word-by-word reveals pinned to narration), full-screen graphics, graphs, and visualizations. **Never** a static frame with bullet points.
 - **Reaction gifs** between content beats (see below) as punctuation.
 - Style is a swappable layer (palette, type, easing, transition set, texture), so other packs can come later.

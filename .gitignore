@@ -15,3 +15,9 @@ __pycache__
 src-tauri/gen
 *.log
 .vite
+# copyrighted source material and parser outputs: never commit
+*.pdf
+spikes/pdf/inputs
+spikes/pdf/**/out
+spikes/**/.venv
+spikes/**/out/*.wav
