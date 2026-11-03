@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+:root {
+  --walnut: #2b1d14;
+  --ink: #120d09;
+  --burgundy: #6e1f2b;
+  --forest: #2f4a35;
+  --brass: #b08d3c;
+  --parchment: #ecdfc4;
+}
+
+@theme inline {
+  --color-walnut: var(--walnut);
+  --color-ink: var(--ink);
+  --color-burgundy: var(--burgundy);
+  --color-forest: var(--forest);
+  --color-brass: var(--brass);
+  --color-parchment: var(--parchment);
+  --font-serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
+}
+
+body {
+  @apply m-0 bg-ink text-parchment font-serif;
+}
