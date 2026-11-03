@@ -5,6 +5,8 @@
     "": {
       "name": "tangent",
       "dependencies": {
+        "@hugeicons/core-free-icons": "^4.3.3",
+        "@hugeicons/react": "^1.1.10",
         "@tailwindcss/vite": "^4.3.4",
         "@tauri-apps/api": "^2",
         "pixi.js": "^8.22.0",
@@ -52,6 +54,10 @@
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@4.0.2", "", {}, "sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw=="],
 
     "@exodus/bytes": ["@exodus/bytes@1.16.0", "", { "peerDependencies": { "@noble/hashes": "^1.8.0 || ^2.0.0" }, "optionalPeers": ["@noble/hashes"] }, "sha512-IcpW84uEn3N7ETtNZMlxKhfl6Pec8rUNGOTBtWbK1FKhJxIFAptZyVrvVRVBimAJxJCgc3PxepxkdWWG4DVzfA=="],
+
+    "@hugeicons/core-free-icons": ["@hugeicons/core-free-icons@4.4.0", "", {}, "sha512-7Mz8bmGoY6tZ6l3C2TXwNMLVSr0I8HPwjjFIERAuJFj3rWwLxdF2ZLkDqdrVuEE1dx5b/VXyIsP4WoSU6Q40KQ=="],
+
+    "@hugeicons/react": ["@hugeicons/react@1.1.10", "", { "peerDependencies": { "react": ">=16.0.0" } }, "sha512-9tAsd92yMVVGP+E+d8cM+wc0VnXuYZHNbWQi7TOe8k2neawmhiaFmVFbzyruejhOMa197/LbgvSED32ayUo3ZA=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 

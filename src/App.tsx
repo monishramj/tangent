@@ -1,4 +1,17 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ArrowLeft02Icon,
+  ArrowRight02Icon,
+  BubbleChatIcon,
+  FullScreenIcon,
+  GoBackward10SecIcon,
+  GoForward10SecIcon,
+  LeftToRightListBulletIcon,
+  PauseIcon,
+  PlayIcon,
+} from "@hugeicons/core-free-icons";
+import AnimatedList from "@/components/AnimatedList";
+import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import Panel from "./Panel";
 import Stage from "./Stage";
@@ -9,14 +22,23 @@ const DURATION = 564;
 const SECTIONS = ["Binary heaps", "Heap order property", "Heapify", "Building a heap in O(n)", "Heapsort"];
 const IDLE_MS = 3000;
 
+// Monochrome overrides for AnimatedList's default (tinted) dark theme. Ring at 0.5 alpha keeps >3:1 on the panel.
+const LIST_THEME = {
+  "--al-tile": "transparent",
+  "--al-tile-edge": "transparent",
+  "--al-tile-highlight": "transparent",
+  "--al-tile-shadow": "none",
+  "--al-ink": "var(--fg)",
+  "--al-muted": "var(--fg-muted)",
+  "--al-ring": "rgba(255, 255, 255, 0.5)",
+  "--al-ring-fill": "rgba(255, 255, 255, 0.04)",
+  "--al-hover": "none",
+  "--al-press": "brightness(0.85)",
+  "--al-active": "none",
+} as React.CSSProperties;
+
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
-const Icon = ({ children, className = "size-6" }: { children: ReactNode; className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {children}
-  </svg>
-);
 
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
@@ -65,7 +87,7 @@ export default function App() {
 
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
           <button type="button" aria-label="Back" className={iconBtn}>
-            <Icon><path d="M19 12H5M12 19l-7-7 7-7" /></Icon>
+            <Icon icon={ArrowLeft02Icon} />
           </button>
           <p role="status" className="px-2 text-xs text-subtle">
             {sidecar === null ? <ShinyText text="sidecar: ..." color={css("--fg-subtle")} shineColor={css("--fg")} /> : `sidecar: ${sidecar}`}
@@ -74,7 +96,7 @@ export default function App() {
 
         <div className="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-8">
           <button type="button" aria-label="Back 10 seconds" onClick={() => seek(time - 10)} className={`${iconBtn} size-14`}>
-            <Icon className="size-8"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><text x="12" y="15.5" fontSize="7" textAnchor="middle" fill="currentColor" stroke="none">10</text></Icon>
+            <Icon icon={GoBackward10SecIcon} size={32} />
           </button>
           <button
             type="button"
@@ -82,14 +104,10 @@ export default function App() {
             onClick={() => setPlaying((p) => !p)}
             className="grid size-20 place-items-center rounded-full border border-line bg-fg/10 text-fg backdrop-blur-md transition-colors hover:bg-fg/20"
           >
-            {playing ? (
-              <Icon className="size-8"><path d="M9 5v14M15 5v14" strokeWidth="3" /></Icon>
-            ) : (
-              <Icon className="size-8 translate-x-0.5"><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></Icon>
-            )}
+            <Icon icon={playing ? PauseIcon : PlayIcon} size={30} className={`fill-current ${playing ? "" : "translate-x-0.5"}`} />
           </button>
           <button type="button" aria-label="Forward 10 seconds" onClick={() => seek(time + 10)} className={`${iconBtn} size-14`}>
-            <Icon className="size-8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /><text x="12" y="15.5" fontSize="7" textAnchor="middle" fill="currentColor" stroke="none">10</text></Icon>
+            <Icon icon={GoForward10SecIcon} size={32} />
           </button>
         </div>
 
@@ -105,15 +123,11 @@ export default function App() {
             <div className="flex gap-1">
               {(["Sections", "Ask"] as const).map((name) => (
                 <button key={name} type="button" aria-label={name} aria-expanded={panel === name} onClick={() => toggle(name)} className={iconBtn}>
-                  {name === "Sections" ? (
-                    <Icon><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></Icon>
-                  ) : (
-                    <Icon><path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6.2A8 8 0 1 1 21 12z" /></Icon>
-                  )}
+                  <Icon icon={name === "Sections" ? LeftToRightListBulletIcon : BubbleChatIcon} />
                 </button>
               ))}
               <button type="button" aria-label="Toggle fullscreen" onClick={fullscreen} className={iconBtn}>
-                <Icon><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></Icon>
+                <Icon icon={FullScreenIcon} />
               </button>
             </div>
           </div>
@@ -139,21 +153,28 @@ export default function App() {
       {panel && (
         <Panel title={panel} onClose={close}>
           {panel === "Sections" ? (
-            <ol className="flex flex-col gap-1">
-              {SECTIONS.map((s, i) => (
-                <li key={s}>
-                  <button
-                    type="button"
-                    aria-current={i === active}
-                    onClick={() => setActive(i)}
-                    className={`flex min-h-11 w-full items-center gap-4 rounded-lg px-3 py-2 text-left transition-colors ${i === active ? "bg-surface-2 text-fg" : "text-muted hover:bg-surface-2/60 hover:text-fg"}`}
-                  >
-                    <span className="w-5 text-sm text-subtle tabular-nums">{i + 1}</span>
-                    <span>{s}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
+            <AnimatedList
+              items={SECTIONS}
+              ariaLabel="Sections"
+              initialSelectedIndex={active}
+              currentIndex={active}
+              onItemSelect={(_, i) => setActive(i)}
+              frame={false}
+              showGradients={false}
+              width="100%"
+              maxHeight="none"
+              gap={4}
+              radius={8}
+              itemClassName="min-h-11 aria-[current=true]:[--al-tile:var(--surface-2)]"
+              style={LIST_THEME}
+              renderItem={(s, i) => (
+                <>
+                  <span className="w-5 text-sm text-subtle tabular-nums">{i + 1}</span>
+                  <span className={`flex-1 ${i === active ? "text-fg" : "text-muted"}`}>{s as string}</span>
+                  {i === active && <span className="text-xs text-subtle">Playing</span>}
+                </>
+              )}
+            />
           ) : (
             <form
               className="flex flex-col gap-3 px-3"
@@ -168,7 +189,7 @@ export default function App() {
               <div className="flex gap-2">
                 <input id="ask" name="q" autoFocus autoComplete="off" className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 text-fg placeholder:text-subtle" placeholder="Why the bigger child?" />
                 <button type="submit" aria-label="Send" className="grid size-11 place-items-center rounded-lg bg-accent text-bg hover:opacity-90">
-                  <Icon className="size-5"><path d="M5 12h14M13 6l6 6-6 6" /></Icon>
+                  <Icon icon={ArrowRight02Icon} size={20} />
                 </button>
               </div>
               <p aria-live="polite" className="text-sm text-muted">
