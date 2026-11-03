@@ -17,10 +17,11 @@ export default function Stage() {
       const { width: w, height: h } = app.screen;
       cross.clear().moveTo(w / 2 - 12, h / 2).lineTo(w / 2 + 12, h / 2).moveTo(w / 2, h / 2 - 12).lineTo(w / 2, h / 2 + 12)
         .stroke({ width: 1, color: css("--fg"), alpha: 0.15 });
+      app.render(); // on demand: the ticker never runs, so a static stage costs nothing
     };
 
     app
-      .init({ background: css("--bg"), resizeTo: host.current!, antialias: true })
+      .init({ background: css("--bg"), resizeTo: host.current!, antialias: true, autoStart: false })
       .then(() => {
         ready = true;
         if (dead) return app.destroy(true);
