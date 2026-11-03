@@ -11,10 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gsap/react": "^2.1.2",
     "@tailwindcss/vite": "^4.3.4",
     "@tauri-apps/api": "^2",
-    "gsap": "^3.13.0",
     "pixi.js": "^8.22.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
