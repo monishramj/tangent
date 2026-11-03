@@ -1,12 +1,49 @@
 // Scene DSL v0. zod over hand-rolled: one definition gives both the runtime check (with issue paths) and the TS types.
 // Objects/actions are loose: extra style/layout props (x, y, color, ...) pass through; layout is not specified yet.
 import { z } from "zod";
+import { TREE_OPS } from "./treeOps";
 
 const id = z.string().regex(/^[A-Za-z_][\w-]*$/);
 const num2 = z.tuple([z.number(), z.number()]);
 const point = z.union([id, num2]); // object id or [x, y]
 const obj = <K extends string, T extends z.ZodRawShape>(type: K, shape: T) =>
   z.looseObject({ id, type: z.literal(type), ...shape });
+
+// Binary children retain null placeholders; other kinds use a dense children list.
+export type TreeNode = { keys: number[]; children: (TreeNode | null)[]; color?: "red" | "black" };
+export const TreeNode: z.ZodType<TreeNode> = z.lazy(() => z.object({
+  keys: z.array(z.number()).min(1),
+  children: z.array(TreeNode.nullable()),
+  color: z.enum(["red", "black"]).optional(),
+}));
+const heap = z.enum(["min", "max"]).default("max");
+const tree = obj("Tree", {
+  kind: z.string().default("bst").refine(kind => Object.prototype.hasOwnProperty.call(TREE_OPS, kind), "unknown Tree kind"),
+  init: z.union([TreeNode.nullable(), z.array(z.number().nullable())]),
+  order: z.number().int().min(3).default(3),
+  heap,
+}).superRefine((o, ctx) => {
+  if (Array.isArray(o.init)) {
+    if (o.kind === "btree" || o.kind === "generic")
+      ctx.addIssue({ code: "custom", path: ["init"], message: "level-order shorthand requires a binary kind" });
+    for (let i = 1; i < o.init.length; i++) if (o.init[i] !== null && o.init[Math.floor((i - 1) / 2)] == null)
+      ctx.addIssue({ code: "custom", path: ["init", i], message: "node has no parent" });
+    return;
+  }
+  const check = (n: TreeNode | null, path: (string | number)[]) => {
+    if (!n) return;
+    if (o.kind !== "btree" && o.kind !== "generic" && (n.keys.length !== 1 || n.children.length > 2))
+      ctx.addIssue({ code: "custom", path, message: "binary nodes need one key and at most two children" });
+    if (o.kind === "btree" && (n.keys.length >= o.order ||
+      (n.children.length > 0 && (n.children.length !== n.keys.length + 1 || n.children.some(c => !c)))))
+      ctx.addIssue({ code: "custom", path, message: "invalid B-tree node capacity or children" });
+    if (o.kind === "generic" && (n.keys.length !== 1 || n.children.some(c => !c)))
+      ctx.addIssue({ code: "custom", path, message: "generic nodes need one key and dense children" });
+    n.children.forEach((c, i) => check(c, [...path, "children", i]));
+  };
+  check(o.init, ["init"]);
+});
+export type TreeObject = z.infer<typeof tree>;
 
 export const SceneObject = z.discriminatedUnion("type", [
   obj("text", { text: z.string() }),
@@ -19,8 +56,8 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("plot", { axes: id, expr: z.string() }),
   obj("media", { src: z.string() }), // gif/image
   // computed components (MVP set; Heap, Graph, ... later)
-  obj("Array", { init: z.array(z.union([z.number(), z.string()])) }),
-  obj("Tree", { init: z.array(z.union([z.number(), z.null()])) }), // level-order, null = empty
+  obj("Array", { init: z.array(z.union([z.number(), z.string()])), heap }),
+  tree,
 ]);
 
 const act = <K extends string, T extends z.ZodRawShape>(verb: K, shape: T, targetRequired = true) =>

@@ -1,12 +1,13 @@
 import { compile, resolveAnchor, type BeatAudio } from "./compile";
 import type { Action, Scene, SceneObject } from "./schema";
+import { TREE_OPS } from "./treeOps";
+import { Trace } from "./trees/shared";
 
 export type OpSteps = Action[][]; // each step runs concurrently; steps run in sequence
 export type OpPlan = ReadonlyMap<Action, OpSteps>;
 type Component = Extract<SceneObject, { type: "Array" | "Tree" }>;
 
-// Array: swap/compare(i,j), set(i,value), siftDown/siftUp(i) on a numeric max-heap.
-// Tree: BST insert/remove(value), rotateLeft/rotateRight(slot); duplicate inserts are no-ops.
+// Array sift direction and Tree kind come from the component options.
 export function expandOp(object: SceneObject, action: Action): { object: Component; steps: OpSteps } {
   if (action.do !== "op" || action.target !== object.id || (object.type !== "Array" && object.type !== "Tree"))
     throw new Error("op needs a matching Array or Tree target");
@@ -46,11 +47,12 @@ export function expandOp(object: SceneObject, action: Action): { object: Compone
       let i = index(args[0], init.length);
       if (!init.every(v => typeof v === "number" && Number.isFinite(v))) throw new Error(`${op} needs numeric values`);
       const values = init as number[];
+      const better = (a: number, b: number) => object.heap === "min" ? a < b : a > b;
       if (op === "siftUp") {
         while (i > 0) {
           const parent = Math.floor((i - 1) / 2);
           highlight(parent, i);
-          if (values[parent] >= values[i]) break;
+          if (!better(values[i], values[parent])) break;
           swap(parent, i);
           i = parent;
         }
@@ -58,8 +60,8 @@ export function expandOp(object: SceneObject, action: Action): { object: Compone
         while (2 * i + 1 < init.length) {
           const left = 2 * i + 1, right = left + 1;
           highlight(i, left, ...(right < init.length ? [right] : []));
-          const child = right < init.length && values[right] > values[left] ? right : left;
-          if (values[i] >= values[child]) break;
+          const child = right < init.length && better(values[right], values[left]) ? right : left;
+          if (!better(values[child], values[i])) break;
           swap(i, child);
           i = child;
         }
@@ -68,69 +70,12 @@ export function expandOp(object: SceneObject, action: Action): { object: Compone
     return { object: { ...object, init }, steps };
   }
 
-  type Node = { value: number; from?: number; left: Node | null; right: Node | null };
-  const read = (i: number): Node | null => object.init[i] == null ? null :
-    { value: object.init[i]!, from: i, left: read(2 * i + 1), right: read(2 * i + 2) };
-  let root = read(0);
-  count(1);
-  if (op === "insert" || op === "remove") {
-    const value = args[0];
-    if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${op} needs a numeric value`);
-    const edit = (node: Node | null, i: number, value: number): Node | null => {
-      if (!node) return op === "insert" ? { value, left: null, right: null } : null;
-      steps.push([emit("highlight", i)]);
-      if (value < node.value) node.left = edit(node.left, 2 * i + 1, value);
-      else if (value > node.value) node.right = edit(node.right, 2 * i + 2, value);
-      else if (op === "remove") {
-        if (!node.left) return node.right;
-        if (!node.right) return node.left;
-        let successor = node.right;
-        while (successor.left) successor = successor.left;
-        node.value = successor.value;
-        node.from = successor.from;
-        node.right = edit(node.right, 2 * i + 2, successor.value);
-      }
-      return node;
-    };
-    root = edit(root, 0, value);
-  } else if (op === "rotateLeft" || op === "rotateRight") {
-    const target = index(args[0], object.init.length);
-    const rotate = (node: Node | null, i: number): Node | null => {
-      if (!node) throw new Error(`${op}: empty slot ${target}`);
-      if (i === target) {
-        const pivot = op === "rotateLeft" ? node.right : node.left;
-        if (!pivot) throw new Error(`${op}: missing child at slot ${target}`);
-        steps.push([emit("highlight", i), emit("highlight", pivot.from!)]);
-        if (op === "rotateLeft") { node.right = pivot.left; pivot.left = node; }
-        else { node.left = pivot.right; pivot.right = node; }
-        return pivot;
-      }
-      let child = target;
-      while (Math.floor((child - 1) / 2) > i) child = Math.floor((child - 1) / 2);
-      if (child === 2 * i + 1) node.left = rotate(node.left, child);
-      else node.right = rotate(node.right, child);
-      return node;
-    };
-    root = rotate(root, 0);
-  } else throw new Error(`unknown Tree op: ${op}`);
-
-  const init: (number | null)[] = [];
-  const moves: Action[] = [];
-  const write = (node: Node | null, i: number) => {
-    if (!node) return;
-    // shortcut: level-order trees need sparse padding; use a linked layout before supporting very deep trees.
-    if (i > 1_000_000) throw new Error("Tree operation exceeds level-order layout capacity");
-    while (init.length <= i) init.push(null);
-    init[i] = node.value;
-    if (node.from !== undefined && node.from !== i) moves.push(emit("move", node.from, { to: slot(i), value: node.value }));
-    write(node.left, 2 * i + 1);
-    write(node.right, 2 * i + 2);
-  };
-  write(root, 0);
-  if (moves.length) steps.push(moves);
-  if (init.length !== object.init.length || init.some((v, i) => v !== object.init[i]))
-    steps.push([{ at, do: "transform", target: object.id, init }]);
-  return { object: { ...object, init }, steps };
+  const ops = TREE_OPS[object.kind];
+  const handler = ops && Object.prototype.hasOwnProperty.call(ops, op) ? ops[op] : undefined;
+  if (!handler) throw new Error(`unknown ${object.kind} Tree op: ${op}`);
+  const trace = new Trace(object, at);
+  handler(trace, args);
+  return trace.finish();
 }
 
 // Opt-in compiler entry point: the base compile() contract still exposes unexpanded ops.

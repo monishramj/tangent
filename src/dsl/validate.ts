@@ -1,3 +1,4 @@
+import { TREE_OPS } from "./treeOps";
 import { Scene, parseTarget, type Action, type SceneObject } from "./schema";
 
 export type ErrorCode =
@@ -15,10 +16,9 @@ export type ErrorCode =
 // beat is set whenever the error is local to one beat, so the caller can regenerate just that beat.
 export type DslError = { path: string; code: ErrorCode; message: string; beat?: number };
 
-// MVP placeholders: the real ops (and their algorithms) land with the computed components.
+// Use the same kind registry as expansion so validation cannot accept another kind's ops.
 const OPS: Record<string, string[]> = {
   Array: ["swap", "compare", "set", "siftDown", "siftUp"],
-  Tree: ["insert", "remove", "rotateLeft", "rotateRight"],
 };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -60,7 +60,7 @@ export function validateScene(json: unknown): DslError[] {
       if (!t) return err(a, "target", "bad-target", `malformed target "${act.target}" (want id, id.slot[i] or id.val(x))`);
       const o = objs.get(t.id);
       if (!o) return err(a, "target", "unknown-target", `no object with id "${t.id}"`);
-      const ops = OPS[o.type];
+      const ops = o.type === "Tree" ? Object.keys(TREE_OPS[o.kind]) : OPS[o.type];
       if (("slot" in t || "val" in t) && !ops)
         return err(a, "target", "bad-target", `"${t.id}" is a ${o.type}; slot/val addressing needs a computed component`);
       if ("slot" in t && o.type === "Array" && t.slot >= o.init.length)
