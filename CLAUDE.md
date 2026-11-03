@@ -212,4 +212,5 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Working conventions for Claude
 - Double-check work; be precise and rigorous. Push back on bad or suboptimal ideas.
 - Prefer the smallest thing that de-risks the next unknown; no speculative abstractions.
-- The speech-first script, word-anchored timing, and computed visuals are non-negotiable quality bars.- Subagents: use `worker` (Sonnet) for implementation and spikes, `util` (Haiku, read-only) for review/verify/search. Never pass `model: opus` unless Monish asks for it in that message.
+- The speech-first script, word-anchored timing, and computed visuals are non-negotiable quality bars.
+- Subagents: use `worker` (Sonnet) for implementation and spikes, `util` (Haiku, read-only) for review/verify/search. Never pass `model: opus` unless Monish asks for it in that message.
