@@ -1,6 +1,7 @@
 // Timeline compiler: a validated scene + per-beat word timestamps -> absolute, audio-clock events.
 // Pure. Assumes validateScene passed; throws only on missing audio or an anchor absent from the spoken words.
 import type { Action, Scene } from "./schema";
+import type { OpPlan } from "./ops";
 
 // Tunable. Default motion length per verb (s); op reserves its whole anchor gap.
 export const DURATION: Record<Action["do"], number> = {
@@ -36,7 +37,7 @@ export function resolveAnchor(words: Word[], at: string): number {
   return -1;
 }
 
-export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = BEAT_PAUSE): Timeline {
+export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = BEAT_PAUSE, ops?: OpPlan): Timeline {
   const events: TimelineEvent[] = [];
   const insertedSilences: InsertedSilence[] = [];
   let t = 0;
@@ -66,7 +67,9 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
       let need = 0;
       for (const p of placed.filter((p) => p.w === w)) {
         const d = DURATION[p.act.do];
-        p.len = Math.max(Math.min(d, gap), Math.min(d, MIN_SEC));
+        const steps = ops?.get(p.act);
+        p.len = steps ? (steps.length ? Math.max(gap, steps.length * MIN_SEC) : 0)
+          : Math.max(Math.min(d, gap), Math.min(d, MIN_SEC));
         need = Math.max(need, p.len - gap);
       }
       if (need <= 0) return;
@@ -86,7 +89,12 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
     for (const { act, w, len } of placed) {
       const { at: _at, do: verb, target, ...args } = act;
       const start = shift(words[w].start);
-      events.push({ start, end: start + len, verb, target, args, beat: b });
+      const steps = ops?.get(act);
+      if (steps) steps.forEach((step, i) => {
+        for (const { at: _at, do: verb, target, ...args } of step)
+          events.push({ start: start + len * i / steps.length, end: start + len * (i + 1) / steps.length, verb, target, args, beat: b });
+      });
+      else events.push({ start, end: start + len, verb, target, args, beat: b });
     }
     t = shift(duration);
     insertedSilences.push(...silences);
