@@ -10,9 +10,9 @@ export default function App() {
   }, []);
 
   return (
-    <main className="flex h-screen flex-col gap-4 bg-ink p-6">
+    <main className="flex h-screen flex-col gap-4 bg-ink p-6 sm:p-8">
       <SplitText tag="h1" text="Tangent" className="text-5xl text-brass" splitType="chars" trigger="load" />
-      <p className="text-sm text-parchment/70">sidecar: {sidecar}</p>
+      <p role="status" className="text-base leading-normal text-parchment/80">sidecar: {sidecar}</p>
       <Stage />
     </main>
   );

@@ -20,5 +20,21 @@
 }
 
 body {
-  @apply m-0 bg-ink text-parchment font-serif;
+  @apply m-0 bg-ink font-serif text-base leading-normal text-parchment;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+.vignette {
+  box-shadow: inset 0 0 120px 20px var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

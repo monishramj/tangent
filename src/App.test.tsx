@@ -9,5 +9,5 @@ vi.mock("@/components/SplitText", () => ({ default: ({ text }: { text: string })
 it("renders the title and the sidecar reply", async () => {
   render(<App />);
   expect(screen.getByRole("heading", { name: "Tangent" })).toBeTruthy();
-  expect(await screen.findByText("sidecar: pong")).toBeTruthy();
+  expect((await screen.findByRole("status")).textContent).toBe("sidecar: pong");
 });

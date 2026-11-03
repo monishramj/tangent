@@ -37,5 +37,5 @@ export default function Stage() {
     };
   }, []);
 
-  return <div ref={host} className="min-h-0 flex-1" />;
+  return <div ref={host} role="img" aria-label="Video stage" className="vignette min-h-0 flex-1 overflow-hidden rounded-3xl border border-brass/40" />;
 }
