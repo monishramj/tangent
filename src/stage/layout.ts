@@ -6,8 +6,9 @@ const PAD = 0.05; // outer margin, fraction of h
 export type Measure = (s: string, size: number, bold: boolean) => number;
 export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown };
 /** x,y: centre as stage fractions. auto: renderer-owned position (no explicit x/y). Text items also get wrapped text + fontSize (px). */
-export type Placed = { x: number; y: number; auto: boolean; text?: string; fontSize?: number };
+export type Placed = { x: number; y: number; auto: boolean; text?: string; fontSize?: number; /** visual cell size (px) */ cw?: number; ch?: number };
 
+const SMALL = new Set(["shape", "Math"]);
 const isNum = (v: unknown): v is number => typeof v === "number";
 
 function wrap(text: string, size: number, bold: boolean, maxW: number, m: Measure): string[] {
@@ -86,8 +87,19 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   if (bIdx.length) place(bIdx, bodiesTop);
 
   // visuals share the remaining band
-  const top = titlesBottom + (tIdx.length ? gap : 0), bot = bodiesTop - (bIdx.length ? gap : 0);
-  visuals.forEach((v, k) => out.set(v.id, { x: isNum(v.x) ? v.x : 0.5, y: (top + ((k + 0.5) * (bot - top)) / visuals.length) / h, auto: true }));
+  const top = titlesBottom + (tIdx.length ? gap : 0), bot = Math.max(top + 0.2 * h, bodiesTop - (bIdx.length ? gap : 0)); // never a negative band
+  // Small visuals pack up to 3 per row; big components size themselves to the stage width, so each gets its own row.
+  const rows: LItem[][] = [];
+  for (const v of visuals) {
+    const last = rows[rows.length - 1];
+    if (SMALL.has(v.type) && last && SMALL.has(last[0].type) && last.length < 3) last.push(v);
+    else rows.push([v]);
+  }
+  rows.forEach((row, r) => row.forEach((v, c) => out.set(v.id, {
+    x: isNum(v.x) ? v.x : (c + 0.5) / row.length * 0.9 + 0.05,
+    y: (top + ((r + 0.5) * (bot - top)) / rows.length) / h, auto: true,
+    cw: 0.9 * w / row.length, ch: (bot - top) / rows.length,
+  })));
   return out;
 }
 

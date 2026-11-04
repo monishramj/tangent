@@ -82,8 +82,11 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
     createAudio: path => new Audio(path.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(path) : path),
     render: (data, t) => {
       localTime.current = t;
-      if (lastLogged.current !== data.sceneId) { lastLogged.current = data.sceneId; devlog(`render scene ${data.sceneId}`); }
-      setCurrentScene(data);
+      if (lastLogged.current !== data.sceneId) {
+        lastLogged.current = data.sceneId; devlog(`render scene ${data.sceneId}`);
+        setCurrentScene(data);
+        return; // drawRef still holds the previous scene; the Stage draws the new one at timeRef when it swaps
+      }
       drawRef.current?.(t);
     },
     onChange: () => {
@@ -109,6 +112,7 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
     if (!stream || !(player instanceof SceneQueue)) return;
     let live = true;
     let iterator: AsyncIterator<PipelineEvent> | undefined;
+    let played = false;
     // Defer consumption so StrictMode's discarded effect cannot abort the live stream.
     void Promise.resolve().then(async () => {
       if (!live) return;
@@ -120,8 +124,9 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
           if (!live) return;
           if (next.done) { devlog("stream done"); break; }
           devlog(next.value.type === "scene" ? `stream scene ${next.value.sceneId} ${next.value.timeline.totalSec.toFixed(1)}s ${next.value.wavPath.slice(-40)}` : `stream error ${next.value.sceneId} ${next.value.error.message}`);
-          if (next.value.type === "scene") player.enqueue(next.value);
-          else setPlaybackError(`Scene ${next.value.sceneId}: ${next.value.error.message}`);
+          if (next.value.type === "scene") { player.enqueue(next.value); played = true; }
+          // A failed later scene is skipped; overlaying an error on a playing video is worse than a gap.
+          else if (!played) setPlaybackError(`Scene ${next.value.sceneId}: ${next.value.error.message}`);
         }
       } catch (error) {
         if (live) setPlaybackError(String(error));
@@ -213,7 +218,7 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
     <main className={`relative h-screen overflow-hidden bg-bg ${idle ? "cursor-none" : ""}`}>
       {(!stream || currentScene) && <Stage scene={currentScene?.scene ?? scene} timeline={currentScene?.timeline ?? timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={stream ? localTime : undefined} />}
       {buffering && <p role="status" aria-label="Buffering" className="absolute inset-x-0 top-16 text-center text-sm text-muted">Buffering…</p>}
-      {progress && progress !== "done" && !playbackError && (
+      {progress && progress !== "done" && !playbackError && (!currentScene || buffering) && (
         <p role="status" aria-label="Generation progress" className="absolute inset-x-0 top-24 text-center text-sm text-muted">
           <ShinyText text={`${progress[0].toUpperCase()}${progress.slice(1)}…`} color={css("--fg-subtle")} shineColor={css("--fg")} />
         </p>

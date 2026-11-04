@@ -1,0 +1,6 @@
+#!/bin/sh
+# Every commit must update CLAUDE.md (Status / Current state / Decisions). Bypass: git commit --no-verify
+if ! git diff --cached --name-only | grep -qx 'CLAUDE.md'; then
+  echo "pre-commit: stage an updated CLAUDE.md (Status, Current state, Decisions) with this commit." >&2
+  exit 1
+fi

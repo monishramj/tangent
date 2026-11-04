@@ -29,6 +29,7 @@ export class SceneRenderer {
   private lastState?: SceneState;
   private placedObjects = new Map<string, ObjState>();
   private rings = new Graphics();
+  private ext = new Map<string, [number, number]>(); // drawn half-extents (px) so arrows can stop at box edges
 
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
@@ -81,7 +82,7 @@ export class SceneRenderer {
         } };
       }
       case "flow": case "table": case "code": case "figure": case "bits": case "stack": {
-        const visual = buildVisual(o, this.fg, () => { if (this.lastState) this.draw(this.lastState); });
+        const visual = buildVisual(o, this.fg, () => { if (this.lastState) this.draw(this.lastState); }, this.bg);
         this.root.addChild(visual.node);
         return { node: visual.node, draw: (s, w, h) => {
           place(s, w, h, visual.node);
@@ -94,7 +95,9 @@ export class SceneRenderer {
         let bw = 0, bh = 0, points: Point[] = [];
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
-          const width = (o.width ?? .24 * h / w) * w, height = (o.height ?? .24) * h;
+          const cell = this.lay.get(o.id);
+          const width = Math.min((o.width ?? (o.shape === "rect" ? .36 : .24) * h / w) * w, cell?.cw ? cell.cw * .88 : Infinity);
+          const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
             if (o.shape === "circle") points = Array.from({ length: 65 }, (_, i) => [Math.cos(i/64*Math.PI*2)*bw/2, Math.sin(i/64*Math.PI*2)*bh/2]);
@@ -104,26 +107,39 @@ export class SceneRenderer {
             fitText(label, o.label ?? "", bw * inset, bh * inset, h*.04);
             label.y = o.shape === "polygon" ? bh * .12 : 0;
           }
-          g.clear(); strokePath(g, points, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
+          g.clear();
+          if ((s.reveal ?? 1) >= 1 || s.style !== "draw") g.poly(points.flat()).fill({ color: this.bg }).poly(points.flat()).fill({ color: this.fg, alpha: .06 + .14 * s.hl });
+          strokePath(g, points, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
+          this.ext.set(o.id, [bw / 2 * s.scale, bh / 2 * s.scale]);
           label.alpha = s.reveal ?? 1;
         } };
       }
       case "arrow":
       case "line": {
         const g = new Graphics();
-        c.addChild(g); this.root.addChild(c);
+        c.addChild(g); this.root.addChildAt(c, 0); // connectors sit under the boxes they join
         return { node: c, draw: (s, w, h, all) => {
-          place(s, w, h);
-          c.position.set((s.x - .5)*w, (s.y - .5)*h);
-          c.pivot.set(w/2, h/2); c.position.x += w/2; c.position.y += h/2;
-          const pt = (p: string | [number, number]): [number, number] => {
-            const t = typeof p === "string" ? all.get(p) : undefined;
-            return Array.isArray(p) ? [p[0] * w, p[1] * h] : [(t?.x ?? 0.5) * w, (t?.y ?? 0.5) * h];
+          c.visible = s.visible; c.alpha = s.opacity;
+          const pt = (p: string | [number, number]): [number, number] | null => {
+            if (Array.isArray(p)) return [p[0] * w, p[1] * h];
+            const t = all.get(p);
+            return t?.visible ? [t.x * w, t.y * h] : null;
           };
-          const [x1, y1] = pt(o.from), [tx, ty] = pt(o.to);
+          const a0 = pt(o.from), b0 = pt(o.to);
+          g.clear();
+          if (!a0 || !b0) return; // endpoint missing or hidden: draw nothing rather than a line to the centre
+          const len = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]) || 1, ux = (b0[0] - a0[0]) / len, uy = (b0[1] - a0[1]) / len;
+          const trim = (p: string | [number, number]) => {
+            if (Array.isArray(p)) return 0;
+            const [hw, hh] = this.ext.get(p) ?? [.04 * h, .04 * h];
+            return Math.min(hw / Math.max(1e-3, Math.abs(ux)), hh / Math.max(1e-3, Math.abs(uy))) + 6;
+          };
+          const ta = Math.min(trim(o.from), len / 2 - 1), tb = Math.min(trim(o.to), len / 2 - 1);
+          if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
+          const x1 = a0[0] + ux * ta, y1 = a0[1] + uy * ta, tx = b0[0] - ux * tb, ty = b0[1] - uy * tb;
           const p = s.style === "draw" ? s.reveal ?? 1 : 1;
           const x2 = x1 + (tx-x1)*p, y2 = y1 + (ty-y1)*p;
-          g.clear().moveTo(x1, y1).lineTo(x2, y2);
+          g.moveTo(x1, y1).lineTo(x2, y2);
           if (o.type === "arrow" && p > 0) {
             const a = Math.atan2(y2 - y1, x2 - x1), k = 0.025 * h;
             g.moveTo(x2 - k * Math.cos(a - 0.45), y2 - k * Math.sin(a - 0.45)).lineTo(x2, y2).lineTo(x2 - k * Math.cos(a + 0.45), y2 - k * Math.sin(a + 0.45));
@@ -207,7 +223,7 @@ export class SceneRenderer {
           nodes.forEach(({ n }, i) => {
             const hl = s.valHl?.[n.keys[0]] ?? 0, [x, y] = at(i);
             const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
-            g.circle(x, y, r * ease(reveal)).fill({ color: this.fg, alpha: hl }).stroke({ width: 2, color: this.fg, alpha: 0.7 });
+            g.circle(x, y, r * ease(reveal)).fill({ color: this.bg }).circle(x, y, r * ease(reveal)).fill({ color: this.fg, alpha: hl }).stroke({ width: 2, color: this.fg, alpha: 0.7 });
             labels[i].position.set(x, y);
             labels[i].alpha = reveal;
             if (labels[i].label !== String(r)) { fitText(labels[i], n.keys.join(","), r*1.4, r*1.4, r*.9); labels[i].label = String(r); }
@@ -243,9 +259,8 @@ export class SceneRenderer {
     for (const o of this.scene.objects) {
       const s = st.objects.get(o.id)!, p = this.lay.get(o.id);
       const [dx, dy] = DEFAULT_POS[o.type] ?? [0.5, 0.5];
-      let placed = out.get(o.id);
-      if (!placed) { placed = { ...s }; out.set(o.id, placed); }
-      Object.assign(placed, s);
+      const placed = { ...s }; // fresh copy: keys absent this frame (row/col/range highlights) must not linger
+      out.set(o.id, placed);
       if (p) { placed.x = p.x + s.x - (typeof o.x === "number" ? o.x : dx); placed.y = p.y + s.y - (typeof o.y === "number" ? o.y : dy); }
     }
     return out;

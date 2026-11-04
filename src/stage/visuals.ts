@@ -29,7 +29,7 @@ export function strokePath(g: Graphics, pts: Point[], p: number, color: string |
   g.stroke({ color, width, alpha });
 }
 export type Visual = Extract<SceneObject, { type: "flow" | "table" | "code" | "figure" | "bits" | "stack" }>;
-export function buildVisual(o: Visual, fg: string, refresh: () => void) {
+export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#000") {
   const node = new Container();
   const ink = new Graphics(); node.addChild(ink);
   let lastW = 0, lastH = 0;
@@ -72,7 +72,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void) {
         c.x = c.def.x === undefined ? (i - (cells.length-1)/2) * w * .8 / cells.length : (c.def.x - .5) * w * .8;
         c.y = c.def.y === undefined ? 0 : (c.def.y - .5) * h * .5;
         const p = childProgress(s, Math.min(cells.length + o.edges.length - 1, i * 2), cells.length + o.edges.length);
-        c.g.clear().roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: fg, alpha: .035 + s.hl * .12 }).stroke({ color: fg, width: 2 });
+        c.g.clear().roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: bg }).roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: fg, alpha: .035 + s.hl * .12 }).stroke({ color: fg, width: 2 });
         c.g.position.set(c.x, c.y + (1 - ease(p)) * 18); c.g.alpha = p;
         c.t.position.copyFrom(c.g.position); c.t.alpha = p;
         if (resize) fitText(c.t, c.def.label, bw * .84, bh * .75, h * .035);

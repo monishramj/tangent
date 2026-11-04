@@ -4,6 +4,7 @@ import { TREE_OPS } from "../dsl/treeOps";
 import { validateScene, type DslError } from "../dsl/validate";
 import { DSL_CHEATSHEET } from "../dsl";
 import type { LLMProvider } from "../llm/provider";
+import { devlog } from "../devlog";
 import { figuresPrompt, type Figure, type ScenePlan } from "./plan";
 import type { Beat as ScriptBeat } from "./script";
 
@@ -63,7 +64,7 @@ export async function generateScene({ section, provider }: { section: string; pr
 }
 
 const MAX_LABEL_WORDS = 8; // prompt asks for ~6; the check allows slack
-const words = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}'\s]/gu, " ").split(/\s+/).filter(Boolean);
+const words = (s: string) => s.toLowerCase().replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}'\s]/gu, " ").split(/\s+/).filter(Boolean); // drop combining marks (e.g. strikethrough) before splitting
 
 /**
  * Deterministic quality gate for a multi-beat scene (visuals over text, narration preserved).
@@ -150,7 +151,8 @@ export async function generateGroupScene({ beats, plan, figures = [], provider }
     }
     if (issues.length === 0) return { scene: Scene.parse(candidate), attempts, errors };
     errors.push(issues);
-    prompt += `\n\nYour previous answer had these errors. Fix every one and return the full JSON again:\n${JSON.stringify(issues)}`;
+    devlog(`scene attempt ${attempts} rejected: ${JSON.stringify(issues).slice(0, 400)}`);
+    prompt += `\n\nYour previous answer:\n${text}\n\nIt had these errors. Fix every one and return the full corrected JSON:\n${JSON.stringify(issues)}`;
   }
   return { scene: null, attempts: 2, errors };
 }

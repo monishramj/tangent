@@ -9,7 +9,7 @@ pub fn build_args(provider: &str, system: Option<&str>, out_file: &Path) -> Resu
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     match provider {
         "claude" => {
-            let mut a = s(&["-p", "--output-format", "text", "--model", "sonnet"]);
+            let mut a = s(&["-p", "--output-format", "text", "--model", "haiku"]);
             if let Some(sys) = system {
                 a.extend(s(&["--system-prompt", sys]));
             }
@@ -99,7 +99,7 @@ mod tests {
     fn claude_args() {
         let (b, a) = build_args("claude", Some("be brief"), Path::new("/x")).unwrap();
         assert_eq!(b, "claude");
-        assert_eq!(a, ["-p", "--output-format", "text", "--model", "sonnet", "--system-prompt", "be brief"]);
+        assert_eq!(a, ["-p", "--output-format", "text", "--model", "haiku", "--system-prompt", "be brief"]);
         assert!(!build_args("claude", None, Path::new("/x")).unwrap().1.contains(&"--system-prompt".to_string()));
     }
 

@@ -109,7 +109,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start;
       o.reveal = (style === "type" || style === "stagger") && !easing ? p : clamp01(k);
       o.visible = true; o.opacity = clamp01(p * 3);
-      if (def.type === "KineticText" && def.variant === "slam" && e.args.style === undefined && def.style === undefined) o.scale = 1 + 1.2 * (1 - easeOut(p));
+      if (def.type === "KineticText" && def.variant === "slam" && e.args.style === undefined && def.style === undefined) o.scale = 1 + .35 * (1 - easeOut(p)); // layout fits the title at 1x; a bigger slam overlaps the body
       else if (style === "pop") o.scale = ease(p, easing ?? "outBack");
       else if (style === "slide") {
         const edge = e.args.edge ?? "left";

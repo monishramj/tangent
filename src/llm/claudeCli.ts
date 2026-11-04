@@ -11,7 +11,7 @@ export class ClaudeCodeCLI implements LLMProvider {
   complete(prompt: string, opts: Parameters<LLMProvider["complete"]>[1] = {}): Promise<string> {
     return new Promise((resolve, reject) => {
       if (opts.signal?.aborted) return reject(new Error("Claude CLI aborted"));
-      const args = ["-p", "--output-format", "text"];
+      const args = ["-p", "--output-format", "text", "--model", "haiku"];
       if (opts.system !== undefined) args.push("--system-prompt", opts.system);
       const child = this.spawnProcess("claude", args, { stdio: "pipe" });
       let stdout = "";

@@ -29,6 +29,16 @@ describe("layoutScene", () => {
     expect(a.x).toBe(0.5);
   });
 
+  it("packs shapes 3 per row and gives big components their own row", () => {
+    const shapes = Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, type: "shape" }));
+    const l = layoutScene([K("t", "PERF"), ...shapes, { id: "f", type: "flow" }], 1280, 720, m);
+    const ys = new Set(shapes.map(s => l.get(s.id)!.y));
+    expect(ys.size).toBe(2);
+    expect(new Set(shapes.slice(0, 3).map(s => l.get(s.id)!.x)).size).toBe(3);
+    expect(l.get("f")!.y).toBeGreaterThan(Math.max(...ys));
+    expect(l.get("f")!.x).toBe(0.5);
+  });
+
   for (const [w, h] of sizes) for (const n of [1, 3, 6, 9]) {
     it(`${n} texts fit and never overlap at ${w}x${h}`, () => {
       const items = [K("t", "A rather long kinetic title about heaps and sifting"), ...Array.from({ length: n - 1 }, (_, i) => T(`b${i}`, "The parent swaps with its bigger child, then we check one level down again."))];

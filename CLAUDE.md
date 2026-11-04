@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status: **MVP locked; tasks 1–4 largely built** (scaffold, sidecar, TTS spike, DSL + compiler + player). Next: PDF benchmark result, then LLM → DSL (see *First tasks*).
+> Status (2026-11-04): **end-to-end MVP pipeline works.** PDF → Docling IR → script → scene plans → TTS/alignment → scene DSL → streamed PixiJS playback → saved, replayable video bundles. Tasks 1–5 built. Next: the open issues under *Current state*, then the tutor annotate loop (task 6).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -153,6 +153,7 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ### Inference providers
 - **Primary: reuse my subscriptions via Claude Code headless (`claude -p`).** Fine for batch stages that buffer ahead (outline, script, scene DSL).
+- **Model: `haiku`** (to save the Pro limit). It is set in `src-tauri/src/llm.rs` (what the app uses) and `src/llm/claudeCli.ts` (the Node-side provider); keep both in sync.
 - Caveats: cold-start latency (unsuitable for the instant tutor), it eats the 5-hr Pro limit, and the ToS for driving it from my own app must be re-checked **before the OSS release** defaults to it.
 - **Provider interface from day one:** `ClaudeCodeCLI` (backend #1), `Ollama` (local fallback + tutor fast path), API-key providers (Claude/Gemini/OpenAI) for other users and later.
 - Budget constraint: nothing beyond Claude Pro should cost money by default.
@@ -209,7 +210,26 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 5. **LLM → DSL:** generate scenes for one golden CS 251 section; measure validity rate + generation time vs playback.
 6. **Tutor annotate loop.**
 
+## Current state (keep this section current)
+Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
+
+**Open issues:**
+- **Mid-scene silence drifts A/V.** The compiler inserts silence, but the single scene WAV isn't padded, so visuals lag the audio after an insert. Fix: pad the WAV at insert points, or forbid mid-scene inserts.
+- **Objects accumulate across beats.** Nothing auto-fades them; layout runs once per scene over all objects.
+- **Slow first scene.** About 3 min to first frame with Haiku (script + first scene). After that, generation stays ahead of playback.
+- **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.
+- **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
+
+**Recently fixed (2026-11-04), don't regress:**
+- `streamVideo` must import `resolveAnchor` (its absence crashed every scene).
+- `sidecarTts` returns a **raw** WAV path. `SceneQueue.createAudio` converts it, and `save_video_bundle` copies it. An `asset://` URL there silently produced bundles with no audio.
+- `SceneQueue` treats `audio.ended` as the end of the scene; otherwise a WAV shorter than its timeline loops.
+- The scene retry sends the previous JSON along with the validator errors, and TTS audio is reused across DSL retries.
+- Layout: shapes and Math pack 3 per row, and big components get their own row, with cell sizes (`cw`/`ch`) that shapes fit into. Arrows are trimmed to box edges and sit under the boxes, and boxes are opaque.
+- `Stage` keeps one Pixi app across scenes. `Player` smooths the coarse `currentTime` between updates (capped at 0.25 s) but ends scenes on the raw clock.
+
 ## Working conventions for Claude
+- **Every commit updates this file.** Refresh *Status*, *Current state* (open issues, recently fixed) and *Decisions* to match the commit, and stage `CLAUDE.md` with the commit. The `.githooks/pre-commit` hook rejects commits that don't stage it (enable once with `git config core.hooksPath .githooks`; use `--no-verify` only for commits that truly change nothing here).
 - Double-check work; be precise and rigorous. Push back on bad or suboptimal ideas.
 - Prefer the smallest thing that de-risks the next unknown; no speculative abstractions.
 - The speech-first script, word-anchored timing, and computed visuals are non-negotiable quality bars.
@@ -229,3 +249,4 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Decisions (Monish)
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
 - Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
+- LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage.

@@ -23,3 +23,5 @@ spikes/**/.venv
 spikes/**/out/*.wav
 spikes/**/*.wav
 public/demo/*.wav
+
+.claude/settings.local.json

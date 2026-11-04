@@ -79,7 +79,7 @@ describe("ClaudeCodeCLI (injected spawn only)", () => {
     const { child, spawn, provider } = fakeProcess();
     const prompt = "source $(do-not-execute)";
     const result = provider.complete(prompt, { system: "JSON only" });
-    expect(spawn).toHaveBeenCalledWith("claude", ["-p", "--output-format", "text", "--system-prompt", "JSON only"], { stdio: "pipe" });
+    expect(spawn).toHaveBeenCalledWith("claude", ["-p", "--output-format", "text", "--model", "haiku", "--system-prompt", "JSON only"], { stdio: "pipe" });
     expect(child.stdin.read().toString()).toBe(prompt);
     child.stdout.write("hello");
     child.stdout.write(" world");

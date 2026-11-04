@@ -183,7 +183,7 @@ it("converts math before synthesis and rejects rewritten narration", async () =>
     : JSON.stringify({ scene: "s", objects: [{ id: "a", type: "Array", init: [1] }], beats: beats.map(() => ({ say: "A different script.", actions: [] })) }));
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
-  expect(ttsAlign.mock.calls.map(call => call[0].slice(0, 16))).toEqual(["x squared grows.", "x squared grows."]);
+  expect(ttsAlign.mock.calls.map(call => call[0].slice(0, 16))).toEqual(["x squared grows."]); // audio is reused across the DSL retry
   expect((await events)[0]).toMatchObject({ type: "error", error: expect.objectContaining({ message: expect.stringMatching(/narration/i) }) });
 });
 

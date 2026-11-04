@@ -13,6 +13,9 @@ type Options<T> = Pick<ConstructorParameters<typeof Player>[0], "raf" | "caf"> &
 type Entry<T> = { scene: T; offset: number; audio: AudioClock; player: Player; cleanup: () => void };
 
 /** Scene-local audio is the only clock; offsets never include buffering wall time. */
+// The WAV can be shorter than the timeline (compiler-inserted silence): an ended audio is done, or play() would restart it from 0.
+const atEnd = (e: { audio: { currentTime: number; ended?: boolean }; scene: { timeline: { totalSec: number } } }) => e.audio.ended || e.audio.currentTime >= e.scene.timeline.totalSec;
+
 export class SceneQueue<T extends QueuedScene = QueuedScene> {
   private entries: Entry<T>[] = [];
   private index = 0;
@@ -85,14 +88,14 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
 
   private sync() {
     let entry = this.entry;
-    if (this.wanted && entry && entry.audio.currentTime >= entry.scene.timeline.totalSec) {
+    if (this.wanted && entry && atEnd(entry)) {
       entry.player.pause();
       if (this.index + 1 < this.entries.length) {
         entry = this.entries[++this.index];
         entry.player.seek(0);
       } else if (this.complete) this.wanted = false;
     }
-    this.waiting = this.wanted && (!entry || entry.audio.currentTime >= entry.scene.timeline.totalSec || entry.audio.readyState < 3);
+    this.waiting = this.wanted && (!entry || atEnd(entry) || entry.audio.readyState < 3);
     if (this.wanted && !this.waiting) entry!.player.play();
     this.options.onChange?.();
   }

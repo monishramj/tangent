@@ -55,6 +55,17 @@ describe("SceneQueue", () => {
     expect(render).toHaveBeenLastCalledWith(expect.objectContaining({ sceneId: "b" }), 0.4);
     expect(callbacks.size).toBe(1);
   });
+  it("does not loop a WAV that ends before its timeline (inserted silence)", () => {
+    const { queue, audios } = setup();
+    queue.enqueue(scene("a"));
+    queue.play();
+    const real = audios[0] as FakeAudio & { ended?: boolean };
+    // browsers clamp currentTime to the media duration (4s) even when set to the 5s timeline end
+    Object.defineProperty(real, "currentTime", { get: () => 4, set: () => {} });
+    real.ended = true; real.dispatchEvent(new Event("ended"));
+    expect(real.play).toHaveBeenCalledTimes(1);
+    expect(queue.buffering).toBe(true);
+  });
   it("also switches at timeline end without waiting for another animation frame", () => {
     const { queue, audios, frame } = setup();
     queue.enqueue(scene("a")); queue.enqueue(scene("b")); queue.play();

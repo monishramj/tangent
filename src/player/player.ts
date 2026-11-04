@@ -20,10 +20,17 @@ export class Player {
   get time() { return this.o.audio.currentTime; }
   get playing() { return this.h !== null; }
 
+  private sample = { audio: -1, at: 0 };
+  /** WKWebView updates currentTime coarsely; between updates, extrapolate (capped) so motion doesn't judder. Audio stays the clock. */
+  private smooth() {
+    const audio = this.time, now = performance.now();
+    if (audio !== this.sample.audio) { this.sample = { audio, at: now }; return audio; }
+    return Math.min(this.o.timeline.totalSec, audio + Math.min(.25, (now - this.sample.at) / 1000));
+  }
   private tick = () => {
-    const t = this.time;
+    const t = this.smooth();
     this.o.render(t);
-    if (t >= this.o.timeline.totalSec) { this.pause(); this.o.onEnd?.(); return; }
+    if (this.time >= this.o.timeline.totalSec) { this.pause(); this.o.onEnd?.(); return; } // raw clock: extrapolation must not end a scene early
     this.h = this.raf(this.tick);
   };
   private cancel() { if (this.h !== null) this.caf(this.h); this.h = null; }
@@ -33,7 +40,7 @@ export class Player {
     this.o.audio.play();
     this.h = this.raf(this.tick);
   }
-  pause() { this.cancel(); this.o.audio.pause(); }
+  pause() { this.cancel(); this.o.audio.pause(); this.sample.audio = -1; }
   seek(t: number) {
     this.o.audio.currentTime = Math.min(Math.max(t, 0), this.o.timeline.totalSec);
     if (this.h === null) this.o.render(this.time); // paused: draw once; playing: next frame does

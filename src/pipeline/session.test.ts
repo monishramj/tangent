@@ -23,7 +23,7 @@ it("runs a section with real defaults through fake IPC and returns playable scen
   const events = [];
   for await (const event of session) events.push(event);
   expect(events).toHaveLength(1);
-  expect(events[0]).toMatchObject({ type: "scene", sceneId: "scene-1", wavPath: expect.stringMatching(/^asset:\/\/\/tmp\/tangent-.*\.wav$/) });
+  expect(events[0]).toMatchObject({ type: "scene", sceneId: "scene-1", wavPath: expect.stringMatching(/^\/tmp\/tangent-.*\.wav$/) });
   expect(session.status()).toBe("done");
   expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ provider: "claude", prompt: expect.stringContaining("Source arrays.") }));
 });
