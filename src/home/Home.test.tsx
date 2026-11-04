@@ -81,3 +81,53 @@ it("accepts a dropped PDF and rejects non-PDF", async () => {
   fireEvent.drop(zone, { dataTransfer: { files: [pick("/d/b.pdf")] } });
   await waitFor(() => expect(ingestPdf).toHaveBeenCalledWith("/d/b.pdf"));
 });
+
+// Tauri path: the webview has no File.path, so the dialog plugin and drag-drop event supply absolute paths.
+const dlg = vi.hoisted(() => ({ open: vi.fn(), handler: undefined as undefined | ((e: { payload: unknown }) => void), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: dlg.open }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async (h: typeof dlg.handler) => { dlg.handler = h; return dlg.unlisten; } }),
+}));
+
+it("in Tauri, Choose PDF uses the dialog plugin with a PDF filter", async () => {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  try {
+    dlg.open.mockResolvedValue("/abs/book.pdf");
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: /choose pdf/i }));
+    await waitFor(() => expect(ingestPdf).toHaveBeenCalledWith("/abs/book.pdf"));
+    expect(dlg.open).toHaveBeenCalledWith({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
+  } finally { delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; }
+});
+
+it("in Tauri, a cancelled dialog does nothing", async () => {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  try {
+    dlg.open.mockResolvedValue(null);
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: /choose pdf/i }));
+    await waitFor(() => expect(dlg.open).toHaveBeenCalled());
+    expect(ingestPdf).not.toHaveBeenCalled();
+  } finally { delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; }
+});
+
+it("in Tauri, dropped files ingest the first .pdf path", async () => {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  try {
+    render(<Home />);
+    await waitFor(() => expect(dlg.handler).toBeDefined());
+    dlg.handler!({ payload: { type: "drop", paths: ["/d/notes.txt", "/d/c.PDF"] } });
+    await waitFor(() => expect(ingestPdf).toHaveBeenCalledWith("/d/c.PDF"));
+  } finally { delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; }
+});
+
+it("in Tauri, dropping only non-PDFs shows an error", async () => {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+  try {
+    render(<Home />);
+    await waitFor(() => expect(dlg.handler).toBeDefined());
+    dlg.handler!({ payload: { type: "drop", paths: ["/d/a.txt"] } });
+    expect((await screen.findByRole("alert")).textContent).toMatch(/pdf/i);
+    expect(ingestPdf).not.toHaveBeenCalled();
+  } finally { delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; }
+});

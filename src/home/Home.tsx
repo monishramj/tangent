@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { File02Icon, PlayIcon, Upload04Icon } from "@hugeicons/core-free-icons";
 import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
@@ -24,9 +26,11 @@ const pages = (a: { page: number }[]) => {
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const btn = "flex h-11 items-center gap-2 rounded-lg border border-line px-4 text-fg hover:bg-fg/10";
 
-// ponytail: Tauri 2 webviews give no File.path and the dialog plugin isn't installed, so outside tests the path
-// falls back to file.name. Swap pickPath for plugin-dialog / onDragDropEvent when the real pipeline lands.
+// Tauri webviews give no File.path, so there the dialog plugin / drag-drop event supply absolute paths;
+// the file input and DOM drop remain the browser/jsdom fallback.
+const isTauri = () => "__TAURI_INTERNALS__" in window;
 const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
+const notPdf = "That isn't a PDF. Choose a .pdf file.";
 
 export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStart?: (sectionId: string, ir: IR) => void; onDemo?: () => void }) {
   const [state, setState] = useState<State>({ s: "idle" });
@@ -45,9 +49,29 @@ export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStar
   };
   const take = (f?: File) => {
     if (!f) return;
-    if (!/\.pdf$/i.test(f.name)) return setState({ s: "error", msg: "That isn't a PDF. Choose a .pdf file." });
+    if (!/\.pdf$/i.test(f.name)) return setState({ s: "error", msg: notPdf });
     load(pathOf(f), f.name);
   };
+  const takePath = (p: string) => load(p, p.split(/[\\/]/).pop());
+  const choose = async () => {
+    if (!isTauri()) return input.current?.click();
+    const p = await open({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (typeof p === "string") takePath(p);
+  };
+  const dropped = useRef(takePath);
+  dropped.current = takePath;
+  useEffect(() => {
+    if (!isTauri()) return;
+    const un = getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") return setOver(true);
+      setOver(false);
+      if (p.type !== "drop" || !p.paths.length) return;
+      const pdf = p.paths.find((x) => /\.pdf$/i.test(x));
+      pdf ? dropped.current(pdf) : setState({ s: "error", msg: notPdf });
+    });
+    return () => { un.then((f) => f()); };
+  }, []);
   const start = (path: string, ir: IR, sectionId: string, title: string) => {
     const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
     localStorage.setItem(KEY, JSON.stringify(next));
@@ -122,7 +146,7 @@ export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStar
               <>
                 <Icon icon={Upload04Icon} size={32} className="text-subtle" />
                 <p className="text-base text-muted">Drop a PDF here</p>
-                <button type="button" className={btn} onClick={() => input.current?.click()}>
+                <button type="button" className={btn} onClick={choose}>
                   <Icon icon={File02Icon} size={20} />
                   Choose PDF
                 </button>
