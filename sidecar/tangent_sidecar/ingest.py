@@ -162,7 +162,8 @@ def document_to_ir(document, assets):
             for anchor in anchors:
                 if anchor not in exercise["anchors"]:
                     exercise["anchors"].append(anchor)
-    return {"sections": sections}
+    from .postprocess import postprocess
+    return postprocess({"sections": sections})
 
 
 def list_sections(params):
