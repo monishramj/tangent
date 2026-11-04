@@ -15,6 +15,7 @@ import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import type { LLMProvider } from "./llm/provider";
 import { providers } from "./llm/registry";
+import Home from "./home/Home";
 import Panel from "./Panel";
 import Stage from "./Stage";
 import { Player } from "./player/player";
@@ -49,7 +50,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
-export default function App({ provider: injected }: { provider?: LLMProvider }) {
+function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; onBack?: () => void }) {
   const provider = injected ?? providers.claude; // ponytail: provider choice moves to a settings page later
 
   const [sidecar, setSidecar] = useState<string | null>(null);
@@ -151,7 +152,7 @@ export default function App({ provider: injected }: { provider?: LLMProvider }) 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-bg via-bg/60 to-transparent" />
 
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
-          <button type="button" aria-label="Back" className={iconBtn}>
+          <button type="button" aria-label="Back" onClick={onBack} className={iconBtn}>
             <Icon icon={ArrowLeft02Icon} />
           </button>
           <p role="status" className="px-2 text-xs text-subtle">
@@ -282,5 +283,16 @@ export default function App({ provider: injected }: { provider?: LLMProvider }) 
         </Panel>
       )}
     </main>
+  );
+}
+
+// Routing: "player" is the default so the demo player stays the app's fallback; main.tsx starts on "home".
+// ponytail: onStart just opens the demo player until the real pipeline is wired in.
+export default function App({ provider, initial = "player" }: { provider?: LLMProvider; initial?: "home" | "player" }) {
+  const [screen, setScreen] = useState(initial);
+  return screen === "home" ? (
+    <Home onStart={() => setScreen("player")} onDemo={() => setScreen("player")} />
+  ) : (
+    <PlayerScreen provider={provider} onBack={() => setScreen("home")} />
   );
 }

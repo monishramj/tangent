@@ -80,3 +80,10 @@ it("icon-only buttons are labelled and icons are hidden from assistive tech", ()
   expect(svgs.length).toBeGreaterThan(5);
   svgs.forEach((svg) => expect(svg.getAttribute("aria-hidden")).toBe("true"));
 });
+
+it("routes Home -> demo player -> Back to Home", () => {
+  render(<App initial="home" />);
+  fireEvent.click(screen.getByRole("button", { name: /heapify demo/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Tangent" })).toBeTruthy();
+});
