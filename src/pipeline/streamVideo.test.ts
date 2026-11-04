@@ -204,3 +204,40 @@ it.each([0, -1, 1.5, Infinity])("rejects invalid concurrency %s", concurrency =>
   const { options } = setup();
   expect(() => streamVideo({ ...options, concurrency })).toThrow(/concurrency/i);
 });
+
+it.each([0, 1, 2, 3, 4, -1])("drains five beats with a twice-failed scene at %s across completion orders", async failed => {
+  const { options, ttsAlign, beats } = setup(5, i => i % 2 ? 500 : 1);
+  const synthesize = ttsAlign.getMockImplementation()!;
+  ttsAlign.mockImplementation(async text => {
+    if (text === beats[failed]?.say) throw new Error("tts offline");
+    return synthesize(text);
+  });
+  for (const concurrency of [1, 2, 3]) {
+    let results: PipelineEvent[] | undefined;
+    const pending = collect(streamVideo({ ...options, concurrency })).then(events => { results = events; });
+    await vi.runAllTimersAsync();
+    // Assert before awaiting: an idle unresolved promise fails without a real-time timeout.
+    expect(results?.map(e => e.sceneId)).toEqual(["scene-1", "scene-2", "scene-3", "scene-4", "scene-5"]);
+    expect(results?.map(e => e.type)).toEqual(beats.map((_, i) => i === failed ? "error" : "scene"));
+    await pending;
+  }
+});
+
+it("resumes a paused consumer after an error with no work outstanding", async () => {
+  const { options, ttsAlign, beats } = setup(5, i => i === 0 ? 500 : 1);
+  const synthesize = ttsAlign.getMockImplementation()!;
+  ttsAlign.mockImplementation(async text => {
+    if (text === beats[1].say) throw new Error("tts offline");
+    return synthesize(text);
+  });
+  const stream = streamVideo(options);
+  const first = stream.next();
+  await vi.runAllTimersAsync();
+  expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1" });
+  const rest = collect(stream);
+  let done = false;
+  void rest.then(() => { done = true; });
+  await vi.runAllTimersAsync();
+  expect(done).toBe(true);
+  expect((await rest).map(e => e.type)).toEqual(["error", "scene", "scene", "scene"]);
+});

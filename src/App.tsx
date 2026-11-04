@@ -24,6 +24,7 @@ import Stage from "./Stage";
 import { Player } from "./player/player";
 import { SceneQueue } from "./player/queue";
 import type { GenerationStatus, PipelineEvent } from "./pipeline/streamVideo";
+import { devlog } from "./devlog";
 import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
 import type { Annotation } from "./tutor/annotations";
@@ -56,7 +57,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
-export function PlayerScreen({ provider: injected, onBack, stream, section, progress, onRetry, autoPlay = false }: { provider?: LLMProvider; onBack?: () => void; stream?: AsyncIterable<PipelineEvent>; section?: string; progress?: GenerationStatus; onRetry?: () => void; autoPlay?: boolean }) {
+export function PlayerScreen({ provider: injected, onBack, stream, section, progress, onRetry, autoPlay = false, title }: { title?: string; provider?: LLMProvider; onBack?: () => void; stream?: AsyncIterable<PipelineEvent>; section?: string; progress?: GenerationStatus; onRetry?: () => void; autoPlay?: boolean }) {
   const provider = injected ?? providers.claude; // ponytail: provider choice moves to a settings page later
 
   const [sidecar, setSidecar] = useState<string | null>(null);
@@ -67,6 +68,8 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [currentScene, setCurrentScene] = useState<StreamedScene | null>(null);
   const localTime = useRef(0);
+  const lastLogged = useRef("");
+  const lastBuf = useRef(false);
   const drawRef = useRef<((t: number) => void) | null>(null);
   const annotateRef = useRef<((a: Annotation[]) => void) | null>(null);
   const priorQs = useRef<string[]>([]);
@@ -77,6 +80,7 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
     createAudio: path => new Audio(path.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(path) : path),
     render: (data, t) => {
       localTime.current = t;
+      if (lastLogged.current !== data.sceneId) { lastLogged.current = data.sceneId; devlog(`render scene ${data.sceneId}`); }
       setCurrentScene(data);
       drawRef.current?.(t);
     },
@@ -85,8 +89,9 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
       setDuration(player instanceof SceneQueue ? player.duration : DURATION);
       setPlaying(player.playing);
       setBuffering(player instanceof SceneQueue && player.buffering);
+      if (player instanceof SceneQueue && player.buffering !== lastBuf.current) { lastBuf.current = player.buffering; devlog(`buffering=${player.buffering} t=${player.time.toFixed(1)}/${player.duration.toFixed(1)}`); }
     },
-    onError: error => setPlaybackError(String(error)),
+    onError: error => { devlog(`queue error ${String(error)}`); setPlaybackError(String(error)); },
   }) : new Player({ timeline, audio: audio!, render: (t) => {
     drawRef.current?.(t);
     setTime((p) => (Math.abs(p - t) < 0.1 ? p : t)); // don't re-render React at 60fps
@@ -111,7 +116,8 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
         while (live) {
           const next = await iterator.next();
           if (!live) return;
-          if (next.done) break;
+          if (next.done) { devlog("stream done"); break; }
+          devlog(next.value.type === "scene" ? `stream scene ${next.value.sceneId} ${next.value.timeline.totalSec.toFixed(1)}s ${next.value.wavPath.slice(-40)}` : `stream error ${next.value.sceneId} ${next.value.error.message}`);
           if (next.value.type === "scene") player.enqueue(next.value);
           else setPlaybackError(`Scene ${next.value.sceneId}: ${next.value.error.message}`);
         }
@@ -248,7 +254,7 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
           <div className="flex items-end justify-between gap-6">
             <div className="max-w-xl">
               <p className="text-sm font-medium text-subtle">{stream ? "Tangent" : "CS 251 · Heaps"}</p>
-              <h1 className="mt-1 text-5xl font-semibold tracking-tight">{stream ? currentScene?.sceneId ?? "Video" : "Heapify"}</h1>
+              <h1 className="mt-1 text-5xl font-semibold tracking-tight">{stream ? title ?? currentScene?.sceneId ?? "Video" : "Heapify"}</h1>
               {!stream && <p className="mt-2 line-clamp-2 text-base text-muted">
                 How one broken spot in a heap gets fixed: the parent swaps with its bigger child, then we check again one level down.
               </p>}
@@ -368,7 +374,7 @@ function SectionSession({ id, ir, provider, onBack }: { id: string; ir: IR; prov
         const markdown = await sectionText(ir, id);
         if (controller.signal.aborted) return;
         const stream = startSession({ irSection: { markdown }, provider, signal: controller.signal,
-          onStatus: status => { if (!controller.signal.aborted) setProgress(status); } });
+          onStatus: status => { devlog(`status ${status}`); if (!controller.signal.aborted) setProgress(status); } });
         setSession({ stream, markdown });
       } catch (e) {
         if (!controller.signal.aborted) setError(String(e));

@@ -118,12 +118,15 @@ async fn sidecar_call(state: State<'_, State_>, method: String, params: Value, t
     }).await.map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+fn dev_log(msg: String) { eprintln!("[webview] {msg}"); } // dev diagnostics: webview events land in the terminal log
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(State_::default())
-        .invoke_handler(tauri::generate_handler![sidecar_call, llm::llm_complete])
+        .invoke_handler(tauri::generate_handler![sidecar_call, llm::llm_complete, dev_log])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {
