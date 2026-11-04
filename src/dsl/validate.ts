@@ -43,6 +43,14 @@ export function validateScene(json: unknown): DslError[] {
     else objs.set(o.id, o);
   });
 
+  scene.objects.forEach((o, i) => {
+    const bad = (field: string, message: string) => errs.push({ path: `objects[${i}].${field}`, code: "schema", message });
+    if (o.type === "line" || o.type === "arrow") for (const field of ["from", "to"] as const) {
+      const endpoint = o[field];
+      if (typeof endpoint === "string" && !objs.has(endpoint)) bad(field, `unknown endpoint "${endpoint}"`);
+    }
+  });
+
   const created = new Set<string>();
   scene.beats.forEach((beat, b) => {
     if (!("say" in beat)) return;
@@ -60,6 +68,16 @@ export function validateScene(json: unknown): DslError[] {
       if (!t) return err(a, "target", "bad-target", `malformed target "${act.target}" (want id, id.slot[i] or id.val(x))`);
       const o = objs.get(t.id);
       if (!o) return err(a, "target", "unknown-target", `no object with id "${t.id}"`);
+      if (act.do === "highlight") {
+        if (act.row !== undefined && (o.type !== "table" || act.row >= o.rows.length)) err(a, "row", "schema", "row highlight needs a valid table row");
+        if (act.col !== undefined && (o.type !== "table" || act.col >= o.headers.length)) err(a, "col", "schema", "column highlight needs a valid table column");
+        if (act.range && (o.type !== "code" || act.range[1] >= o.lines.length)) err(a, "range", "schema", "line highlight needs a valid code range");
+      }
+      if (act.do === "move" && typeof act.to === "string") {
+        const dest = parseTarget(act.to);
+        const object = dest && objs.get(dest.id);
+        if (!object || (dest && "slot" in dest && (object.type !== "Array" || dest.slot >= object.init.length))) err(a, "to", "bad-target", "move destination must exist");
+      }
       const ops = o.type === "Tree" ? Object.keys(TREE_OPS[o.kind]) : OPS[o.type];
       if (("slot" in t || "val" in t) && !ops)
         return err(a, "target", "bad-target", `"${t.id}" is a ${o.type}; slot/val addressing needs a computed component`);

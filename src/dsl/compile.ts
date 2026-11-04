@@ -66,7 +66,7 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
       const gap = (next === undefined ? duration : words[next].start) - words[w].start;
       let need = 0;
       for (const p of placed.filter((p) => p.w === w)) {
-        const d = DURATION[p.act.do];
+        const d = p.act.duration ?? DURATION[p.act.do];
         const steps = ops?.get(p.act);
         p.len = steps ? (steps.length ? Math.max(gap, steps.length * MIN_SEC) : 0)
           : Math.max(Math.min(d, gap), Math.min(d, MIN_SEC));

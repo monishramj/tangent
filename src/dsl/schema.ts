@@ -5,9 +5,17 @@ import { TREE_OPS } from "./treeOps";
 
 const id = z.string().regex(/^[A-Za-z_][\w-]*$/);
 const num2 = z.tuple([z.number(), z.number()]);
+export const CreateStyle = z.enum(["draw", "pop", "type", "slide", "stagger"]);
+export const Easing = z.enum(["outCubic", "outBack", "inOutQuad"]);
+const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const animation = { style: CreateStyle.optional(), easing: Easing.optional(), gap: z.number().min(0).max(.9).optional() };
+const index = z.number().int().nonnegative();
+const range = z.tuple([index, index]).refine(([a, b]) => a <= b, "range must be ordered");
+const unit = z.number().min(0).max(1);
+const focus = z.tuple([unit, unit, unit, unit]).refine(([x, y, r, b]) => x < r && y < b, "focus box must have positive size");
 const point = z.union([id, num2]); // object id or [x, y]
 const obj = <K extends string, T extends z.ZodRawShape>(type: K, shape: T) =>
-  z.looseObject({ id, type: z.literal(type), ...shape });
+  z.looseObject({ id, type: z.literal(type), ...animation, color: color.optional(), ...shape });
 
 // Binary children retain null placeholders; other kinds use a dense children list.
 export type TreeNode = { keys: number[]; children: (TreeNode | null)[]; color?: "red" | "black" };
@@ -49,7 +57,27 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("text", { text: z.string() }),
   obj("KineticText", { text: z.string(), variant: z.string().optional() }), // e.g. "slam"
   obj("Math", { tex: z.string() }), // KaTeX
-  obj("shape", { shape: z.enum(["rect", "circle", "polygon"]) }),
+  obj("shape", { shape: z.enum(["rect", "circle", "polygon"]), label: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }),
+  obj("flow", {
+    nodes: z.array(z.object({ id, label: z.string(), x: unit.optional(), y: unit.optional() })).min(1),
+    edges: z.array(z.object({ from: id, to: id, label: z.string().optional() })),
+  }).superRefine((o, ctx) => {
+    const ids = new Set(o.nodes.map(n => n.id));
+    if (ids.size !== o.nodes.length || o.edges.some(e => !ids.has(e.from) || !ids.has(e.to)))
+      ctx.addIssue({ code: "custom", message: "flow needs unique nodes and existing edge endpoints" });
+  }),
+  obj("table", { headers: z.array(z.string()).min(1), rows: z.array(z.array(z.string())), highlightRow: index.optional(), highlightCol: index.optional() }).superRefine((o, ctx) => {
+    if (o.rows.some(r => r.length !== o.headers.length) || (o.highlightRow !== undefined && o.highlightRow >= o.rows.length) || (o.highlightCol !== undefined && o.highlightCol >= o.headers.length))
+      ctx.addIssue({ code: "custom", message: "table dimensions or highlight out of range" });
+  }),
+  obj("code", { lines: z.array(z.string()).min(1), highlight: z.array(range).optional(), duration: z.number().positive().optional() }).superRefine((o, ctx) => {
+    if (o.highlight?.some(([, end]) => end >= o.lines.length)) ctx.addIssue({ code: "custom", message: "code highlight out of range" });
+  }),
+  obj("figure", { src: z.string().min(1), focus: z.array(focus).min(1).optional(), duration: z.number().positive().optional() }),
+  obj("bits", { bits: z.string().regex(/^[01]+$/), label: z.string().optional(), groups: z.array(z.number().int().positive()).optional() }).superRefine((o, ctx) => {
+    if (o.groups && o.groups.reduce((a, b) => a + b, 0) !== o.bits.length) ctx.addIssue({ code: "custom", message: "groups must cover all bits" });
+  }),
+  obj("stack", { frames: z.array(z.object({ label: z.string(), items: z.array(z.string()) })).min(1) }),
   obj("arrow", { from: point, to: point }),
   obj("line", { from: point, to: point }),
   obj("axes", { x: num2, y: num2 }),
@@ -61,16 +89,16 @@ export const SceneObject = z.discriminatedUnion("type", [
 ]);
 
 const act = <K extends string, T extends z.ZodRawShape>(verb: K, shape: T, targetRequired = true) =>
-  z.looseObject({ at: z.string().min(1), do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), ...shape });
+  z.looseObject({ at: z.string().min(1), do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), easing: Easing.optional(), duration: z.number().positive().optional(), ...shape });
 
 export const Action = z.discriminatedUnion("do", [
-  act("create", {}),
+  act("create", { ...animation, edge: z.enum(["left", "right", "top", "bottom"]).optional() }),
   act("fade", { to: z.number().min(0).max(1).optional() }), // opacity only (default 0); a faded object stays addressable
-  act("move", {}),
-  act("transform", {}),
-  act("highlight", {}),
+  act("move", { to: z.union([z.string(), num2]).optional(), path: z.array(num2).min(2).optional(), arc: z.number().optional() }),
+  act("transform", { scale: z.number().positive().optional(), rotate: z.number().optional(), color: color.optional() }),
+  act("highlight", { row: index.optional(), col: index.optional(), range: range.optional() }),
   act("indicate", {}),
-  act("camera", {}, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose
+  act("camera", { x: z.number().optional(), y: z.number().optional(), zoom: z.number().positive().optional(), shake: z.number().min(0).max(.1).optional() }, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose
   act("wait", {}, false),
   act("op", { op: z.string(), args: z.array(z.unknown()).default([]) }),
 ]);

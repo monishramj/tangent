@@ -7,6 +7,8 @@ import type { Annotation } from "@/tutor/annotations";
 import { annotationShapes, type Pt } from "./annotate";
 import { DEFAULT_POS, easeOut, type ObjState, type SceneState } from "./scene";
 import { layoutScene, type Placed } from "./layout";
+import { buildVisual, fitText, strokePath } from "./visuals";
+import { ease, staggerProgress, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -24,6 +26,9 @@ export class SceneRenderer {
   private annTexts: Text[] = [];
   private lay = new Map<string, Placed>(); // layout pass result; recomputed only when the stage size changes
   private laidFor = "";
+  private lastState?: SceneState;
+  private placedObjects = new Map<string, ObjState>();
+  private rings = new Graphics();
 
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
@@ -33,6 +38,7 @@ export class SceneRenderer {
       const d = this.build(o);
       if (d) this.draws.set(o.id, d);
     }
+    this.root.addChild(this.rings);
     this.reaction = this.text("", 64, "bold");
     this.reaction.anchor.set(0.5);
     this.root.addChild(this.reaction);
@@ -48,11 +54,13 @@ export class SceneRenderer {
 
   private build(o: SceneObject): { node: Container | HTMLElement; draw: Drawer } | null {
     const c = new Container();
-    const place = (s: ObjState, w: number, h: number) => {
-      c.visible = s.visible;
-      c.alpha = s.opacity;
-      c.position.set(s.x * w, s.y * h);
-      c.scale.set(s.scale);
+    const place = (s: ObjState, w: number, h: number, node = c) => {
+      node.visible = s.visible;
+      node.alpha = s.opacity;
+      node.position.set(s.x * w, s.y * h);
+      node.scale.set(s.scale);
+      node.rotation = s.rotation ?? 0;
+      node.tint = s.color ?? 0xffffff;
     };
     switch (o.type) {
       case "text":
@@ -66,35 +74,57 @@ export class SceneRenderer {
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
           const p = this.lay.get(o.id);
-          if (p?.text !== undefined && t.text !== p.text) t.text = p.text; // wrapped text + fitted size from layout.ts
+          const full = p?.text ?? o.text;
+          const shown = s.style === "type" ? full.slice(0, Math.floor(full.length * (s.reveal ?? 1))) : full;
+          if (t.text !== shown) t.text = shown;
           if (p?.fontSize && t.style.fontSize !== p.fontSize) { t.style.fontSize = p.fontSize; t.style.letterSpacing = kinetic ? -p.fontSize * 0.03 : 0; }
         } };
       }
+      case "flow": case "table": case "code": case "figure": case "bits": case "stack": {
+        const visual = buildVisual(o, this.fg, () => { if (this.lastState) this.draw(this.lastState); });
+        this.root.addChild(visual.node);
+        return { node: visual.node, draw: (s, w, h) => {
+          place(s, w, h, visual.node);
+          visual.draw(s, w, h);
+        } };
+      }
       case "shape": {
-        const g = new Graphics();
-        c.addChild(g);
-        this.root.addChild(c);
+        const g = new Graphics(), label = this.text(o.label ?? "", 30);
+        label.anchor.set(.5); c.addChild(g, label); this.root.addChild(c);
+        let bw = 0, bh = 0, points: Point[] = [];
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
-          const r = 0.12 * h;
-          g.clear();
-          if (o.shape === "circle") g.circle(0, 0, r); else if (o.shape === "rect") g.rect(-r, -r, 2 * r, 2 * r); else g.poly([0, -r, r, r, -r, r]);
-          g.stroke({ width: 3, color: this.fg, alpha: 0.5 + 0.5 * s.hl });
+          const width = (o.width ?? .24 * h / w) * w, height = (o.height ?? .24) * h;
+          if (width !== bw || height !== bh) {
+            bw = width; bh = height;
+            if (o.shape === "circle") points = Array.from({ length: 65 }, (_, i) => [Math.cos(i/64*Math.PI*2)*bw/2, Math.sin(i/64*Math.PI*2)*bh/2]);
+            else if (o.shape === "rect") points = [[-bw/2,-bh/2],[bw/2,-bh/2],[bw/2,bh/2],[-bw/2,bh/2],[-bw/2,-bh/2]];
+            else points = [[0,-bh/2],[bw/2,bh/2],[-bw/2,bh/2],[0,-bh/2]];
+            const inset = o.shape === "polygon" ? .4 : o.shape === "circle" ? .65 : .84;
+            fitText(label, o.label ?? "", bw * inset, bh * inset, h*.04);
+            label.y = o.shape === "polygon" ? bh * .12 : 0;
+          }
+          g.clear(); strokePath(g, points, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
+          label.alpha = s.reveal ?? 1;
         } };
       }
       case "arrow":
       case "line": {
         const g = new Graphics();
-        this.root.addChild(g);
-        return { node: g, draw: (s, w, h, all) => {
-          g.visible = s.visible; g.alpha = s.opacity;
+        c.addChild(g); this.root.addChild(c);
+        return { node: c, draw: (s, w, h, all) => {
+          place(s, w, h);
+          c.position.set((s.x - .5)*w, (s.y - .5)*h);
+          c.pivot.set(w/2, h/2); c.position.x += w/2; c.position.y += h/2;
           const pt = (p: string | [number, number]): [number, number] => {
             const t = typeof p === "string" ? all.get(p) : undefined;
             return Array.isArray(p) ? [p[0] * w, p[1] * h] : [(t?.x ?? 0.5) * w, (t?.y ?? 0.5) * h];
           };
-          const [x1, y1] = pt(o.from), [x2, y2] = pt(o.to);
+          const [x1, y1] = pt(o.from), [tx, ty] = pt(o.to);
+          const p = s.style === "draw" ? s.reveal ?? 1 : 1;
+          const x2 = x1 + (tx-x1)*p, y2 = y1 + (ty-y1)*p;
           g.clear().moveTo(x1, y1).lineTo(x2, y2);
-          if (o.type === "arrow") {
+          if (o.type === "arrow" && p > 0) {
             const a = Math.atan2(y2 - y1, x2 - x1), k = 0.025 * h;
             g.moveTo(x2 - k * Math.cos(a - 0.45), y2 - k * Math.sin(a - 0.45)).lineTo(x2, y2).lineTo(x2 - k * Math.cos(a + 0.45), y2 - k * Math.sin(a + 0.45));
           }
@@ -111,7 +141,8 @@ export class SceneRenderer {
           el.style.opacity = String(s.opacity);
           el.style.fontSize = `${0.06 * h}px`;
           el.style.left = `${s.x * w}px`; el.style.top = `${s.y * h}px`;
-          el.style.transform = `translate(-50%,-50%) scale(${s.scale})`;
+          el.style.transform = `translate(-50%,-50%) scale(${s.scale}) rotate(${s.rotation ?? 0}rad)`;
+          el.style.color = `#${(s.color ?? 0xffffff).toString(16).padStart(6, "0")}`;
         } };
       }
       case "Array": {
@@ -122,18 +153,21 @@ export class SceneRenderer {
           place(s, w, h);
           const n = cells.length, size = Math.min(0.14 * h, (w * 0.9) / (n * 1.15)), step = size * 1.15, x0 = -((n - 1) * step) / 2;
           cells.forEach(({ g, t }, i) => {
+            const enter = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, n, s.gap) : s.reveal ?? 1;
+            g.alpha = enter; t.alpha = enter;
             const slot = s.slots![i];
             const x = x0 + (slot.to === undefined ? i : i + (slot.to - i) * slot.p) * step;
-            const lift = slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35; // hop so swaps read
+            const lift = (slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35) + (1-ease(enter))*size*.3 - Math.sin((s.age ?? 0)*3)*size*.025*slot.hl; // hop so swaps read
             g.clear().roundRect(-size / 2, -size / 2, size, size, size * 0.12)
               .fill({ color: this.fg, alpha: slot.hl })
               .stroke({ width: 2, color: this.fg, alpha: 0.6 });
+            if (slot.ring) g.circle(0, 0, size*(.6+.25*slot.ring)).stroke({ color: this.fg, width: 2, alpha: 1-slot.ring });
             g.position.set(x, lift);
-            t.text = String(slot.value);
-            t.style.fontSize = size * 0.45;
+            const value = String(slot.value);
+            if (t.label !== `${size}:${value}`) { fitText(t, value, size*.84, size*.8, size*.45); t.label = `${size}:${value}`; }
             t.style.fill = slot.hl > 0.5 ? this.bg : this.fg;
             t.position.set(x, lift);
-            this.pts.set(`${o.id}.slot[${i}]`, { x: s.x * w + x * s.scale, y: s.y * h + lift * s.scale, r: (size / 2) * s.scale });
+            this.setPoint(`${o.id}.slot[${i}]`, s.x*w+x*s.scale, s.y*h+lift*s.scale, size/2*s.scale);
           });
         } };
       }
@@ -167,21 +201,30 @@ export class SceneRenderer {
             const p = parentOf.get(n);
             if (!p) return;
             const [x1, y1] = at(byNode.get(p)!), [x2, y2] = at(i);
-            g.moveTo(x1, y1).lineTo(x2, y2).stroke({ width: 2, color: this.fg, alpha: 0.5 });
+            const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
+            g.moveTo(x1, y1).lineTo(x1+(x2-x1)*reveal, y1+(y2-y1)*reveal).stroke({ width: 2, color: this.fg, alpha: 0.5 });
           });
           nodes.forEach(({ n }, i) => {
             const hl = s.valHl?.[n.keys[0]] ?? 0, [x, y] = at(i);
-            g.circle(x, y, r).fill({ color: this.fg, alpha: hl }).stroke({ width: 2, color: this.fg, alpha: 0.7 });
+            const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
+            g.circle(x, y, r * ease(reveal)).fill({ color: this.fg, alpha: hl }).stroke({ width: 2, color: this.fg, alpha: 0.7 });
             labels[i].position.set(x, y);
-            labels[i].style.fontSize = r * 0.9;
+            labels[i].alpha = reveal;
+            if (labels[i].label !== String(r)) { fitText(labels[i], n.keys.join(","), r*1.4, r*1.4, r*.9); labels[i].label = String(r); }
             labels[i].style.fill = hl > 0.5 ? this.bg : this.fg;
-            for (const k of n.keys) this.pts.set(`${o.id}.val(${k})`, { x: s.x * w + x * s.scale, y: s.y * h + y * s.scale, r: r * s.scale });
+            for (const k of n.keys) this.setPoint(`${o.id}.val(${k})`, s.x*w+x*s.scale, s.y*h+y*s.scale, r*s.scale);
           });
         } };
       }
       default:
         return null; // axes, plot, media: not in the MVP renderer
     }
+  }
+
+  private setPoint(id: string, x: number, y: number, r: number) {
+    const p = this.pts.get(id);
+    if (p) { p.x = x; p.y = y; p.r = r; }
+    else this.pts.set(id, { x, y, r });
   }
 
   /** Layout pass: once per scene size (first draw, resize), never per frame. */
@@ -196,25 +239,35 @@ export class SceneRenderer {
 
   /** Scene state positions are defaults/explicit + animation; swap the default for the laid-out spot, keep the animated delta. */
   private placed(st: SceneState): Map<string, ObjState> {
-    const out = new Map<string, ObjState>();
+    const out = this.placedObjects;
     for (const o of this.scene.objects) {
       const s = st.objects.get(o.id)!, p = this.lay.get(o.id);
       const [dx, dy] = DEFAULT_POS[o.type] ?? [0.5, 0.5];
-      out.set(o.id, p ? { ...s, x: p.x + s.x - (typeof o.x === "number" ? o.x : dx), y: p.y + s.y - (typeof o.y === "number" ? o.y : dy) } : s);
+      let placed = out.get(o.id);
+      if (!placed) { placed = { ...s }; out.set(o.id, placed); }
+      Object.assign(placed, s);
+      if (p) { placed.x = p.x + s.x - (typeof o.x === "number" ? o.x : dx); placed.y = p.y + s.y - (typeof o.y === "number" ? o.y : dy); }
     }
     return out;
   }
 
   draw(state: SceneState) {
+    this.lastState = state;
     const { width: w, height: h } = this.app.screen;
     this.relayout(w, h);
     const st = { ...state, objects: this.placed(state) };
     for (const [id, d] of this.draws) {
       const s = st.objects.get(id)!;
+      if (!s.visible) {
+        if (d.node instanceof HTMLElement) d.node.style.display = "none";
+        else d.node.visible = false;
+        continue;
+      }
       d.draw(s, w, h, st.objects);
-      this.pts.set(id, { x: s.x * w, y: s.y * h, r: 0.12 * h * s.scale });
+      this.setPoint(id, s.x*w, s.y*h, .12*h*s.scale);
     }
-    this.paintAnnotations(w, h);
+    this.rings.clear();
+    for (const s of st.objects.values()) if (s.visible && s.ring) this.rings.circle(s.x*w, s.y*h, (.12+.06*s.ring)*h*s.scale).stroke({ color: this.fg, width: 3, alpha: 1-s.ring });
     this.reaction.visible = !!st.reaction;
     this.reaction.text = st.reaction ?? "";
     this.reaction.style.fontSize = 0.1 * h;
@@ -222,14 +275,24 @@ export class SceneRenderer {
     // transitions act on the whole layer: cut = black dip, whip/push = slide in from the right
     const tr = st.transition;
     this.root.alpha = tr?.type === "cut" ? 0 : 1;
-    this.root.x = tr && tr.type !== "cut" ? (1 - easeOut(tr.p)) * w * (tr.type === "push" ? 1 : 1.5) : 0;
+    const slide = tr && tr.type !== "cut" ? (1 - easeOut(tr.p)) * w * (tr.type === "push" ? 1 : 1.5) : 0;
+    const camera = st.camera ?? { x: .5, y: .5, zoom: 1, shake: 0 };
+    const tx = w/2 - camera.x*w*camera.zoom + camera.shake*w + slide;
+    const ty = h/2 - camera.y*h*camera.zoom + camera.shake*h;
+    this.root.scale.set(camera.zoom); this.root.position.set(tx, ty);
+    this.mathLayer.style.transformOrigin = "0 0";
+    this.mathLayer.style.transform = `matrix(${camera.zoom},0,0,${camera.zoom},${tx},${ty})`;
+    this.mathLayer.style.opacity = String(this.root.alpha);
+    for (const [key] of this.pts) if (!st.objects.get(key.split(".")[0])?.visible) this.pts.delete(key);
+    for (const pt of this.pts.values()) { pt.x = pt.x*camera.zoom+tx; pt.y = pt.y*camera.zoom+ty; pt.r *= camera.zoom; }
+    this.paintAnnotations(w, h);
     this.app.render();
   }
 
   private paintAnnotations(w: number, h: number) {
     const g = this.annG.clear();
-    this.annTexts.forEach((x) => x.destroy());
-    this.annTexts = [];
+    if (!this.anns.length && !this.annTexts.length) return;
+    let labels = 0;
     for (const s of annotationShapes(this.anns, this.pts, w, h)) {
       if (s.k === "circle") g.circle(s.x, s.y, s.r).stroke({ width: 4, color: this.fg });
       else if (s.k === "rect") g.roundRect(s.x, s.y, s.w, s.h, 8).fill({ color: this.fg, alpha: 0.18 }).stroke({ width: 2, color: this.fg, alpha: 0.8 });
@@ -239,18 +302,24 @@ export class SceneRenderer {
           .moveTo(s.x2 - k * Math.cos(a - 0.45), s.y2 - k * Math.sin(a - 0.45)).lineTo(s.x2, s.y2).lineTo(s.x2 - k * Math.cos(a + 0.45), s.y2 - k * Math.sin(a + 0.45))
           .stroke({ width: 4, color: this.fg });
       } else {
-        const t = this.text(s.text, 0.035 * h, "bold");
-        t.anchor.set(0.5);
+        let t = this.annTexts[labels++];
+        if (!t) {
+          t = this.text(s.text, .035*h, "bold"); t.anchor.set(.5);
+          this.app.stage.addChild(t); this.annTexts.push(t);
+        }
+        t.visible = true; t.text = s.text; t.style.fontSize = .035*h;
         t.position.set(s.x, s.y);
-        this.app.stage.addChild(t);
-        this.annTexts.push(t);
       }
     }
+    for (let i = labels; i < this.annTexts.length; i++) this.annTexts[i].visible = false;
   }
 
   destroy() {
     this.annTexts.forEach((x) => x.destroy());
     this.draws.forEach((d) => d.node instanceof HTMLElement && d.node.remove());
+    this.lastState = undefined;
+    this.annG.destroy();
+    this.mathLayer.style.transform = ""; this.mathLayer.style.opacity = "";
     this.root.destroy({ children: true });
   }
 }

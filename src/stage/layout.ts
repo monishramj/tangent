@@ -48,7 +48,7 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   const isText = (i: LItem) => i.type === "text" || i.type === "KineticText";
   const isTitle = (i: LItem) => i.type === "KineticText";
   const flowed = items.filter((i) => isText(i) && !isNum(i.y));
-  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree"].includes(i.type) && !isNum(i.y));
+  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree", "flow", "table", "code", "figure", "bits", "stack"].includes(i.type) && !isNum(i.y));
   const base = (i: LItem, f: number) => (isTitle(i) ? 0.12 : 0.045) * h * f;
   const fitOne = (i: LItem, f: number) => fit(i.text ?? "", base(i, f), isTitle(i), maxW, (isTitle(i) ? 0.3 : 0.18) * h, m);
 
@@ -87,6 +87,17 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
 
   // visuals share the remaining band
   const top = titlesBottom + (tIdx.length ? gap : 0), bot = bodiesTop - (bIdx.length ? gap : 0);
-  visuals.forEach((v, k) => out.set(v.id, { x: 0.5, y: (top + ((k + 0.5) * (bot - top)) / visuals.length) / h, auto: true }));
+  visuals.forEach((v, k) => out.set(v.id, { x: isNum(v.x) ? v.x : 0.5, y: (top + ((k + 0.5) * (bot - top)) / visuals.length) / h, auto: true }));
   return out;
+}
+
+/** Labels are bounded by their shape; unlike page text they may shrink below MIN_FONT. */
+export function fitLabel(text: string, base: number, width: number, height: number, m: Measure) {
+  let size = Math.max(.01, base);
+  for (;;) {
+    const lines = text.split("\n").flatMap(line => wrap(line, size, false, width, m));
+    const h = lines.length * size * LH;
+    if (h <= height && lines.every(line => m(line, size, false) <= width)) return { text: lines.join("\n"), size, h };
+    size *= .85;
+  }
 }
