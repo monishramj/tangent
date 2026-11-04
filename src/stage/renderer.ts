@@ -1,11 +1,12 @@
 // Pixi v8 drawing of SceneState. Display objects are built once per scene object and mutated per frame; no clocks here.
-import { Container, Graphics, Text, type Application } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, Text, TextStyle, type Application } from "pixi.js";
 import katex from "katex";
 import type { Scene, SceneObject, TreeNode } from "@/dsl/schema";
 import { fromLevel } from "@/dsl/trees/shared";
 import type { Annotation } from "@/tutor/annotations";
 import { annotationShapes, type Pt } from "./annotate";
-import { easeOut, type ObjState, type SceneState } from "./scene";
+import { DEFAULT_POS, easeOut, type ObjState, type SceneState } from "./scene";
+import { layoutScene, type Placed } from "./layout";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -21,8 +22,10 @@ export class SceneRenderer {
   private anns: Annotation[] = [];
   private annG = new Graphics();
   private annTexts: Text[] = [];
+  private lay = new Map<string, Placed>(); // layout pass result; recomputed only when the stage size changes
+  private laidFor = "";
 
-  constructor(private app: Application, scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
+  constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
     this.bg = css("--bg");
     app.stage.addChild(this.root);
@@ -55,12 +58,17 @@ export class SceneRenderer {
       case "text":
       case "KineticText": {
         const kinetic = o.type === "KineticText";
-        const t = this.text(kinetic ? o.text : o.text, kinetic ? 120 : 30, kinetic ? "bold" : "normal");
+        const t = this.text(o.text, kinetic ? 120 : 30, kinetic ? "bold" : "normal");
         if (!kinetic) t.alpha = 0.72;
         t.anchor.set(0.5);
         c.addChild(t);
         this.root.addChild(c);
-        return { node: c, draw: (s, w, h) => { place(s, w, h); t.style.fontSize = (kinetic ? 0.16 : 0.04) * h; } };
+        return { node: c, draw: (s, w, h) => {
+          place(s, w, h);
+          const p = this.lay.get(o.id);
+          if (p?.text !== undefined && t.text !== p.text) t.text = p.text; // wrapped text + fitted size from layout.ts
+          if (p?.fontSize && t.style.fontSize !== p.fontSize) { t.style.fontSize = p.fontSize; t.style.letterSpacing = kinetic ? -p.fontSize * 0.03 : 0; }
+        } };
       }
       case "shape": {
         const g = new Graphics();
@@ -176,8 +184,31 @@ export class SceneRenderer {
     }
   }
 
-  draw(st: SceneState) {
+  /** Layout pass: once per scene size (first draw, resize), never per frame. */
+  private relayout(w: number, h: number) {
+    const key = `${w}x${h}`;
+    if (key === this.laidFor) return;
+    this.laidFor = key;
+    const measure = (s: string, size: number, bold: boolean) =>
+      CanvasTextMetrics.measureText(s, new TextStyle({ fontSize: size, fontWeight: bold ? "bold" : "normal", fontFamily: FONT, letterSpacing: bold ? -size * 0.03 : 0 })).width;
+    this.lay = layoutScene(this.scene.objects, w, h, measure);
+  }
+
+  /** Scene state positions are defaults/explicit + animation; swap the default for the laid-out spot, keep the animated delta. */
+  private placed(st: SceneState): Map<string, ObjState> {
+    const out = new Map<string, ObjState>();
+    for (const o of this.scene.objects) {
+      const s = st.objects.get(o.id)!, p = this.lay.get(o.id);
+      const [dx, dy] = DEFAULT_POS[o.type] ?? [0.5, 0.5];
+      out.set(o.id, p ? { ...s, x: p.x + s.x - (typeof o.x === "number" ? o.x : dx), y: p.y + s.y - (typeof o.y === "number" ? o.y : dy) } : s);
+    }
+    return out;
+  }
+
+  draw(state: SceneState) {
     const { width: w, height: h } = this.app.screen;
+    this.relayout(w, h);
+    const st = { ...state, objects: this.placed(state) };
     for (const [id, d] of this.draws) {
       const s = st.objects.get(id)!;
       d.draw(s, w, h, st.objects);

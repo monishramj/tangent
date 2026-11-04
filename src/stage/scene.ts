@@ -27,7 +27,7 @@ export const easeOut = (p: number) => 1 - (1 - p) ** 3;
 const lerp = (a: number, b: number, k: number) => (k >= 1 ? b : a + (b - a) * k);
 const num = (x: unknown, d: number) => (typeof x === "number" ? x : d);
 
-const DEFAULT_POS: Record<string, [number, number]> = {
+export const DEFAULT_POS: Record<string, [number, number]> = {
   KineticText: [0.5, 0.3], text: [0.5, 0.8], Math: [0.5, 0.5], Array: [0.5, 0.6], Tree: [0.5, 0.55],
 };
 
