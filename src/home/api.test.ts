@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ingestPdf, listSections, sectionText } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("r") }));
+vi.mock("@tauri-apps/api/path", () => ({ appDataDir: vi.fn().mockResolvedValue("/data"), join: vi.fn(async (...p: string[]) => p.join("/")) }));
 
 it("wraps ingest_pdf and list_sections over sidecar_call", async () => {
   await ingestPdf("/a.pdf");
@@ -28,4 +29,23 @@ describe("sectionFigures", () => {
     expect(sectionFigures(ir, "c").map(f => f.id)).toEqual(["f2"]);
     expect(sectionFigures(ir, "nope")).toEqual([]);
   });
+});
+
+it("passes assets_dir, pdf_info and figuresDir", async () => {
+  const { pdfInfo, figuresDir } = await import("./api");
+  await ingestPdf("/a.pdf", "/data/figures/s1");
+  expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "ingest_pdf", params: { path: "/a.pdf", assets_dir: "/data/figures/s1" } });
+  await pdfInfo("/a.pdf");
+  expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "pdf_info", params: { path: "/a.pdf" } });
+  expect(await figuresDir("s1")).toBe("/data/figures/s1");
+});
+
+it("sectionExercises collects from a section and its descendants", async () => {
+  const { sectionExercises } = await import("./api");
+  const ex = (id: string) => ({ id, markdown: `1. ${id}`, anchors: [{ page: 2 }] });
+  const child = { id: "c", title: "Exercises", level: 3, anchors: [], children: [], exercises: [ex("e2"), { id: "", markdown: "" }] };
+  const ir = { sections: [{ id: "p", title: "p", level: 2, anchors: [], children: [child], exercises: [ex("e1")] }] };
+  expect(sectionExercises(ir, "p").map(e => e.id)).toEqual(["e1", "e2"]);
+  expect(sectionExercises(ir, "c")[0]).toEqual({ id: "e2", markdown: "1. e2", anchors: [{ page: 2 }] });
+  expect(sectionExercises(ir, "nope")).toEqual([]);
 });

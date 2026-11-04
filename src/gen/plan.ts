@@ -20,10 +20,10 @@ function withStarts(groups: { count: number; concept: string; visualPlan: string
   return groups.map(g => { const plan = { ...g, start }; start += g.count; return plan; });
 }
 
-/** Deterministic fallback: chunks of 4; a short remainder merges into the previous chunk. */
-export function chunkBeats(beats: Beat[], size = 4): ScenePlan[] {
+/** Deterministic grouping: a short first scene (fast first frame), then chunks of `size`; a short remainder merges back. */
+export function chunkBeats(beats: Beat[], size = 4, first = size): ScenePlan[] {
   const counts: number[] = [];
-  for (let i = 0; i < beats.length; i += size) counts.push(Math.min(size, beats.length - i));
+  for (let i = 0; i < beats.length; i += counts[counts.length - 1]) counts.push(Math.min(counts.length ? size : first, beats.length - i));
   if (counts.length > 1 && counts[counts.length - 1] < MIN_GROUP) counts[counts.length - 2] += counts.pop()!;
   let start = 0;
   return counts.map(count => {

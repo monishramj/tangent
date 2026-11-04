@@ -4,14 +4,16 @@ export const MIN_FONT = 18;
 const LH = 1.15; // line height factor
 const PAD = 0.05; // outer margin, fraction of h
 export type Measure = (s: string, size: number, bold: boolean) => number;
-export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown };
+export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown; size?: number; maxW?: number; weight?: string; variant?: string };
 /** x,y: centre as stage fractions. auto: renderer-owned position (no explicit x/y). Text items also get wrapped text + fontSize (px). */
 export type Placed = { x: number; y: number; auto: boolean; text?: string; fontSize?: number; /** visual cell size (px) */ cw?: number; ch?: number };
 
-const SMALL = new Set(["shape", "Math"]);
+const SMALL = new Set(["shape", "Math", "icon", "emoji", "counter", "person"]);
 const isNum = (v: unknown): v is number => typeof v === "number";
 
 function wrap(text: string, size: number, bold: boolean, maxW: number, m: Measure): string[] {
+  const parts = text.split("\n"); // explicit line breaks stay
+  if (parts.length > 1) return parts.flatMap(p => wrap(p, size, bold, maxW, m));
   const lines: string[] = [];
   let cur = "";
   const push = (s: string) => { if (s) lines.push(s); };
@@ -45,13 +47,17 @@ function fit(text: string, base: number, bold: boolean, maxW: number, maxH: numb
 
 export function layoutScene(items: LItem[], w: number, h: number, m: Measure): Map<string, Placed> {
   const out = new Map<string, Placed>();
-  const maxW = 0.8 * w;
   const isText = (i: LItem) => i.type === "text" || i.type === "KineticText";
   const isTitle = (i: LItem) => i.type === "KineticText";
   const flowed = items.filter((i) => isText(i) && !isNum(i.y));
-  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree", "flow", "table", "code", "figure", "bits", "stack"].includes(i.type) && !isNum(i.y));
-  const base = (i: LItem, f: number) => (isTitle(i) ? 0.12 : 0.045) * h * f;
-  const fitOne = (i: LItem, f: number) => fit(i.text ?? "", base(i, f), isTitle(i), maxW, (isTitle(i) ? 0.3 : 0.18) * h, m);
+  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree", "flow", "table", "code", "figure", "bits", "stack", "icon", "emoji", "counter", "person", "chart", "gif"].includes(i.type) && !isNum(i.y));
+  const bold = (i: LItem) => isTitle(i) || i.weight === "bold";
+  const stack = (i: LItem) => i.variant === "stack"; // one word per line
+  const base = (i: LItem, f: number) => (i.size ? i.size : isTitle(i) ? 0.12 : 0.045) * h * f;
+  const fitOne = (i: LItem, f: number) => {
+    const text = stack(i) ? (i.text ?? "").split(/\s+/).join("\n") : i.text ?? "";
+    return fit(text, base(i, f), bold(i), (i.maxW ?? 0.8) * w, (stack(i) ? 0.5 : i.size ? 0.6 : isTitle(i) ? 0.3 : 0.18) * h, m);
+  };
 
   // explicit-y texts: fitted but outside the flow
   for (const i of items) if (isText(i) && isNum(i.y)) {

@@ -14,6 +14,10 @@ const range = z.tuple([index, index]).refine(([a, b]) => a <= b, "range must be 
 const unit = z.number().min(0).max(1);
 const focus = z.tuple([unit, unit, unit, unit]).refine(([x, y, r, b]) => x < r && y < b, "focus box must have positive size");
 const point = z.union([id, num2]); // object id or [x, y]
+const size = z.number().positive().max(1).optional(); // fraction of stage height
+export const SHAPES = ["rect", "circle", "polygon", "diamond", "pill", "cylinder", "trapezoid", "hexagon", "parallelogram", "alu"] as const;
+export const POSES = ["stand", "point", "think", "shrug", "celebrate", "wave", "confused", "walk", "explain"] as const;
+export const Pose = z.enum(POSES);
 const obj = <K extends string, T extends z.ZodRawShape>(type: K, shape: T) =>
   z.looseObject({ id, type: z.literal(type), ...animation, color: color.optional(), ...shape });
 
@@ -54,10 +58,19 @@ const tree = obj("Tree", {
 export type TreeObject = z.infer<typeof tree>;
 
 export const SceneObject = z.discriminatedUnion("type", [
-  obj("text", { text: z.string() }),
-  obj("KineticText", { text: z.string(), variant: z.string().optional() }), // e.g. "slam"
-  obj("Math", { tex: z.string() }), // KaTeX
-  obj("shape", { shape: z.enum(["rect", "circle", "polygon"]), label: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }),
+  // size: font size as a fraction of stage height; weight/mono/align/maxW only matter for explicitly placed text.
+  obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), opacity: unit.optional() }),
+  obj("KineticText", { text: z.string(), variant: z.string().optional(), size, maxW: unit.optional() }), // variant: slam | punch | words | stack
+  obj("Math", { tex: z.string(), size }), // KaTeX
+  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional() }),
+  obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
+  obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
+  obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
+  obj("gif", { query: z.string().optional(), src: z.string().optional(), caption: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }),
+  obj("chart", { kind: z.enum(["bar", "line"]).default("bar"), labels: z.array(z.string()).min(1), values: z.array(z.number()).min(1), max: z.number().positive().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }).superRefine((o, ctx) => {
+    if (o.labels.length !== o.values.length) ctx.addIssue({ code: "custom", message: "chart needs one label per value" });
+  }),
+  obj("counter", { to: z.number(), from: z.number().default(0), prefix: z.string().optional(), suffix: z.string().optional(), decimals: z.number().int().min(0).max(4).default(0), label: z.string().optional(), size }),
   obj("flow", {
     nodes: z.array(z.object({ id, label: z.string(), x: unit.optional(), y: unit.optional() })).min(1),
     edges: z.array(z.object({ from: id, to: id, label: z.string().optional() })),
@@ -78,8 +91,8 @@ export const SceneObject = z.discriminatedUnion("type", [
     if (o.groups && o.groups.reduce((a, b) => a + b, 0) !== o.bits.length) ctx.addIssue({ code: "custom", message: "groups must cover all bits" });
   }),
   obj("stack", { frames: z.array(z.object({ label: z.string(), items: z.array(z.string()) })).min(1) }),
-  obj("arrow", { from: point, to: point }),
-  obj("line", { from: point, to: point }),
+  obj("arrow", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
+  obj("line", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
   obj("axes", { x: num2, y: num2 }),
   obj("plot", { axes: id, expr: z.string() }),
   obj("media", { src: z.string() }), // gif/image
@@ -88,8 +101,11 @@ export const SceneObject = z.discriminatedUnion("type", [
   tree,
 ]);
 
+// A spoken phrase from the beat's say, or "@f": the word at fraction f (0..1) of the beat (templates use this; robust to TTS rewording).
+export const FRACTION_ANCHOR = /^@(0(\.\d+)?|1(\.0+)?)$/;
+const anchor = z.string().min(1);
 const act = <K extends string, T extends z.ZodRawShape>(verb: K, shape: T, targetRequired = true) =>
-  z.looseObject({ at: z.string().min(1), do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), easing: Easing.optional(), duration: z.number().positive().optional(), ...shape });
+  z.looseObject({ at: anchor, do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), easing: Easing.optional(), duration: z.number().positive().optional(), ...shape });
 
 export const Action = z.discriminatedUnion("do", [
   act("create", { ...animation, edge: z.enum(["left", "right", "top", "bottom"]).optional() }),
@@ -100,6 +116,8 @@ export const Action = z.discriminatedUnion("do", [
   act("indicate", {}),
   act("camera", { x: z.number().optional(), y: z.number().optional(), zoom: z.number().positive().optional(), shake: z.number().min(0).max(.1).optional() }, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose
   act("wait", {}, false),
+  act("pose", { to: Pose }), // person: animate to a new pose
+  act("pulse", {}), // arrow/line: a dot travels from -> to (signal flow)
   act("op", { op: z.string(), args: z.array(z.unknown()).default([]) }),
 ]);
 

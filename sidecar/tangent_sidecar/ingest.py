@@ -37,6 +37,23 @@ def _convert_pdf(path, pages=None):
     return result.document
 
 
+EXERCISE_HEADING = re.compile(
+    r"\b(exercises?|review questions?|practice problems?|activit(?:y|ies)|check yourself|self[- ]check|"
+    r"checkpoints?|quick check|try it|participation activit(?:y|ies)|challenge activit(?:y|ies)|problems|questions)\b", re.I)
+
+
+def pdf_info(params):
+    if not isinstance(params, dict) or not isinstance(params.get("path"), str) or not params["path"].strip():
+        raise ValueError("path must be a non-empty local PDF path")
+    import pypdfium2
+
+    pdf = pypdfium2.PdfDocument(str(Path(params["path"]).expanduser().resolve(strict=True)))
+    try:
+        return {"pages": len(pdf)}
+    finally:
+        pdf.close()
+
+
 def _assets_root():
     return Path(__file__).resolve().parents[1] / ".ingest"
 
@@ -59,12 +76,19 @@ def ingest_pdf(params):
                 or not 1 <= pages[0] <= pages[1]):
             raise ValueError("pages must be [first, last], 1-based and ascending")
         pages = tuple(pages)
+    assets_dir = params.get("assets_dir")
+    if assets_dir is not None and (not isinstance(assets_dir, str) or not os.path.isabs(assets_dir)):
+        raise ValueError("assets_dir must be an absolute path")
     # Model diagnostics must never become JSON-lines responses.
     with redirect_stdout(sys.stderr):
         document = _convert_pdf(path, pages) if pages else _convert_pdf(path)
-        root = _assets_root()
-        root.mkdir(parents=True, exist_ok=True)
-        assets = Path(tempfile.mkdtemp(prefix="pdf-", dir=root))
+        if assets_dir is not None:
+            assets = Path(assets_dir)
+            assets.mkdir(parents=True, exist_ok=True)
+        else:
+            root = _assets_root()
+            root.mkdir(parents=True, exist_ok=True)
+            assets = Path(tempfile.mkdtemp(prefix="pdf-", dir=root))
         return document_to_ir(document, assets)
 
 
@@ -146,7 +170,8 @@ def document_to_ir(document, assets):
             figure_id = f"figure-{figure_count}"
             image = item.get_image(document)
             if image is None:
-                raise ValueError(f"Docling did not extract an image for {figure_id}")
+                print(f"warning: Docling did not extract an image for {figure_id}; skipping", file=sys.stderr)
+                continue
             assets.mkdir(parents=True, exist_ok=True)
             image_path = (assets / f"{figure_id}.png").resolve()
             image.save(image_path)
@@ -159,9 +184,7 @@ def document_to_ir(document, assets):
             continue
         current["markdown"] += ("\n\n" if current["markdown"] else "") + markdown
 
-        # shortcut: explicit English exercise headings only; expand for other textbook conventions.
-        if any(re.search(r"\b(exercises?|review questions|practice problems|activities)\b", s["title"], re.I)
-               for s in stack):
+        if any(EXERCISE_HEADING.search(s["title"]) for s in stack):
             if (exercise is None or getattr(item, "enumerated", False)
                     or re.match(r"^\s*\d+[.)]\s", getattr(item, "text", ""))):
                 exercise = {"id": f"{current['id']}-exercise-{len(current['exercises']) + 1}",

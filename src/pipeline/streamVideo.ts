@@ -1,16 +1,22 @@
 import { generateScript, type Beat } from "../gen/script";
 import { generateGroupScene } from "../gen/scene";
-import { planScenes, type Figure, type ScenePlan } from "../gen/plan";
+import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
+import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/checkpoints";
+import { resolveGifs, type GifSearch } from "../media/giphy";
 import { splitBeatAudio } from "./splitAudio";
 import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "../dsl/ops";
 import { resolveAnchor, type Timeline, type Word } from "../dsl/compile";
 import type { LLMProvider } from "../llm/provider";
-import type { Scene } from "../dsl/schema";
+import { FRACTION_ANCHOR, type Scene } from "../dsl/schema";
 
 export type PipelineEvent =
   | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number }
-  | { type: "error"; sceneId: string; error: Error };
+  | { type: "error"; sceneId: string; error: Error }
+  | { type: "checkpoints"; items: Checkpoint[] };
+
+/** Real generation progress for the loading UI: which step scene `scene` is on, and how many scenes are ready. */
+export type Progress = { step: "script" | "narration" | "animation" | "ready"; scene: number; scenesReady: number; scenesTotal: number; beats: string[] };
 
 export type GenerationStatus = "writing script" | "generating narration" | "building scenes" | "done";
 
@@ -25,12 +31,15 @@ type Options = {
   /** Scenes allowed to be in flight or ready beyond the one being played. */
   lookahead?: number;
   figures?: Figure[];
+  exercises?: Exercise[];
+  gifSearch?: GifSearch | null;
+  onProgress?: (p: Progress) => void;
   signal?: AbortSignal;
   clock?: { now(): number };
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], signal, onStatus, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], exercises = [], gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -58,6 +67,8 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   let issued = 0;
   let active = 0;
   let groups: { beats: Beat[]; plan: ScenePlan }[] = [];
+  let ready_ = 0, says: string[] = [];
+  const progress = (step: Progress["step"], scene: number) => onProgress?.({ step, scene, scenesReady: ready_, scenesTotal: groups.length, beats: says });
 
   async function build({ beats, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
     const sceneId = `scene-${index + 1}`;
@@ -68,6 +79,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       try {
         checkAbort();
         onStatus?.("generating narration");
+        progress("narration", index);
         const spoken = beats.map(beat => mathToSpeech(beat.say));
         // One wav per scene; beat boundaries stay as sentence boundaries in the joined text.
         // Audio survives a failed scene attempt; only the DSL is retried.
@@ -84,15 +96,17 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         }
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
-        const result = await generateGroupScene({ beats, plan, figures, provider: complete });
+        progress("animation", index);
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1 });
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
+        await resolveGifs(scene, gifSearch);
         scene.scene = sceneId;
         scene.beats.forEach((beat, i) => {
           if (!("say" in beat)) return;
           beat.say = spoken[i];
-          beat.actions = beat.actions.map(action => ({ ...action, at: mathToSpeech(action.at) }));
+          beat.actions = beat.actions.map(action => FRACTION_ANCHOR.test(action.at) ? action : ({ ...action, at: mathToSpeech(action.at) }));
         });
         // Anchors the TTS spoke differently (e.g. "LEGv 8" vs "LEGv eight"): snap to a token that was spoken, else the word at the same relative position.
         scene.beats.forEach((beat, i) => {
@@ -108,6 +122,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         });
         // pause 0: beats are contiguous slices of the single wav.
         const timeline = compileOps(scene, clips, 0);
+        ready_++; progress("ready", index);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };
       } catch (cause) {
         checkAbort();
@@ -136,12 +151,17 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
     try {
       checkAbort();
       onStatus?.("writing script");
+      progress("script", 0);
       const script = await generateScript({ sectionMarkdown, provider: complete });
       if (!script.beats || script.violations.length) throw new Error("Invalid script");
       const beats = script.beats;
-      const plans = await planScenes({ beats, provider: complete, figures });
-      groups = plans.map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));
+      says = beats.map(b => b.say);
+      groups = chunkBeats(beats, 4, 3).map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));
       fill();
+      // Checkpoints are one side call; they never delay a scene and failure just means none.
+      let checkpoints: Checkpoint[] | null = null, sent = false;
+      const pending = generateCheckpoints({ sectionMarkdown, exercises, scenes: groups.map(g => g.plan.concept), provider: complete })
+        .then(items => { checkpoints = items; }, () => { checkpoints = []; });
       while (cursor < groups.length) {
         const event = await Promise.race([jobs.get(cursor)!, aborted]);
         checkAbort();
@@ -149,7 +169,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         jobs.delete(cursor++);
         fill();
         yield event;
+        if (checkpoints && !sent) { sent = true; yield { type: "checkpoints", items: checkpoints }; }
       }
+      if (!sent) { await Promise.race([pending, aborted]); yield { type: "checkpoints", items: checkpoints ?? [] }; }
     } finally {
       if (state !== "aborted") { state = "done"; onStatus?.("done"); }
       controller.abort();

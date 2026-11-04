@@ -14,7 +14,7 @@ export const defaultStyle = (o: SceneObject): Style => {
   if (o.style) return o.style;
   if (["shape", "arrow", "line"].includes(o.type)) return "draw";
   if (["text", "code"].includes(o.type)) return "type";
-  if (["Array", "Tree", "flow", "table", "bits", "stack"].includes(o.type)) return "stagger";
+  if (["Array", "Tree", "flow", "table", "bits", "stack", "chart"].includes(o.type)) return "stagger";
   return "pop";
 };
 export function staggerProgress(p: number, i: number, count: number, gap = .12) {

@@ -1,0 +1,354 @@
+// Templates: the LLM picks a layout per beat and fills its slots; this expands each into positioned DSL
+// objects and word-anchored actions. Layout, sizing and timing live here, so a weak model can't make a clunky frame.
+// Positions are stage fractions on a 16:9 stage. Anchors: a phrase from `say` if it occurs exactly once, else "@f".
+import { z } from "zod";
+import { Pose, SceneObject, Transition, type Scene } from "./schema";
+
+const s = z.string().min(1);
+const visual = { icon: s.optional(), emoji: s.max(16).optional() };
+const at = { at: s.optional() };
+const Item = z.object({ text: s, ...visual, ...at });
+const Side = z.object({ title: s, ...visual, points: z.array(s).max(3).optional() });
+const Node = z.object({ id: z.string().regex(/^[A-Za-z_][\w-]*$/), label: s, shape: z.string().optional(), sub: z.string().optional(), ...at });
+const Op = z.object({ op: s, args: z.array(z.unknown()).default([]), ...at });
+
+export const TEMPLATES = {
+  title: z.object({ text: s, kicker: s.optional(), ...visual }),
+  stat: z.object({ value: z.number(), prefix: z.string().optional(), suffix: z.string().optional(), decimals: z.number().int().min(0).max(3).optional(), label: s, ...visual }),
+  versus: z.object({ left: Side, right: Side }),
+  list: z.object({ title: s.optional(), items: z.array(Item).min(2).max(5) }),
+  character: z.object({ pose: Pose.default("explain"), poseTo: Pose.optional(), says: s.optional(), thinks: s.optional(), ...visual,
+    other: z.object({ pose: Pose.default("stand"), says: s.optional() }).optional() }),
+  diagram: z.object({ title: s.optional(), nodes: z.array(Node).min(2).max(8), edges: z.array(z.object({ from: s, to: s, label: z.string().optional() })).default([]),
+    pulse: z.array(z.tuple([s, s])).max(4).optional() }),
+  math: z.object({ steps: z.array(s).min(1).max(4), notes: z.array(z.object({ text: s, ...at })).max(3).optional() }),
+  code: z.object({ title: s.optional(), lines: z.array(z.string()).min(1).max(14), highlight: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])).max(4).optional() }),
+  array: z.object({ id: z.string().regex(/^[A-Za-z_][\w-]*$/).default("arr"), label: s.optional(), values: z.array(z.union([z.number(), z.string()])).min(1).max(10), heap: z.enum(["min", "max"]).optional(), ops: z.array(Op).max(3).default([]) }),
+  tree: z.object({ id: z.string().regex(/^[A-Za-z_][\w-]*$/).default("tree"), label: s.optional(), kind: z.string().default("bst"), init: z.unknown(), ops: z.array(Op).max(3).default([]) }),
+  chart: z.object({ title: s.optional(), labels: z.array(s).min(1).max(8), values: z.array(z.number()).min(1).max(8), highlight: z.number().int().min(0).optional() }),
+  figure: z.object({ src: s, caption: s.optional(), focus: z.array(z.tuple([z.number(), z.number(), z.number(), z.number()])).optional() }),
+  gif: z.object({ query: s, caption: s.optional() }),
+  callout: z.object({ text: s, sub: s.optional() }),
+  table: z.object({ headers: z.array(s).min(1).max(5), rows: z.array(z.array(z.string())).min(1).max(6), highlightRows: z.array(z.number().int().min(0)).optional() }),
+} as const;
+export type TemplateName = keyof typeof TEMPLATES;
+export const VARIANTS: Record<TemplateName, string[]> = {
+  title: ["slam", "punch", "words", "stack"], stat: ["center", "side"], versus: ["split", "cards"], list: ["column", "grid", "steps"],
+  character: ["left", "right", "duo"], diagram: ["flow-h", "flow-v", "cycle", "hub", "datapath", "layers"], math: ["derive", "focus"],
+  code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["center", "side"],
+  callout: ["underline", "box", "punch"], table: ["default"],
+};
+
+const Sticker = z.object({ ...visual, ...at }).refine(x => x.icon || x.emoji, "sticker needs icon or emoji");
+export const TemplateBeat = z.object({
+  say: s,
+  template: z.enum(Object.keys(TEMPLATES) as [TemplateName, ...TemplateName[]]).optional(),
+  variant: z.string().optional(),
+  data: z.unknown().optional(),
+  keep: z.boolean().optional(), // keep the previous beat's objects on screen (build on them with actions)
+  sticker: Sticker.optional(),
+  camera: z.enum(["drift", "zoom", "shake"]).optional(),
+  objects: z.array(z.unknown()).optional(), // escape hatch: raw DSL objects
+  actions: z.array(z.unknown()).optional(), // raw DSL actions (e.g. highlight/pulse/op on kept objects)
+  cite: z.string().optional(),
+  transition: Transition.optional(),
+});
+export const TemplateScene = z.object({ scene: z.string().optional(), objects: z.array(z.unknown()).default([]), beats: z.array(TemplateBeat).min(1) });
+export type TemplateBeat = z.infer<typeof TemplateBeat>;
+export type TemplateSceneT = z.input<typeof TemplateScene>;
+export type ExpandError = { path: string; message: string; beat?: number };
+
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const occurrences = (say: string, phrase: string) => [...say.matchAll(new RegExp(`(?<![\\w'])${esc(phrase)}(?![\\w'])`, "gi"))].length;
+const frac = (f: number) => `@${Math.min(1, Math.max(0, f)).toFixed(3).replace(/\.?0+$/, "") || "0"}`;
+const TRANSITIONS: z.infer<typeof Transition>[] = ["whip", "push", "cut", "whip"];
+
+/** Shape kind from a free-form hint or a datapath label ("ALU" -> alu, "MUX" -> trapezoid, "Data memory" -> cylinder). */
+export function shapeFor(hint: string | undefined, label: string): string {
+  const k = (hint ?? "").toLowerCase();
+  const known = ["rect", "circle", "diamond", "pill", "cylinder", "trapezoid", "hexagon", "parallelogram", "alu", "polygon"];
+  if (known.includes(k)) return k;
+  if (/decision|if|\?/.test(k)) return "diamond";
+  if (/start|end|terminal/.test(k)) return "pill";
+  if (/data(base)?|store|disk/.test(k)) return "cylinder";
+  if (/input|output|io/.test(k)) return "parallelogram";
+  if (/\balu\b/i.test(label)) return "alu";
+  if (/\bmux\b/i.test(label)) return "trapezoid";
+  return "rect";
+}
+
+/** Longest-path layering (cycles broken by input order): node id -> [layer, index within layer]. */
+export function layers(nodes: { id: string }[], edges: { from: string; to: string }[]) {
+  const order = new Map(nodes.map((n, i) => [n.id, i]));
+  const layer = new Map(nodes.map(n => [n.id, 0]));
+  for (let pass = 0; pass < nodes.length; pass++)
+    for (const e of edges) {
+      if (!order.has(e.from) || !order.has(e.to) || order.get(e.to)! <= order.get(e.from)!) continue; // forward edges only
+      if (layer.get(e.to)! < layer.get(e.from)! + 1) layer.set(e.to, layer.get(e.from)! + 1);
+    }
+  const count = new Map<number, number>();
+  const pos = new Map<string, [number, number]>();
+  for (const n of nodes) { const l = layer.get(n.id)!; const i = count.get(l) ?? 0; count.set(l, i + 1); pos.set(n.id, [l, i]); }
+  return { pos, layerCount: Math.max(...layer.values()) + 1, perLayer: count };
+}
+
+type Ctx = { b: number; say: string; objects: SceneObject[]; actions: unknown[]; ids: Set<string> };
+
+function ctx(b: number, say: string, ids: Set<string>): Ctx & {
+  id(base: string): string; anchor(f: number, phrase?: string): string;
+  add(o: Record<string, unknown>, when: string, create?: Record<string, unknown>): string; act(a: Record<string, unknown>): void;
+} {
+  const c = { b, say, objects: [] as SceneObject[], actions: [] as unknown[], ids };
+  return {
+    ...c,
+    id(base) { let id = base, n = 2; while (ids.has(id)) id = `${base}_${n++}`; ids.add(id); return id; },
+    anchor(f, phrase) { return phrase && occurrences(say, phrase) === 1 ? phrase : frac(f); },
+    add(o, when, create = {}) { c.objects.push(o as SceneObject); c.actions.push({ at: when, do: "create", target: o.id, ...create }); return o.id as string; },
+    act(a) { c.actions.push(a); },
+    get objects() { return c.objects; }, get actions() { return c.actions; },
+  };
+}
+type C = ReturnType<typeof ctx>;
+/** n evenly spread reveal anchors over [from, to] of the beat. */
+const spread = (n: number, from = 0, to = .7) => Array.from({ length: n }, (_, i) => n === 1 ? from : from + (to - from) * i / (n - 1));
+
+function visualAt(c: C, base: string, v: { icon?: string; emoji?: string }, x: number, y: number, size: number, when: string, label?: string) {
+  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "pop" });
+  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "pop" });
+  return undefined;
+}
+
+// Each expander gets parsed data and a variant; it adds objects + actions through the context.
+const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v: string) => void } = {
+  title(c, d, v) {
+    if (d.kicker) c.add({ id: c.id("kicker"), type: "text", text: d.kicker.toUpperCase(), x: .5, y: .27, size: .04, opacity: .6 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id("title"), type: "KineticText", text: d.text, variant: v, x: .5, y: .46, size: d.text.length > 18 ? .11 : .15, maxW: .86 }, frac(.05));
+    if (v === "punch") c.act({ at: frac(.05), do: "camera", shake: .02, duration: .4 });
+    visualAt(c, "title_v", d, .5, .72, .14, frac(.45));
+    void id;
+  },
+  stat(c, d, v) {
+    const side = v === "side";
+    visualAt(c, "stat_v", d, side ? .27 : .5, side ? .5 : .2, side ? .32 : .13, frac(0));
+    c.add({ id: c.id("stat"), type: "counter", from: 0, to: d.value, prefix: d.prefix, suffix: d.suffix, decimals: d.decimals ?? 0, x: side ? .66 : .5, y: side ? .42 : .47, size: .22 }, frac(.1), { duration: 1.2 });
+    c.add({ id: c.id("stat_label"), type: "text", text: d.label, x: side ? .66 : .5, y: side ? .64 : .7, size: .05, maxW: side ? .5 : .8 }, frac(.4), { style: "type" });
+  },
+  versus(c, d, v) {
+    const sides = [[d.left, .26, "left", .05], [d.right, .74, "right", .5]] as const;
+    for (const [side, x, edge, f] of sides) {
+      const when = frac(f), slide = v === "cards" ? { style: "slide", edge } : { style: "pop" };
+      if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .4, height: .72 }, when, { style: "draw" });
+      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .25, size: .055, maxW: .36 }, when, slide);
+      visualAt(c, `${edge}_v`, side, x, .45, .16, when);
+      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .63 + i * .075, size: .033, maxW: .34, opacity: .75 }, frac(f + .12 + i * .08), { style: "type" }));
+    }
+    c.add({ id: c.id("vs"), type: "KineticText", text: "VS", variant: "punch", x: .5, y: .5, size: .08 }, frac(.38));
+  },
+  list(c, d, v) {
+    const n = d.items.length, top = d.title ? .3 : .22;
+    if (d.title) c.add({ id: c.id("list_title"), type: "KineticText", text: d.title, variant: "words", x: .5, y: .13, size: .07 }, frac(0));
+    const when = spread(n, d.title ? .12 : 0, .78).map((f, i) => c.anchor(f, d.items[i].at));
+    d.items.forEach((it, i) => {
+      if (v === "grid") {
+        const cols = n <= 3 ? n : Math.ceil(n / 2), row = Math.floor(i / cols), col = i % cols, inRow = Math.min(cols, n - row * cols);
+        const x = .5 + (col - (inRow - 1) / 2) * .29, y = (n <= 3 ? .55 : .42 + row * .32) + (d.title ? .03 : 0);
+        c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw" });
+        visualAt(c, `card${i}_v`, it, x, y - .05, .1, when[i]);
+        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .033, maxW: .22 }, when[i], { style: "type" });
+      } else if (v === "steps") {
+        const x = .5 + (i - (n - 1) / 2) * Math.min(.22, .84 / n);
+        const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .5, width: .07, height: .12, filled: i === n - 1 }, when[i]);
+        if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: `${c.objects.find(o => o.id.startsWith(`step${i - 1}`))?.id}`, to: dot }, when[i], { style: "draw" });
+        visualAt(c, `step${i}_v`, it, x, .34, .09, when[i]);
+        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .68, size: .03, maxW: Math.min(.2, .8 / n) }, when[i], { style: "type" });
+      } else {
+        const y = top + i * Math.min(.14, .62 / n);
+        visualAt(c, `item${i}_v`, it.icon || it.emoji ? it : { icon: "checkmark-circle" }, .2, y, .075, when[i]);
+        c.add({ id: c.id(`item${i}`), type: "text", text: it.text, x: .26, y, size: .045, maxW: .64, align: "left" }, when[i], { style: "slide", edge: "right" });
+      }
+    });
+  },
+  character(c, d, v) {
+    const right = v === "right", duo = v === "duo" && d.other;
+    const px = duo ? .24 : right ? .72 : .28;
+    const me = c.add({ id: c.id("person"), type: "person", pose: d.pose, facing: right ? "left" : "right", x: px, y: .6, size: .5 }, frac(0), { style: "draw" });
+    const bx = duo ? .32 : right ? .34 : .66;
+    if (d.says) c.add({ id: c.id("says"), type: "shape", shape: "pill", label: d.says, x: bx, y: .17, width: .34, height: .15 }, frac(.15), { style: "pop" });
+    if (d.thinks) {
+      c.add({ id: c.id("bubble"), type: "shape", shape: "circle", x: bx, y: .3, width: .17, height: .3 }, frac(.2), { style: "draw" });
+      c.add({ id: c.id("thinks"), type: "text", text: d.thinks, x: bx, y: .3, size: .035, maxW: .13 }, frac(.3), { style: "type" });
+    }
+    if (!d.thinks) visualAt(c, "prop", d, duo ? .5 : right ? .36 : .64, .62, .2, frac(.35));
+    if (d.poseTo) c.act({ at: frac(.55), do: "pose", target: me, to: d.poseTo });
+    if (duo) {
+      c.add({ id: c.id("person2"), type: "person", pose: d.other!.pose, facing: "left", x: .76, y: .6, size: .5 }, frac(.3), { style: "draw" });
+      if (d.other!.says) c.add({ id: c.id("says2"), type: "shape", shape: "pill", label: d.other!.says, x: .68, y: .17, width: .3, height: .15 }, frac(.5), { style: "pop" });
+    }
+  },
+  diagram(c, d, v) {
+    const nodes = d.nodes, ids = new Set(nodes.map(n => n.id));
+    const edges = d.edges.filter(e => ids.has(e.from) && ids.has(e.to));
+    const top = d.title ? .2 : .1, bottom = .9, n = nodes.length;
+    if (d.title) c.add({ id: c.id("diagram_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05 }, frac(0), { style: "type" });
+    const place = new Map<string, [number, number]>();
+    let w = .16, h = .13, layered: ReturnType<typeof layers> | undefined;
+    if (v === "cycle" || v === "hub") {
+      const ring = v === "hub" ? nodes.slice(1) : nodes, cy = (top + bottom) / 2;
+      if (v === "hub") place.set(nodes[0].id, [.5, cy]);
+      ring.forEach((nd, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ring.length; place.set(nd.id, [.5 + .3 * Math.cos(a), cy + .3 * Math.sin(a)]); });
+      w = Math.min(.17, .9 / Math.max(3, ring.length)); h = .12;
+    } else if (v === "layers") {
+      nodes.forEach((nd, i) => place.set(nd.id, [.5, top + (i + .5) * (bottom - top) / n]));
+      w = .56; h = Math.min(.12, (bottom - top) / n * .75);
+    } else {
+      const L = layered = layers(nodes, edges), vertical = v === "flow-v";
+      const across = Math.max(...L.perLayer.values());
+      for (const nd of nodes) {
+        const [l, i] = L.pos.get(nd.id)!, k = L.perLayer.get(l)!;
+        const main = (l + .5) / L.layerCount, cross = (i - (k - 1) / 2) / Math.max(1, across);
+        place.set(nd.id, vertical ? [.5 + cross * .7, top + main * (bottom - top)] : [.06 + main * .88, (top + bottom) / 2 + cross * (bottom - top) * .8]);
+      }
+      w = vertical ? Math.min(.22, .7 / across) : Math.min(.17, .8 / L.layerCount * .7);
+      h = vertical ? Math.min(.12, (bottom - top) / L.layerCount * .6) : Math.min(.14, (bottom - top) / across * .55);
+    }
+    const when = spread(n, d.title ? .1 : 0, .7).map((f, i) => c.anchor(f, nodes[i].at));
+    const made = new Map<string, { id: string; i: number }>();
+    nodes.forEach((nd, i) => {
+      const [x, y] = place.get(nd.id)!;
+      made.set(nd.id, { id: c.add({ id: c.id(nd.id), type: "shape", shape: shapeFor(nd.shape, nd.label), label: nd.label, sublabel: nd.sub, x, y, width: w, height: h }, when[i], { style: "draw" }), i });
+    });
+    const edgeIds = new Map<string, string>();
+    for (const e of edges) {
+      const a = made.get(e.from)!, b = made.get(e.to)!;
+      // Edges that point backwards (or sideways) in a layered layout would overlap forward ones: bend them.
+      const back = (v.startsWith("flow") || v === "datapath") && layered!.pos.get(e.to)![0] <= layered!.pos.get(e.from)![0];
+      const id = c.add({ id: c.id(`e_${e.from}_${e.to}`), type: "arrow", from: a.id, to: b.id, label: e.label, route: back || v === "cycle" ? "curve" : v === "datapath" ? "elbow" : "straight", dashed: back || undefined }, when[Math.max(a.i, b.i)], { style: "draw" });
+      edgeIds.set(`${e.from}>${e.to}`, id);
+    }
+    (d.pulse ?? []).map(([f, t]) => edgeIds.get(`${f}>${t}`)).filter(Boolean)
+      .forEach((id, i, all) => c.act({ at: frac(.78 + .18 * i / Math.max(1, all.length)), do: "pulse", target: id }));
+  },
+  math(c, d, v) {
+    if (v === "focus") {
+      c.add({ id: c.id("eq"), type: "Math", tex: d.steps[0], x: .5, y: .4, size: .1 }, frac(0));
+      (d.notes ?? []).forEach((nt, i, all) => c.add({ id: c.id(`note${i}`), type: "text", text: nt.text, x: .5 + (i - (all.length - 1) / 2) * .3, y: .7, size: .035, maxW: .26 }, c.anchor(.3 + .5 * i / Math.max(1, all.length), nt.at), { style: "type" }));
+      return;
+    }
+    const n = d.steps.length, when = spread(n, 0, .75), ids: string[] = [];
+    d.steps.forEach((tex, i) => {
+      ids.push(c.add({ id: c.id(`step${i}`), type: "Math", tex, x: .5, y: .5 + (i - (n - 1) / 2) * .17, size: .065 }, frac(when[i])));
+      if (i > 0) c.act({ at: frac(when[i]), do: "fade", target: ids[i - 1], to: .35 });
+    });
+    (d.notes ?? []).slice(0, 1).forEach(nt => c.add({ id: c.id("note"), type: "text", text: nt.text, x: .5, y: .88, size: .035 }, c.anchor(.6, nt.at), { style: "type" }));
+  },
+  code(c, d) {
+    if (d.title) c.add({ id: c.id("code_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id("code"), type: "code", lines: d.lines, x: .5, y: .54, width: .72, height: Math.min(.7, d.lines.length * .065) }, frac(0), { style: "type" });
+    const hl = (d.highlight ?? []).filter(([a, b]) => a <= b && b < d.lines.length);
+    spread(hl.length, .3, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, range: hl[i] }));
+  },
+  array(c, d) {
+    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .3, size: .04, opacity: .7 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id(d.id), type: "Array", init: d.values, heap: d.heap ?? "max", x: .5, y: .55 }, frac(0), { style: "stagger" });
+    spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
+  },
+  tree(c, d) {
+    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .1, size: .04, opacity: .7 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id(d.id), type: "Tree", kind: d.kind, init: d.init, x: .5, y: .55 }, frac(0), { style: "stagger" });
+    spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
+  },
+  chart(c, d, v) {
+    if (d.title) c.add({ id: c.id("chart_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .12, size: .05 }, frac(0), { style: "type" });
+    const n = Math.min(d.labels.length, d.values.length);
+    const id = c.add({ id: c.id("chart"), type: "chart", kind: v === "line" ? "line" : "bar", labels: d.labels.slice(0, n), values: d.values.slice(0, n), x: .5, y: .56, width: .72, height: .6 }, frac(.05), { style: v === "line" ? "draw" : "stagger", duration: 1.2 });
+    if (d.highlight !== undefined && d.highlight < n) c.act({ at: frac(.75), do: "highlight", target: id, col: d.highlight });
+  },
+  figure(c, d) {
+    c.add({ id: c.id("figure"), type: "figure", src: d.src, focus: d.focus, x: .5, y: .46, width: .78, height: .7 }, frac(0));
+    if (d.caption) c.add({ id: c.id("figure_cap"), type: "text", text: d.caption, x: .5, y: .9, size: .032, opacity: .7 }, frac(.2), { style: "type" });
+  },
+  gif(c, d, v) {
+    const side = v === "side";
+    c.add({ id: c.id("gif"), type: "gif", query: d.query, caption: side ? undefined : d.caption, x: side ? .3 : .5, y: side ? .5 : .45, width: side ? .36 : .42, height: side ? .6 : .55 }, frac(0));
+    if (side && d.caption) c.add({ id: c.id("gif_text"), type: "KineticText", text: d.caption, variant: "stack", x: .72, y: .5, size: .08, maxW: .4 }, frac(.15));
+  },
+  callout(c, d, v) {
+    const id = c.add({ id: c.id("callout"), type: v === "punch" ? "KineticText" : "text", text: d.text, variant: "punch", weight: "bold", x: .5, y: .45, size: .08, maxW: .82 }, frac(0), v === "punch" ? {} : { style: "type" });
+    if (v === "underline") c.add({ id: c.id("callout_line"), type: "line", from: [.18, .58], to: [.82, .58] }, frac(.4), { style: "draw" });
+    if (v === "box") c.add({ id: c.id("callout_box"), type: "shape", shape: "rect", x: .5, y: .5, width: .88, height: .5 }, frac(.25), { style: "draw" });
+    if (v === "punch") c.act({ at: frac(.3), do: "camera", zoom: 1.08, duration: 2 });
+    if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: .7, size: .04, opacity: .65 }, frac(.5), { style: "type" });
+    void id;
+  },
+  table(c, d) {
+    const cols = d.headers.length, rows = d.rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ""));
+    const id = c.add({ id: c.id("table"), type: "table", headers: d.headers, rows, x: .5, y: .5, width: .8, height: Math.min(.75, (rows.length + 1) * .1) }, frac(0), { style: "stagger" });
+    const hl = (d.highlightRows ?? []).filter(r => r < rows.length);
+    spread(hl.length, .35, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, row: hl[i] }));
+  },
+};
+
+const issuePath = (p: PropertyKey[]) => p.map(x => typeof x === "number" ? `[${x}]` : `.${String(x)}`).join("");
+
+/** Template scene -> plain Scene JSON (validate it with validateScene). Errors are per beat so retries can target them. */
+export function expandTemplates(raw: unknown): { scene: Scene | null; errors: ExpandError[] } {
+  const parsed = TemplateScene.safeParse(raw);
+  if (!parsed.success) return { scene: null, errors: parsed.error.issues.map(i => ({ path: issuePath(i.path).replace(/^\./, ""), message: i.message, beat: i.path[0] === "beats" && typeof i.path[1] === "number" ? i.path[1] : undefined })) };
+  const errors: ExpandError[] = [];
+  const ids = new Set<string>();
+  const objects: unknown[] = [];
+  for (const o of parsed.data.objects) { const id = (o as { id?: unknown })?.id; if (typeof id === "string") ids.add(id); objects.push(o); }
+  let onScreen: string[] = [];
+  let cleared = 0;
+  const beats = parsed.data.beats.map((beat, b) => {
+    const c = ctx(b, beat.say, ids);
+    const raws = (beat.objects ?? []).map(o => { const id = (o as { id?: unknown })?.id; if (typeof id === "string") ids.add(id); return o; });
+    let transition = beat.transition;
+    if (b > 0 && !beat.keep && (beat.template || raws.length)) {
+      // A new frame: drop the old one instantly; the transition carries the change.
+      for (const id of onScreen) c.act({ at: "@0", do: "fade", target: id, to: 0, duration: .01 });
+      c.act({ at: "@0", do: "camera", x: .5, y: .5, zoom: 1, duration: .01 });
+      transition ??= TRANSITIONS[cleared++ % TRANSITIONS.length];
+      onScreen = [];
+    }
+    if (beat.template) {
+      const schema = TEMPLATES[beat.template];
+      const data = schema.safeParse(beat.data ?? {});
+      if (!data.success) for (const i of data.error.issues) errors.push({ path: `beats[${b}].data${issuePath(i.path)}`, message: `${beat.template}: ${i.message}`, beat: b });
+      else {
+        const variants = VARIANTS[beat.template];
+        const variant = beat.variant && variants.includes(beat.variant) ? beat.variant : variants[b % variants.length];
+        try { (EXPAND[beat.template] as (c: C, d: unknown, v: string) => void)(c, data.data, variant); }
+        catch (e) { errors.push({ path: `beats[${b}].data`, message: `${beat.template}: ${e instanceof Error ? e.message : String(e)}`, beat: b }); }
+      }
+    }
+    if (beat.sticker) visualAt(c, "sticker", beat.sticker, .87, .2, .12, c.anchor(.5, beat.sticker.at));
+    if (beat.camera === "drift") c.act({ at: "@0.05", do: "camera", zoom: 1.06, duration: 4 });
+    if (beat.camera === "zoom") c.act({ at: "@0.4", do: "camera", zoom: 1.15, duration: .8, easing: "outBack" });
+    if (beat.camera === "shake") c.act({ at: "@0.3", do: "camera", shake: .02, duration: .4 });
+    objects.push(...c.objects, ...raws);
+    onScreen.push(...c.objects.map(o => o.id), ...raws.map(o => String((o as { id?: unknown }).id)));
+    return { say: beat.say, actions: [...c.actions, ...(beat.actions ?? [])], cite: beat.cite, transition };
+  });
+  if (errors.length) return { scene: null, errors };
+  return { scene: { scene: parsed.data.scene ?? "scene", objects: objects as SceneObject[], beats: beats as Scene["beats"] }, errors };
+}
+
+// Exported for prompts: compact per-template slot reference.
+export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.data). Text is SHORT labels (<= 6 words). icon = a simple noun ("laptop","database","cpu","lightbulb","rocket","lock","user","book","clock","cloud","bug","chart"); emoji = one emoji character. Items/nodes/notes/ops may carry "at": an exact phrase from say that times the reveal.
+- title {text, kicker?, icon?|emoji?} variants slam|punch|words|stack. Hooks, section openers, big reveals.
+- stat {value:number, prefix?, suffix?, decimals?, label, icon?|emoji?} center|side. Any number worth feeling (counts up).
+- versus {left:{title, icon?|emoji?, points?:[<=3]}, right:{...}} split|cards. Comparisons, trade-offs, before/after.
+- list {title?, items:[{text, icon?|emoji?, at?}] 2-5} column|grid|steps. Properties, causes, ordered steps.
+- character {pose, poseTo?, says?, thinks?, icon?|emoji?, other?:{pose, says?}} left|right|duo. Poses: ${Pose.options.join(", ")}. A stick figure reacting, asking, explaining; duo = a dialogue.
+- diagram {title?, nodes:[{id,label,shape?,sub?,at?}] 2-8, edges:[{from,to,label?}], pulse?:[[from,to]]} flow-h|flow-v|cycle|hub|datapath|layers. Flowcharts (shape: decision|terminal|io|database|rect), processes, cycles, architecture (datapath: ALU/MUX/register/memory blocks with signals pulsing along wires), layered stacks.
+- math {steps:[latex] 1-4, notes?:[{text, at?}]} derive|focus. Equations; derive shows each step.
+- code {title?, lines:[...] <=14, highlight?:[[startLine,endLine]]} walk.
+- array {id?, label?, values:[...], heap?:"max"|"min", ops?:[{op,args,at?}]} ops: swap[i,j], compare[i,j], set[i,v], siftDown[i], siftUp[i] (computed for real).
+- tree {id?, label?, kind, init, ops?:[{op,args,at?}]} computed tree ops (kinds/ops below).
+- chart {title?, labels:[...], values:[...], highlight?:index} bars|line.
+- figure {src, caption?, focus?:[[l,t,r,b]]} kenburns. Only with a listed figure src.
+- gif {query, caption?} center|side. Reaction gif (e.g. "mind blown", "wait what"). At most one per scene, never mid-explanation.
+- callout {text, sub?} underline|box|punch. The key idea, the takeaway, "here's the catch".
+- table {headers, rows, highlightRows?}.
+Beat extras: keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;

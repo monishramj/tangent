@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-04): **end-to-end MVP pipeline works.** PDF → Docling IR → script → scene plans → TTS/alignment → scene DSL → streamed PixiJS playback → saved, replayable video bundles. Tasks 1–5 built. Next: the open issues under *Current state*, then the tutor annotate loop (task 6).
+> Status (2026-11-04): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -213,7 +213,18 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Current state (keep this section current)
 Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
 
+**Architecture now (2026-11-04):**
+- **Templates over raw DSL.** The scene LLM picks a template per beat (`title, stat, versus, list, character, diagram, math, code, array, tree, chart, figure, gif, callout, table`, each with variants) and fills short slots. `src/dsl/templates.ts` expands them into positioned DSL objects + word-anchored actions, clears the previous frame unless `keep:true`, and adds a transition. Raw `objects`/`actions` stay as the escape hatch. Fractional anchors `"@0.4"` (word at 40% of the beat) make template timing immune to TTS rewording.
+- New primitives: `icon` (Hugeicons by loose name), `emoji`, `person` (stick figure, 9 poses, `pose` action), `gif`, `chart`, `counter`, 10 shape kinds (incl. `alu`, `trapezoid` for MUX, `cylinder`), arrows with `label`/`route: elbow|curve`/`dashed`, `pulse` action (signal dot along an arrow).
+- Scene grouping is deterministic (`chunkBeats(beats, 4, 3)`: a short first scene for a faster first frame); the LLM planning call is gone.
+- `npm run dev` → `/?showcase=<template>&variant=<v>` renders one template with fake timings (dev only) for visual checks.
+- Projects/threads/IR cache/checkpoint results are JSON docs via Rust `store_read/store_write/store_delete` (`<appData>/store`). Figures are written to `<appData>/figures/<sourceId>` (asset scope allows it; this was why figures were always "unavailable"). GIPHY key via `get_secret/set_secret` (Keychain, Settings screen).
+
 **Open issues:**
+- **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
+- `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
+- PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
+- The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
 - **Mid-scene silence drifts A/V.** The compiler inserts silence, but the single scene WAV isn't padded, so visuals lag the audio after an insert. Fix: pad the WAV at insert points, or forbid mid-scene inserts.
 - **Objects accumulate across beats.** Nothing auto-fades them; layout runs once per scene over all objects.
 - **Slow first scene.** About 3 min to first frame with Haiku (script + first scene). After that, generation stays ahead of playback.
@@ -221,6 +232,10 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
 
 **Recently fixed (2026-11-04), don't regress:**
+- Video stays 16:9 (letterboxed via container units); the side panel docks beside it and never covers it.
+- Tutor gets the real narration transcript (was empty) and thread history for follow-ups.
+- Figures load (asset scope + app-data figures dir); one bad figure no longer kills an ingest.
+- Ingest runs once per source (IR cached); loading screens show real pipeline steps.
 - `streamVideo` must import `resolveAnchor` (its absence crashed every scene).
 - `sidecarTts` returns a **raw** WAV path. `SceneQueue.createAudio` converts it, and `save_video_bundle` copies it. An `asset://` URL there silently produced bundles with no audio.
 - `SceneQueue` treats `audio.ended` as the end of the scene; otherwise a WAV shorter than its timeline loops.
@@ -250,3 +265,4 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
 - Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage.
+- Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Projects = NotebookLM-style with notes. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.

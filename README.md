@@ -20,7 +20,7 @@ Needs `bun`, `uv`, Rust, and a logged-in `claude` CLI on PATH (`~/.local/bin` an
 ## Test
 
 ```sh
-bunx vitest run                      # frontend + pipeline (412 tests)
+bunx vitest run                      # frontend + pipeline (497 tests)
 cd src-tauri && cargo test           # Rust (LLM args, video bundles)
 ```
 
@@ -29,6 +29,10 @@ cd src-tauri && cargo test           # Rust (LLM args, video bundles)
 PDF → IR sections (sidecar) → speech-first script → scene plans → for each scene: TTS + alignment, then scene DSL (validated, retried with the previous answer + errors) → timeline compile → PixiJS player on the audio clock. Scenes stream: playback starts once scene 1 is ready.
 
 Key files:
+- `src/dsl/templates.ts`: scene templates (layout + timing) the LLM fills; `/?showcase=<template>` previews one in dev
+- `src/player/`: `PlayerScreen` (16:9 player), `SidePanel` (Ask threads, transcript, checkpoints), `Loading`
+- `src/project/ProjectPage.tsx`, `src/home/Home.tsx`: projects (one per class)
+- `src/gen/checkpoints.ts`, `src/media/giphy.ts`, `src/library.ts` (cached ingest)
 - `src/pipeline/streamVideo.ts`: orchestration, lookahead, retries
 - `src/gen/`: script / plan / scene prompts and quality gates
 - `src/dsl/`: schema, validator, compiler, computed ops (Array, Tree)
@@ -43,8 +47,8 @@ In dev, webview events (`status …`, `stream scene …`, `scene attempt N rejec
 ## Known issues
 
 - **Mid-scene silence drifts A/V.** When the compiler inserts silence inside a scene, the visuals lag the audio (the WAV isn't padded to match).
-- **Objects pile up.** Nothing auto-fades objects from earlier beats unless the model fades them, so later beats can crowd.
-- **Slow first scene.** About 3 minutes to first frame with Haiku (script + first scene). Later scenes stay ahead of playback.
+- Reaction gifs need a GIPHY key (Settings, stored in the Keychain); without one they render as text cards.
+- **Slow first scene.** Script + first scene still take a while with Haiku (the planning call is gone and the first scene is shorter now).
 - **A failed scene is skipped,** and the saved video is marked "Partial".
 - **Videos saved before 2026-11-04 have no audio** (the old WAV-path bug). Delete and regenerate them.
 - **Packaging:** the sidecar path is dev-only (see `CLAUDE.md` → Packaging).

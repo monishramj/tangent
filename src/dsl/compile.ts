@@ -1,11 +1,11 @@
 // Timeline compiler: a validated scene + per-beat word timestamps -> absolute, audio-clock events.
 // Pure. Assumes validateScene passed; throws only on missing audio or an anchor absent from the spoken words.
-import type { Action, Scene } from "./schema";
+import { FRACTION_ANCHOR, type Action, type Scene } from "./schema";
 import type { OpPlan } from "./ops";
 
 // Tunable. Default motion length per verb (s); op reserves its whole anchor gap.
 export const DURATION: Record<Action["do"], number> = {
-  create: 0.4, fade: 0.3, move: 0.5, transform: 0.6, highlight: 0.4, indicate: 0.4, camera: 0.6, wait: 0.5, op: Infinity,
+  create: 0.4, fade: 0.3, move: 0.5, transform: 0.6, highlight: 0.4, indicate: 0.4, camera: 0.6, wait: 0.5, op: Infinity, pose: 0.5, pulse: 0.8,
 };
 export const TRANSITION: Record<string, number> = { cut: 0, whip: 0.3, push: 0.4, "match-cut": 0.3 };
 export const MIN_SEC = 0.15; // never squash motion below this; insert silence instead
@@ -31,6 +31,7 @@ const endsSentence = (w: string) => /[.!?]["')\]]*$/.test(w);
 
 // Index of the first word of the first whole-word run matching `at`, or -1.
 export function resolveAnchor(words: Word[], at: string): number {
+  if (FRACTION_ANCHOR.test(at)) return words.length ? Math.min(words.length - 1, Math.floor(Number(at.slice(1)) * words.length)) : -1;
   const want = at.split(/\s+/).map(norm).filter(Boolean);
   const got = words.map((w) => norm(w.word));
   for (let i = 0; i + want.length <= got.length; i++) if (want.every((t, j) => got[i + j] === t)) return i;

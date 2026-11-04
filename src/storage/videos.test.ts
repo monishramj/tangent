@@ -69,3 +69,19 @@ it("tauri store maps to the four commands and tolerates a non-array list", async
   expect(invoke).toHaveBeenCalledWith("delete_video_bundle", { id: "x" });
   expect(await tauriVideoStore.list()).toEqual([]);
 });
+
+it("stores checkpoints on the bundle without marking it incomplete, and replays them after the scenes", async () => {
+  const store = fakeVideoStore();
+  const items = [{ id: "cp1", afterScene: 0, kind: "short", prompt: "Q?", answer: "A", explanation: "E", source: "generated" }] as never;
+  const cp: PipelineEvent = { type: "checkpoints", items };
+  const out: PipelineEvent[] = [];
+  for await (const e of recordStream(of([ev(1), cp]), { id: "c", title: "C", source }, store)) out.push(e);
+  await new Promise(r => setTimeout(r, 0));
+  expect(out).toHaveLength(2);
+  const b = await store.load("c");
+  expect(b).toMatchObject({ complete: true, checkpoints: [{ id: "cp1" }] });
+  const events: PipelineEvent[] = [];
+  for await (const e of replayStream(b)) events.push(e);
+  expect(events.map(e => e.type)).toEqual(["scene", "checkpoints"]);
+  expect(events[1]).toMatchObject({ items: [{ id: "cp1" }] });
+});

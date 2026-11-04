@@ -10,7 +10,7 @@ export function buildTutorContext(i: {
   priorQuestions: string[];
 }): TutorContext {
   const prompt = [
-    "You are a tutor interrupting a lecture video. Answer the student's question in 1-2 short sentences suitable for speech.",
+    "You are a friendly tutor inside a lecture video the student paused. Answer the question directly in 1-3 short, plain sentences. Ground it in the section and what was just said; if the question goes beyond the section, say so briefly and still help.",
     'Also mark the scene. Reply with ONLY JSON: {"answer": string, "annotations": [{"kind": "circle"|"highlight"|"arrow-to"|"label", "target": <object id or id.slot[n]>, "text": <label only>}]}',
     "Targets must be ids from the scene objects below.",
     `Section:\n${i.section}`,
@@ -31,8 +31,12 @@ function parse(text: string): { answer: string; annotations: unknown[] } | null 
   } catch { return null; }
 }
 
-export async function ask(a: { question: string; context: TutorContext; provider: LLMProvider }) {
-  const prompt = `${a.context.prompt}\n\nStudent question: ${a.question}`;
+export type Turn = { role: "user" | "tutor"; text: string };
+
+/** One answer in a thread: earlier turns ride along so follow-ups ("why?", "show me again") make sense. */
+export async function ask(a: { question: string; context: TutorContext; provider: LLMProvider; history?: Turn[] }) {
+  const history = a.history?.length ? `\n\nThis thread so far:\n${a.history.map(t => `${t.role === "user" ? "Student" : "Tutor"}: ${t.text}`).join("\n")}` : "";
+  const prompt = `${a.context.prompt}${history}\n\nStudent question: ${a.question}`;
   let out = parse(await a.provider.complete(prompt));
   out ??= parse(await a.provider.complete(prompt + "\n\nYour last reply was not valid JSON. Reply with ONLY the JSON object."));
   if (!out) throw new Error("tutor: model returned invalid JSON twice");

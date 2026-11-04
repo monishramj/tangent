@@ -64,4 +64,22 @@ describe("layoutScene", () => {
     const l = layoutScene([T("a", "x".repeat(200))], 300, 600, m).get("a")!;
     expect(l.text!.split("\n").length).toBeGreaterThan(1);
   });
+
+  it("honors explicit size and maxW for text", () => {
+    const l = layoutScene([T("a", "one two three four five six seven", { x: .5, y: .5, size: .05, maxW: .3 })], 1000, 500, m).get("a")!;
+    expect(l.fontSize).toBe(25);
+    expect(l.text!.split("\n").length).toBeGreaterThan(1);
+    for (const line of l.text!.split("\n")) expect(m(line, 25, false)).toBeLessThanOrEqual(300);
+  });
+
+  it("stack variant puts each word on its own line", () => {
+    const l = layoutScene([{ id: "k", type: "KineticText", text: "ONE TWO THREE", variant: "stack" }], 1280, 720, m).get("k")!;
+    expect(l.text).toBe("ONE\nTWO\nTHREE");
+  });
+
+  it("treats icon/person as small items and chart/gif as big rows", () => {
+    const l = layoutScene([{ id: "i", type: "icon" }, { id: "p", type: "person" }, { id: "c", type: "chart" }], 1280, 720, m);
+    expect(l.get("i")!.y).toBe(l.get("p")!.y);
+    expect(l.get("c")!.y).toBeGreaterThan(l.get("i")!.y);
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scene, timeline } from "./demo";
 import { applyEventsAt, HL_FADE } from "./scene";
+import { Scene } from "../dsl/schema";
 
 const at = (t: number) => applyEventsAt(scene, timeline, t);
 const slots = (t: number) => at(t).objects.get("h")!.slots!;
@@ -88,5 +89,35 @@ describe("applyEventsAt (heapify)", () => {
     expect(mid.opacity).toBeGreaterThan(0.2);
     const end = applyEventsAt(scene, tl, 3).objects.get("title")!;
     expect(end).toMatchObject({ opacity: 0.2, x: 0.1, y: 0.1 });
+  });
+});
+
+describe("pulse, pose and kinetic variants", () => {
+  const sc = Scene.parse({ scene: "x", objects: [
+    { id: "a", type: "arrow", from: [.1, .5], to: [.9, .5] },
+    { id: "p", type: "person", pose: "stand" },
+    { id: "k", type: "KineticText", text: "HI", variant: "punch" },
+    { id: "w", type: "KineticText", text: "A B C", variant: "words" },
+  ], beats: [] });
+  const ev = (verb: string, target: string, start: number, args = {}) => ({ start, end: start + 1, verb: verb as "create", target, args, beat: 0 });
+  const tl = { totalSec: 5, insertedSilences: [], events: [ev("create", "a", 0), ev("create", "p", 0), ev("create", "k", 0), ev("create", "w", 0), ev("pulse", "a", 1), ev("pose", "p", 2, { to: "wave" })] };
+  const st = (t: number) => applyEventsAt(sc, tl, t).objects;
+
+  it("pulse progress exists only while the event runs", () => {
+    expect(st(.9).get("a")!.pulse).toBeUndefined();
+    expect(st(1.5).get("a")!.pulse).toBeCloseTo(.5);
+    expect(st(2.5).get("a")!.pulse).toBeUndefined();
+  });
+  it("pose blends from the previous pose and then holds", () => {
+    expect(st(1.5).get("p")).toMatchObject({ pose: "stand", poseP: 1 });
+    expect(st(2.5).get("p")).toMatchObject({ pose: "wave", poseFrom: "stand" });
+    expect(st(2.5).get("p")!.poseP).toBeGreaterThan(0);
+    expect(st(2.5).get("p")!.poseP).toBeLessThan(1);
+    expect(st(4).get("p")).toMatchObject({ pose: "wave", poseP: 1 });
+  });
+  it("punch starts big and settles; words reveal linearly", () => {
+    expect(st(.1).get("k")!.scale).toBeGreaterThan(1.1);
+    expect(st(1).get("k")!.scale).toBe(1);
+    expect(st(.5).get("w")!.reveal).toBeCloseTo(.5);
   });
 });

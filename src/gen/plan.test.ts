@@ -38,3 +38,8 @@ describe("planScenes", () => {
     await expect(planScenes({ beats: beats(4), provider })).rejects.toThrow("offline");
   });
 });
+
+it("short first scene for a fast first frame", () => {
+  const b = Array.from({ length: 11 }, (_, i) => ({ say: `s${i}`, visualIntent: `v${i}` }));
+  expect(chunkBeats(b, 4, 3).map(p => p.count)).toEqual([3, 4, 4]);
+});

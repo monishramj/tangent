@@ -1,34 +1,44 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
-import { streamVideo, type PipelineEvent } from "./streamVideo";
+import { streamVideo, type PipelineEvent, type Progress } from "./streamVideo";
 
 afterEach(() => vi.useRealTimers());
 
-const SIZE = 3; // beats per scene group
+type Beat = { say: string; visualIntent: string };
+const sizeOf = (i: number) => (i === 0 ? 3 : 4); // chunkBeats(beats, 4, 3): first scene 3 beats, then 4
+const startOf = (i: number) => (i === 0 ? 0 : 3 + 4 * (i - 1));
+const sceneEvents = (events: PipelineEvent[]) => events.filter((e): e is Extract<PipelineEvent, { type: "scene" | "error" }> => e.type !== "checkpoints");
+
+/** A valid template answer for the beats in a scene prompt; the first beat is a computed array with a swap op. */
+const answerFor = (group: { say: string }[], extra: (k: number) => object = () => ({})) => JSON.stringify({ beats: group.map(({ say }, k) => ({ say, ...(k === 0
+  ? { template: "array", variant: "default", data: { values: [2, 1], ops: [{ op: "swap", args: [0, 1], at: "grows" }] } }
+  : k % 2 ? { template: "callout", variant: "box", data: { text: "Key idea" } }
+  : { template: "list", variant: "column", data: { items: [{ text: "One" }, { text: "Two" }] } }), ...extra(k) })) });
+const groupOf = (prompt: string) => JSON.parse(prompt.split("Narration beats (JSON):\n")[1].split("\n")[0]) as { say: string }[];
 
 function setup(count = 4, dslMs = (_i: number) => 200) {
   vi.useFakeTimers();
   vi.setSystemTime(0);
-  const beats = Array.from({ length: count * SIZE }, (_, i) => ({ say: `Scene${String.fromCharCode(65 + Math.floor(i / 26), 65 + i % 26)} grows.`, visualIntent: "Grow an array" }));
+  const total = startOf(count - 1) + sizeOf(count - 1);
+  const beats: Beat[] = Array.from({ length: total }, (_, i) => ({ say: `Scene${String.fromCharCode(65 + Math.floor(i / 26), 65 + i % 26)} grows.`, visualIntent: "Grow an array" }));
   const trace: { stage: string; i: number; start: number; end: number }[] = [];
   const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+  const sceneIndex = (say: string) => { const k = beats.findIndex(b => b.say === say); return k < 3 ? 0 : 1 + Math.floor((k - 3) / 4); };
+  // Routed by prompt content: script, checkpoints, then one template answer per scene group.
   const provider: LLMProvider = { complete: vi.fn(async (prompt: string) => {
-    if (prompt.startsWith("Rewrite")) {
+    if (prompt.includes("Rewrite the textbook section")) {
       await sleep(20);
       return JSON.stringify(beats);
     }
-    if (prompt.startsWith("Group")) return JSON.stringify(Array.from({ length: count }, () => ({ count: SIZE, concept: "c", visualPlan: "grow an array" })));
-    const group = JSON.parse(prompt.split("Narration beats (JSON):\n")[1].split("\n")[0]) as { say: string }[];
-    const i = beats.findIndex(b => b.say === group[0].say) / SIZE;
+    if (prompt.startsWith("Write checkpoint questions")) return "[]";
+    const group = groupOf(prompt);
+    const i = sceneIndex(group[0].say);
     const entry = { stage: "dsl", i, start: Date.now(), end: 0 };
     trace.push(entry);
     await sleep(dslMs(i));
     entry.end = Date.now();
-    return JSON.stringify({ scene: "model-id", objects: [{ id: "a", type: "Array", init: [2, 1] }],
-      beats: group.map(({ say }, k) => ({ say, actions: k === 0
-        ? [{ at: say.split(" ")[0], do: "create", target: "a" }, { at: "grows", do: "op", target: "a", op: "swap", args: [0, 1] }]
-        : [{ at: say.split(" ")[0], do: "highlight", target: "a" }, { at: "grows", do: "indicate", target: "a" }] })) });
+    return answerFor(group);
   }) };
   const ttsAlign = vi.fn(async (text: string, o?: { sceneId: string }) => {
     const i = Number(o?.sceneId.replace("scene-", "")) - 1;
@@ -54,17 +64,19 @@ it("beats playback time with fake latencies and overlaps TTS with the preceding 
   const stream = streamVideo(options);
   const events = collect(stream);
   await vi.runAllTimersAsync();
-  const results = await events;
+  const all = await events;
+  const results = sceneEvents(all);
   expect(results).toHaveLength(6);
-  for (const event of results) {
+  expect(all.filter(e => e.type === "checkpoints")).toHaveLength(1);
+  for (const [n, event] of results.entries()) {
     expect(event.type).toBe("scene");
     if (event.type === "scene") {
       expect(event.generationMs).toBeGreaterThanOrEqual(300);
-      expect(event.scene.beats).toHaveLength(SIZE);
-      expect(event.timeline.events.filter(e => e.verb === "say")).toHaveLength(SIZE);
-      expect(event.timeline.totalSec).toBeCloseTo(SIZE * 2 * 0.5 + 0.5, 5); // one wav, no extra beat pauses
+      expect(event.scene.beats).toHaveLength(sizeOf(n));
+      expect(event.timeline.events.filter(e => e.verb === "say")).toHaveLength(sizeOf(n));
+      expect(event.timeline.totalSec).toBeCloseTo(sizeOf(n) * 2 * 0.5 + 0.5, 5); // one wav, no extra beat pauses
       expect(event.scene.scene).toBe(event.sceneId);
-      expect(event.scene.objects[0].id).toBe("a");
+      expect(event.scene.objects[0].id).toBe("arr");
       expect(event.generationMs).toBeLessThan(event.timeline.totalSec * 1000);
       expect(event.timeline.events.find(e => e.verb === "create")?.start).toBe(0.25);
       expect(event.timeline.events.filter(e => e.verb === "move")).toHaveLength(2);
@@ -82,7 +94,7 @@ it("yields in script order even when later scenes complete first", async () => {
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect(trace.filter(e => e.stage === "dsl").sort((a, b) => a.end - b.end)[0].i).toBe(1);
-  expect((await events).map(e => e.sceneId)).toEqual(["scene-1", "scene-2", "scene-3"]);
+  expect(sceneEvents(await events).map(e => e.sceneId)).toEqual(["scene-1", "scene-2", "scene-3"]);
 });
 
 it("yields as soon as a scene is ready, bounds prefetch to the lookahead window, and reports starvation", async () => {
@@ -118,23 +130,23 @@ it("a slow scene N does not block generation of N+1..N+3, and output stays in or
   expect([...started].sort()).toEqual([0, 1, 2, 3]); // N+1..N+3 ran while N was stuck; N+4 is outside the window
   expect(trace.filter(e => e.stage === "dsl" && e.i > 0).every(e => e.end > 0)).toBe(true);
   await vi.runAllTimersAsync();
-  expect((await events).map(e => e.sceneId)).toEqual(Array.from({ length: 8 }, (_, i) => `scene-${i + 1}`));
+  expect(sceneEvents(await events).map(e => e.sceneId)).toEqual(Array.from({ length: 8 }, (_, i) => `scene-${i + 1}`));
 });
 
-it("passes section figures to the planning and scene prompts", async () => {
+it("passes section figures to the scene prompts", async () => {
   const { options, provider } = setup(1);
   const events = collect(streamVideo({ ...options, figures: [{ id: "figure-1", caption: "A datapath", src: "asset://dp.png" }] }));
   await vi.runAllTimersAsync();
   await events;
   const prompts = vi.mocked(provider.complete).mock.calls.map(c => c[0]);
-  expect(prompts.filter(p => p.includes("asset://dp.png"))).toHaveLength(2);
+  expect(prompts.filter(p => p.includes("asset://dp.png"))).toHaveLength(1);
 });
 
 it("supports a single worker while retaining lookahead", async () => {
   const { options, trace } = setup(3);
   const events = collect(streamVideo({ ...options, concurrency: 1 }));
   await vi.runAllTimersAsync();
-  expect(await events).toHaveLength(3);
+  expect(sceneEvents(await events)).toHaveLength(3);
   const work = trace.sort((a, b) => a.start - b.start);
   for (let i = 1; i < work.length; i++) expect(work[i].start).toBeGreaterThanOrEqual(work[i - 1].end);
 });
@@ -146,7 +158,7 @@ it("retries TTS once, emits an ordered error, and continues", async () => {
   const events = collect(streamVideo({ ...options, concurrency: 1 }));
   await vi.runAllTimersAsync();
   const results = await events;
-  expect(results.map(e => e.type)).toEqual(["error", "scene", "scene"]);
+  expect(sceneEvents(results).map(e => e.type)).toEqual(["error", "scene", "scene"]);
   expect(results[0]).toMatchObject({ sceneId: "scene-1", error: expect.any(Error) });
   expect(ttsAlign).toHaveBeenCalledTimes(4);
 });
@@ -154,11 +166,11 @@ it("retries TTS once, emits an ordered error, and continues", async () => {
 it("caps invalid DSL at two scene attempts, each with one repair call", async () => {
   const { options, provider } = setup(1);
   const base = vi.mocked(provider.complete).getMockImplementation()!;
-  vi.mocked(provider.complete).mockImplementation(async (p, o) => p.startsWith("Rewrite") || p.startsWith("Group") ? base(p, o) : "{}");
+  vi.mocked(provider.complete).mockImplementation(async (p, o) => p.includes("motion designer") ? "{}" : base(p, o));
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("error");
-  expect(provider.complete).toHaveBeenCalledTimes(6); // script + plan + 2 x (scene + repair)
+  expect(provider.complete).toHaveBeenCalledTimes(6); // script + checkpoints + 2 x (scene + repair)
 });
 
 it("retries and recovers from a transient DSL transport error", async () => {
@@ -166,21 +178,21 @@ it("retries and recovers from a transient DSL transport error", async () => {
   const base = vi.mocked(provider.complete).getMockImplementation()!;
   let failed = false;
   vi.mocked(provider.complete).mockImplementation(async (p, o) => {
-    if (!p.startsWith("Rewrite") && !p.startsWith("Group") && !failed) { failed = true; throw new Error("offline"); }
+    if (p.includes("motion designer") && !failed) { failed = true; throw new Error("offline"); }
     return base(p, o);
   });
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("scene");
-  expect(provider.complete).toHaveBeenCalledTimes(4);
+  expect(provider.complete).toHaveBeenCalledTimes(4); // script + checkpoints + failed scene + scene
 });
 
 it("converts math before synthesis and rejects rewritten narration", async () => {
   const { options, provider, ttsAlign, beats } = setup(1);
   beats[0].say = "x^2 grows.";
   const base = vi.mocked(provider.complete).getMockImplementation()!;
-  vi.mocked(provider.complete).mockImplementation(async (p, o) => p.startsWith("Rewrite") || p.startsWith("Group") ? base(p, o)
-    : JSON.stringify({ scene: "s", objects: [{ id: "a", type: "Array", init: [1] }], beats: beats.map(() => ({ say: "A different script.", actions: [] })) }));
+  vi.mocked(provider.complete).mockImplementation(async (p, o) => !p.includes("motion designer") ? base(p, o)
+    : JSON.stringify({ beats: groupOf(p).map(() => ({ say: "A different script.", template: "callout", variant: "box", data: { text: "x" } })) }));
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect(ttsAlign.mock.calls.map(call => call[0].slice(0, 16))).toEqual(["x squared grows."]); // audio is reused across the DSL retry
@@ -195,8 +207,10 @@ it("compiles math anchors against the expanded spoken words", async () => {
   const [event] = await events;
   expect(ttsAlign.mock.calls[0][0].startsWith("x squared grows. SceneAB grows.")).toBe(true);
   expect(event.type).toBe("scene");
-  if (event.type === "scene")
-    expect(event.timeline.events.find(e => e.verb === "create")?.start).toBe(0.25);
+  if (event.type === "scene") {
+    expect(event.scene.beats[0]).toMatchObject({ say: "x squared grows." });
+    expect(event.timeline.events.find(e => e.verb === "move")?.start).toBeGreaterThanOrEqual(0.25 + 0.5); // swap anchored on "grows" (second spoken word of the beat)
+  }
 });
 
 it("rejects invalid alignment without calling the scene model", async () => {
@@ -206,7 +220,7 @@ it("rejects invalid alignment without calling the scene model", async () => {
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("error");
   expect(ttsAlign).toHaveBeenCalledTimes(2);
-  expect(provider.complete).toHaveBeenCalledTimes(2); // script + plan only
+  expect(provider.complete).toHaveBeenCalledTimes(2); // script + checkpoints only
 });
 
 it("aborts promptly even if a dependency ignores cancellation", async () => {
@@ -221,7 +235,7 @@ it("aborts promptly even if a dependency ignores cancellation", async () => {
   await vi.runAllTimersAsync();
   expect(stream.status()).toBe("aborted");
   expect(ttsAlign).toHaveBeenCalledTimes(3);
-  expect(provider.complete).toHaveBeenCalledTimes(2);
+  expect(provider.complete).toHaveBeenCalledTimes(2); // script + checkpoints
   expect(vi.mocked(provider.complete).mock.calls[0][1]?.signal?.aborted).toBe(true);
 });
 
@@ -250,7 +264,7 @@ it.each([0, 1, 2, 3, 4, -1])("drains five scenes with a twice-failed scene at %s
   const { options, ttsAlign, beats } = setup(5, i => i % 2 ? 500 : 1);
   const synthesize = ttsAlign.getMockImplementation()!;
   ttsAlign.mockImplementation(async (text, o) => {
-    if (failed >= 0 && text.startsWith(beats[failed * SIZE].say)) throw new Error("tts offline");
+    if (failed >= 0 && text.startsWith(beats[startOf(failed)].say)) throw new Error("tts offline");
     return synthesize(text, o);
   });
   for (const concurrency of [1, 2, 3]) {
@@ -258,8 +272,8 @@ it.each([0, 1, 2, 3, 4, -1])("drains five scenes with a twice-failed scene at %s
     const pending = collect(streamVideo({ ...options, concurrency })).then(events => { results = events; });
     await vi.runAllTimersAsync();
     // Assert before awaiting: an idle unresolved promise fails without a real-time timeout.
-    expect(results?.map(e => e.sceneId)).toEqual(["scene-1", "scene-2", "scene-3", "scene-4", "scene-5"]);
-    expect(results?.map(e => e.type)).toEqual(Array.from({ length: 5 }, (_, i) => i === failed ? "error" : "scene"));
+    expect(sceneEvents(results ?? []).map(e => e.sceneId)).toEqual(["scene-1", "scene-2", "scene-3", "scene-4", "scene-5"]);
+    expect(sceneEvents(results ?? []).map(e => e.type)).toEqual(Array.from({ length: 5 }, (_, i) => i === failed ? "error" : "scene"));
     await pending;
   }
 });
@@ -268,17 +282,67 @@ it("resumes a paused consumer after an error with no work outstanding", async ()
   const { options, ttsAlign, beats } = setup(5, i => i === 0 ? 500 : 1);
   const synthesize = ttsAlign.getMockImplementation()!;
   ttsAlign.mockImplementation(async (text, o) => {
-    if (text.startsWith(beats[SIZE].say)) throw new Error("tts offline");
+    if (text.startsWith(beats[startOf(1)].say)) throw new Error("tts offline");
     return synthesize(text, o);
   });
   const stream = streamVideo(options);
   const first = stream.next();
   await vi.runAllTimersAsync();
   expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1" });
-  const rest = collect(stream);
+  const rest = collect(stream).then(sceneEvents);
   let done = false;
   void rest.then(() => { done = true; });
   await vi.runAllTimersAsync();
   expect(done).toBe(true);
   expect((await rest).map(e => e.type)).toEqual(["error", "scene", "scene", "scene"]);
+});
+
+it("reports real progress: script, then narration and animation per scene, then ready, with scene totals", async () => {
+  const { options } = setup(2);
+  const progress: Progress[] = [];
+  const events = collect(streamVideo({ ...options, concurrency: 1, onProgress: p => progress.push({ ...p }) }));
+  await vi.runAllTimersAsync();
+  await events;
+  expect(progress[0]).toMatchObject({ step: "script", scene: 0, scenesReady: 0, scenesTotal: 0 });
+  const steps0 = progress.filter(p => p.scene === 0).map(p => p.step);
+  expect(steps0).toEqual(["script", "narration", "animation", "ready"]);
+  expect(progress.filter(p => p.scene === 1).map(p => p.step)).toEqual(["narration", "animation", "ready"]);
+  const last = progress[progress.length - 1];
+  expect(last).toMatchObject({ step: "ready", scene: 1, scenesReady: 2, scenesTotal: 2 });
+  expect(last.beats).toHaveLength(7);
+});
+
+it("fills gif src from an injected gifSearch", async () => {
+  const { options, provider } = setup(1);
+  const base = vi.mocked(provider.complete).getMockImplementation()!;
+  vi.mocked(provider.complete).mockImplementation(async (p, o) => {
+    if (!p.includes("motion designer")) return base(p, o);
+    return answerFor(groupOf(p), k => k === 1 ? { template: "gif", variant: "center", data: { query: "mind blown", caption: "wow" } } : {});
+  });
+  const gifSearch = vi.fn(async (q: string) => `https://gifs.test/${encodeURIComponent(q)}.gif`);
+  const events = collect(streamVideo({ ...options, gifSearch }));
+  await vi.runAllTimersAsync();
+  const [event] = await events;
+  expect(event.type).toBe("scene");
+  if (event.type !== "scene") return;
+  expect(gifSearch).toHaveBeenCalledWith("mind blown");
+  expect(event.scene.objects.find(o => o.type === "gif")).toMatchObject({ src: "https://gifs.test/mind%20blown.gif" });
+});
+
+it("emits checkpoints exactly once from the side call, and an invalid answer yields none", async () => {
+  const good = JSON.stringify([{ afterScene: 5, kind: "mcq", prompt: "Q?", choices: ["a", "b"], answer: "a", explanation: "Because.", source: "generated" }, { bad: true }]);
+  for (const answer of [good, "not json"]) {
+    const { options, provider } = setup(2);
+    const base = vi.mocked(provider.complete).getMockImplementation()!;
+    vi.mocked(provider.complete).mockImplementation(async (p, o) => p.startsWith("Write checkpoint questions") ? answer : base(p, o));
+    const events = collect(streamVideo({ ...options, exercises: [{ id: "e1", markdown: "Do a thing" }] }));
+    await vi.runAllTimersAsync();
+    const all = await events;
+    const cps = all.filter((e): e is Extract<PipelineEvent, { type: "checkpoints" }> => e.type === "checkpoints");
+    expect(cps).toHaveLength(1);
+    expect(sceneEvents(all)).toHaveLength(2);
+    if (answer === good) expect(cps[0].items).toMatchObject([{ id: "cp1", afterScene: 1, source: "generated" }]); // clamped to the last scene
+    else expect(cps[0].items).toEqual([]);
+    expect(vi.mocked(provider.complete).mock.calls.filter(c => c[0].startsWith("Write checkpoint questions"))).toHaveLength(1);
+  }
 });

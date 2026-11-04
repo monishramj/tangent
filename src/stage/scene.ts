@@ -25,6 +25,8 @@ export type ObjState = {
   hl: number; // 0..1 highlight pulse
   slots?: Slot[]; // Array
   valHl?: Record<string, number>; // Tree: highlight by node key
+  pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
+  pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
 };
 export type SceneState = {
   objects: Map<string, ObjState>;
@@ -51,6 +53,7 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     const s: ObjState = { id: o.id, visible: false, opacity: 0, x: num(o.x, dx), y: num(o.y, dy), scale: 1, hl: 0, reveal: 0, age: 0, rotation: 0, color: typeof o.color === "string" ? parseInt(o.color.slice(1), 16) : 0xffffff, ring: 0 };
     if (o.type === "Array") s.slots = o.init.map((value) => ({ value, hl: 0, p: 0 }));
     if (o.type === "Tree") s.valHl = {};
+    if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; }
     objects.set(o.id, s);
   }
   const kind = new Map(scene.objects.map((o) => [o.id, o]));
@@ -109,7 +112,10 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start;
       o.reveal = (style === "type" || style === "stagger") && !easing ? p : clamp01(k);
       o.visible = true; o.opacity = clamp01(p * 3);
-      if (def.type === "KineticText" && def.variant === "slam" && e.args.style === undefined && def.style === undefined) o.scale = 1 + .35 * (1 - easeOut(p)); // layout fits the title at 1x; a bigger slam overlaps the body
+      const variant = def.type === "KineticText" && e.args.style === undefined && def.style === undefined ? def.variant : undefined;
+      if (variant === "slam") o.scale = 1 + .35 * (1 - easeOut(p)); // layout fits the title at 1x; a bigger slam overlaps the body
+      else if (variant === "punch") { o.scale = 1 + .25 * (1 - ease(p, "outBack")); o.x += Math.sin(p * 70) * .01 * (1 - p); }
+      else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer pops each word at its share of the reveal
       else if (style === "pop") o.scale = ease(p, easing ?? "outBack");
       else if (style === "slide") {
         const edge = e.args.edge ?? "left";
@@ -150,6 +156,8 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
         if (Array.isArray(e.args.range)) o.range = e.args.range as [number, number];
       }
       break;
+    case "pulse": if (p < 1) o.pulse = p; break;
+    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; break;
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
   }
 }

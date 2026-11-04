@@ -23,7 +23,9 @@
         "enable": true,
         "scope": [
           "$TEMP/tangent-*.wav",
-          "$APPDATA/videos/**"
+          "$APPDATA/videos/**",
+          "$APPDATA/figures/**",
+          "$APPDATA/store/**"
         ]
       }
     }

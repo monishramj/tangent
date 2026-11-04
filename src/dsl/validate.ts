@@ -1,5 +1,5 @@
 import { TREE_OPS } from "./treeOps";
-import { Scene, parseTarget, type Action, type SceneObject } from "./schema";
+import { FRACTION_ANCHOR, Scene, parseTarget, type Action, type SceneObject } from "./schema";
 
 export type ErrorCode =
   | "schema"
@@ -59,8 +59,9 @@ export function validateScene(json: unknown): DslError[] {
 
     const placed: { a: number; act: Action; pos: number }[] = [];
     beat.actions.forEach((act, a) => {
-      const hits = [...beat.say.matchAll(anchorRe(act.at))];
-      const pos = hits[0]?.index ?? -1;
+      const frac = FRACTION_ANCHOR.test(act.at);
+      const hits = frac ? [] : [...beat.say.matchAll(anchorRe(act.at))];
+      const pos = frac ? Math.floor(Number(act.at.slice(1)) * Math.max(0, beat.say.length - 1)) : hits[0]?.index ?? -1;
       if (pos < 0) err(a, "at", "anchor-not-found", `anchor "${act.at}" is not a whole phrase in say: "${beat.say}"`);
       if (hits.length > 1) err(a, "at", "ambiguous-anchor", `anchor "${act.at}" occurs ${hits.length} times in say; use a longer phrase`);
       if (act.target === undefined) return; // camera/wait may be untargeted
@@ -70,7 +71,7 @@ export function validateScene(json: unknown): DslError[] {
       if (!o) return err(a, "target", "unknown-target", `no object with id "${t.id}"`);
       if (act.do === "highlight") {
         if (act.row !== undefined && (o.type !== "table" || act.row >= o.rows.length)) err(a, "row", "schema", "row highlight needs a valid table row");
-        if (act.col !== undefined && (o.type !== "table" || act.col >= o.headers.length)) err(a, "col", "schema", "column highlight needs a valid table column");
+        if (act.col !== undefined && !(o.type === "table" ? act.col < o.headers.length : o.type === "chart" && act.col < o.values.length)) err(a, "col", "schema", "column highlight needs a valid table column or chart bar");
         if (act.range && (o.type !== "code" || act.range[1] >= o.lines.length)) err(a, "range", "schema", "line highlight needs a valid code range");
       }
       if (act.do === "move" && typeof act.to === "string") {

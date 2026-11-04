@@ -8,11 +8,13 @@ import { annotationShapes, type Pt } from "./annotate";
 import { DEFAULT_POS, easeOut, type ObjState, type SceneState } from "./scene";
 import { layoutScene, type Placed } from "./layout";
 import { buildVisual, fitText, strokePath } from "./visuals";
-import { ease, staggerProgress, type Point } from "./motion";
+import { buildCounter, buildEmoji, buildGif, buildIcon, buildPerson } from "./extras";
+import { LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, shapeOutline, trimPath, wordPlacements } from "./geometry";
+import { ease, pathPoint, staggerProgress, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
-type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) => void;
+type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) => void | [number, number]; // optional return: drawn half-extents (px, unscaled)
 
 export class SceneRenderer {
   private root = new Container();
@@ -30,6 +32,7 @@ export class SceneRenderer {
   private placedObjects = new Map<string, ObjState>();
   private rings = new Graphics();
   private ext = new Map<string, [number, number]>(); // drawn half-extents (px) so arrows can stop at box edges
+  private measure = (s: string, size: number, bold: boolean) => CanvasTextMetrics.measureText(s, new TextStyle({ fontSize: size, fontWeight: bold ? "bold" : "normal", fontFamily: FONT, letterSpacing: bold ? -size * 0.03 : 0 })).width;
 
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
@@ -66,58 +69,95 @@ export class SceneRenderer {
     switch (o.type) {
       case "text":
       case "KineticText": {
-        const kinetic = o.type === "KineticText";
-        const t = this.text(o.text, kinetic ? 120 : 30, kinetic ? "bold" : "normal");
-        if (!kinetic) t.alpha = 0.72;
-        t.anchor.set(0.5);
+        const kinetic = o.type === "KineticText", plain = o.type === "text" ? o : undefined;
+        const variant = o.type === "KineticText" ? o.variant : undefined, split = variant === "words" || variant === "stack";
+        const bold = kinetic || plain?.weight === "bold";
+        const t = this.text(o.text, kinetic ? 120 : 30, bold ? "bold" : "normal", plain?.mono);
+        if (plain) { t.alpha = plain.opacity ?? 0.72; if (plain.align) t.style.align = plain.align; }
+        // explicitly placed text with align left/right: x is that edge of the block (y stays the vertical centre)
+        const edge = plain && typeof plain.x === "number" && typeof plain.y === "number" ? plain.align : undefined;
+        t.anchor.set(edge === "left" ? 0 : edge === "right" ? 1 : 0.5, 0.5);
         c.addChild(t);
         this.root.addChild(c);
+        let words: { t: Text; x: number; y: number }[] = [], key = "";
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
           const p = this.lay.get(o.id);
           const full = p?.text ?? o.text;
+          const fs = p?.fontSize ?? (kinetic ? 120 : 30);
+          t.visible = !(split && s.style !== "type");
+          if (split && s.style !== "type") { // words pop in one by one over the reveal; stack slides each word up on its own line
+            if (key !== `${full}|${fs}`) {
+              key = `${full}|${fs}`;
+              words.forEach((x) => x.t.destroy());
+              words = wordPlacements(full, fs, (x) => this.measure(x, fs, true)).map((x) => {
+                const wt = this.text(x.word, fs, "bold"); wt.anchor.set(0.5); c.addChild(wt); return { t: wt, x: x.x, y: x.y };
+              });
+            }
+            words.forEach((x, i) => {
+              const k = staggerProgress(s.reveal ?? 1, i, words.length, variant === "stack" ? 0.2 : 0.12);
+              x.t.alpha = k; x.t.position.set(x.x, x.y + (variant === "stack" ? (1 - ease(k)) * fs * 0.7 : 0));
+              x.t.scale.set(variant === "stack" ? 1 : 0.7 + 0.3 * ease(k, "outBack"));
+            });
+            return;
+          }
           const shown = s.style === "type" ? full.slice(0, Math.floor(full.length * (s.reveal ?? 1))) : full;
           if (t.text !== shown) t.text = shown;
-          if (p?.fontSize && t.style.fontSize !== p.fontSize) { t.style.fontSize = p.fontSize; t.style.letterSpacing = kinetic ? -p.fontSize * 0.03 : 0; }
+          if (p?.fontSize && t.style.fontSize !== p.fontSize) { t.style.fontSize = p.fontSize; t.style.letterSpacing = bold ? -p.fontSize * 0.03 : 0; }
         } };
       }
-      case "flow": case "table": case "code": case "figure": case "bits": case "stack": {
-        const visual = buildVisual(o, this.fg, () => { if (this.lastState) this.draw(this.lastState); }, this.bg);
+      case "flow": case "table": case "code": case "figure": case "bits": case "stack": case "chart": {
+        const visual = buildVisual(o, this.fg, () => { if (this.lastState) this.draw(this.lastState); }, this.bg, () => this.lay.get(o.id));
         this.root.addChild(visual.node);
         return { node: visual.node, draw: (s, w, h) => {
           place(s, w, h, visual.node);
-          visual.draw(s, w, h);
+          return visual.draw(s, w, h);
         } };
       }
+      case "icon": case "emoji": case "counter": case "person": {
+        const cell = () => this.lay.get(o.id);
+        const v = o.type === "icon" ? buildIcon(o, this.fg, cell) : o.type === "emoji" ? buildEmoji(o, this.fg, cell)
+          : o.type === "counter" ? buildCounter(o, this.fg, cell) : buildPerson(o, this.fg, cell);
+        this.root.addChild(v.node);
+        return { node: v.node, draw: (s, w, h) => { place(s, w, h, v.node); return v.draw(s, w, h); } };
+      }
+      case "gif": return buildGif(o, this.mathLayer, () => this.lay.get(o.id));
       case "shape": {
-        const g = new Graphics(), label = this.text(o.label ?? "", 30);
-        label.anchor.set(.5); c.addChild(g, label); this.root.addChild(c);
-        let bw = 0, bh = 0, points: Point[] = [];
+        const g = new Graphics(), label = this.text(o.label ?? "", 30), sub = this.text(o.sublabel ?? "", 30);
+        label.anchor.set(.5); sub.anchor.set(.5); c.addChild(g, label, sub); this.root.addChild(c);
+        let bw = 0, bh = 0, out = shapeOutline(o.shape, 1, 1);
+        const lines = (t: Text) => t.text.split("\n").length * Number(t.style.lineHeight);
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
           const cell = this.lay.get(o.id);
-          const width = Math.min((o.width ?? (o.shape === "rect" ? .36 : .24) * h / w) * w, cell?.cw ? cell.cw * .88 : Infinity);
+          const wide = o.shape === "rect" || o.shape === "pill" || o.shape === "parallelogram";
+          const width = Math.min((o.width ?? (wide ? .36 : .24 * h / w)) * w, cell?.cw ? cell.cw * .88 : Infinity);
           const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
-            if (o.shape === "circle") points = Array.from({ length: 65 }, (_, i) => [Math.cos(i/64*Math.PI*2)*bw/2, Math.sin(i/64*Math.PI*2)*bh/2]);
-            else if (o.shape === "rect") points = [[-bw/2,-bh/2],[bw/2,-bh/2],[bw/2,bh/2],[-bw/2,bh/2],[-bw/2,-bh/2]];
-            else points = [[0,-bh/2],[bw/2,bh/2],[-bw/2,bh/2],[0,-bh/2]];
-            const inset = o.shape === "polygon" ? .4 : o.shape === "circle" ? .65 : .84;
-            fitText(label, o.label ?? "", bw * inset, bh * inset, h*.04);
-            label.y = o.shape === "polygon" ? bh * .12 : 0;
+            out = shapeOutline(o.shape, bw, bh);
+            const [fw, fh, dx, dy] = LABEL_BOX[o.shape] ?? LABEL_BOX.rect, cy = bh * dy;
+            fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .04);
+            sub.visible = !!o.sublabel;
+            if (o.sublabel) {
+              fitText(sub, o.sublabel, bw * fw, bh * fh * .36, Number(label.style.fontSize) * .6);
+              label.y = cy - lines(sub) / 2; sub.y = cy + lines(label) / 2;
+            } else label.y = cy;
+            label.x = sub.x = bw * dx;
           }
+          const full = (s.reveal ?? 1) >= 1 || s.style !== "draw";
           g.clear();
-          if ((s.reveal ?? 1) >= 1 || s.style !== "draw") g.poly(points.flat()).fill({ color: this.bg }).poly(points.flat()).fill({ color: this.fg, alpha: .06 + .14 * s.hl });
-          strokePath(g, points, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
+          if (full) g.poly(out.fill.flat()).fill({ color: this.bg }).poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .9 } : { color: this.fg, alpha: .06 + .14 * s.hl });
+          strokePath(g, out.pts, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
           this.ext.set(o.id, [bw / 2 * s.scale, bh / 2 * s.scale]);
-          label.alpha = s.reveal ?? 1;
+          label.style.fill = sub.style.fill = o.filled ? this.bg : this.fg;
+          label.alpha = s.reveal ?? 1; sub.alpha = label.alpha * .65;
         } };
       }
       case "arrow":
       case "line": {
-        const g = new Graphics();
-        c.addChild(g); this.root.addChildAt(c, 0); // connectors sit under the boxes they join
+        const g = new Graphics(), lbl = this.text(o.label ?? "", 24);
+        lbl.anchor.set(.5); c.addChild(g, lbl); this.root.addChildAt(c, 0); // connectors sit under the boxes they join
         return { node: c, draw: (s, w, h, all) => {
           c.visible = s.visible; c.alpha = s.opacity;
           const pt = (p: string | [number, number]): [number, number] | null => {
@@ -126,25 +166,38 @@ export class SceneRenderer {
             return t?.visible ? [t.x * w, t.y * h] : null;
           };
           const a0 = pt(o.from), b0 = pt(o.to);
-          g.clear();
+          g.clear(); lbl.visible = false;
           if (!a0 || !b0) return; // endpoint missing or hidden: draw nothing rather than a line to the centre
-          const len = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]) || 1, ux = (b0[0] - a0[0]) / len, uy = (b0[1] - a0[1]) / len;
-          const trim = (p: string | [number, number]) => {
+          const full = routePoints(a0, b0, o.route), len = pathLength(full);
+          const trim = (p: string | [number, number], dir: Point) => {
             if (Array.isArray(p)) return 0;
             const [hw, hh] = this.ext.get(p) ?? [.04 * h, .04 * h];
-            return Math.min(hw / Math.max(1e-3, Math.abs(ux)), hh / Math.max(1e-3, Math.abs(uy))) + 6;
+            return Math.min(hw / Math.max(1e-3, Math.abs(dir[0])), hh / Math.max(1e-3, Math.abs(dir[1]))) + 6;
           };
-          const ta = Math.min(trim(o.from), len / 2 - 1), tb = Math.min(trim(o.to), len / 2 - 1);
+          const ta = Math.min(trim(o.from, pathDir(full, false)), len / 2 - 1), tb = Math.min(trim(o.to, pathDir(full, true)), len / 2 - 1);
           if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
-          const x1 = a0[0] + ux * ta, y1 = a0[1] + uy * ta, tx = b0[0] - ux * tb, ty = b0[1] - uy * tb;
-          const p = s.style === "draw" ? s.reveal ?? 1 : 1;
-          const x2 = x1 + (tx-x1)*p, y2 = y1 + (ty-y1)*p;
-          g.moveTo(x1, y1).lineTo(x2, y2);
-          if (o.type === "arrow" && p > 0) {
-            const a = Math.atan2(y2 - y1, x2 - x1), k = 0.025 * h;
-            g.moveTo(x2 - k * Math.cos(a - 0.45), y2 - k * Math.sin(a - 0.45)).lineTo(x2, y2).lineTo(x2 - k * Math.cos(a + 0.45), y2 - k * Math.sin(a + 0.45));
-          }
+          const path = trimPath(full, ta, tb);
+          if (path.length < 2) return;
+          const p = s.style === "draw" ? s.reveal ?? 1 : 1, part = partialPath(path, p);
+          for (const d of o.dashed ? dashPolylines(part, 12, 8) : [part]) { g.moveTo(d[0][0], d[0][1]); for (const q of d.slice(1)) g.lineTo(q[0], q[1]); }
           g.stroke({ width: 3, color: this.fg });
+          if (o.type === "arrow" && p > 0 && part.length > 1) {
+            const [x1, y1] = part[part.length - 2], [x2, y2] = part[part.length - 1], a = Math.atan2(y2 - y1, x2 - x1), k = 0.025 * h;
+            g.moveTo(x2 - k * Math.cos(a - 0.45), y2 - k * Math.sin(a - 0.45)).lineTo(x2, y2).lineTo(x2 - k * Math.cos(a + 0.45), y2 - k * Math.sin(a + 0.45));
+            g.stroke({ width: 3, color: this.fg });
+          }
+          if (o.label && p >= .5) { // label beside the midpoint, on a bg backing so it stays readable over other marks
+            const fs = .028 * h, [mx, my] = pathPoint(path, .5), [x0, y0] = pathPoint(path, .49), [x1, y1] = pathPoint(path, .51);
+            let nx = -(y1 - y0), ny = x1 - x0; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+            if (ny > 0) { nx = -nx; ny = -ny; }
+            const lx = mx + nx * fs * 1.1, ly = my + ny * fs * 1.1, tw = this.measure(o.label, fs, false) + fs;
+            g.roundRect(lx - tw / 2, ly - fs * .75, tw, fs * 1.5, 4).fill({ color: this.bg });
+            lbl.visible = true; lbl.text = o.label; lbl.style.fontSize = fs; lbl.position.set(lx, ly); lbl.alpha = Math.min(1, (p - .5) * 4);
+          }
+          if (s.pulse !== undefined) { // signal dot travelling from -> to
+            const [x, y] = pathPoint(path, s.pulse);
+            g.circle(x, y, .024 * h).fill({ color: this.fg, alpha: .18 }).circle(x, y, .012 * h).fill({ color: this.fg });
+          }
         } };
       }
       case "Math": {
@@ -155,7 +208,7 @@ export class SceneRenderer {
         return { node: el, draw: (s, w, h) => {
           el.style.display = s.visible ? "block" : "none";
           el.style.opacity = String(s.opacity);
-          el.style.fontSize = `${0.06 * h}px`;
+          el.style.fontSize = `${(o.size ?? 0.06) * h}px`;
           el.style.left = `${s.x * w}px`; el.style.top = `${s.y * h}px`;
           el.style.transform = `translate(-50%,-50%) scale(${s.scale}) rotate(${s.rotation ?? 0}rad)`;
           el.style.color = `#${(s.color ?? 0xffffff).toString(16).padStart(6, "0")}`;
@@ -248,9 +301,7 @@ export class SceneRenderer {
     const key = `${w}x${h}`;
     if (key === this.laidFor) return;
     this.laidFor = key;
-    const measure = (s: string, size: number, bold: boolean) =>
-      CanvasTextMetrics.measureText(s, new TextStyle({ fontSize: size, fontWeight: bold ? "bold" : "normal", fontFamily: FONT, letterSpacing: bold ? -size * 0.03 : 0 })).width;
-    this.lay = layoutScene(this.scene.objects, w, h, measure);
+    this.lay = layoutScene(this.scene.objects, w, h, this.measure);
   }
 
   /** Scene state positions are defaults/explicit + animation; swap the default for the laid-out spot, keep the animated delta. */
@@ -278,8 +329,9 @@ export class SceneRenderer {
         else d.node.visible = false;
         continue;
       }
-      d.draw(s, w, h, st.objects);
-      this.setPoint(id, s.x*w, s.y*h, .12*h*s.scale);
+      const ex = d.draw(s, w, h, st.objects);
+      if (ex) this.ext.set(id, [ex[0] * s.scale, ex[1] * s.scale]);
+      this.setPoint(id, s.x*w, s.y*h, ex ? Math.max(ex[0], ex[1]) * s.scale : .12*h*s.scale);
     }
     this.rings.clear();
     for (const s of st.objects.values()) if (s.visible && s.ring) this.rings.circle(s.x*w, s.y*h, (.12+.06*s.ring)*h*s.scale).stroke({ color: this.fg, width: 3, alpha: 1-s.ring });

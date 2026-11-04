@@ -16,7 +16,7 @@ export function fitText(t: Text, text: string, width: number, height: number, si
   t.text = fit.text; t.style.fontSize = fit.size; t.style.lineHeight = fit.size * 1.15;
 }
 /** Partial polyline without allocating intermediate points each frame. */
-export function strokePath(g: Graphics, pts: Point[], p: number, color: string | number, width = 3, alpha = 1) {
+export function strokePath(g: Graphics, pts: Point[], p: number, color: string | number, width = 3, alpha = 1, round = false) {
   let length = 0;
   for (let i = 1; i < pts.length; i++) length += Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]);
   let left = length * Math.max(0, Math.min(1, p));
@@ -26,10 +26,17 @@ export function strokePath(g: Graphics, pts: Point[], p: number, color: string |
     const k = len ? Math.min(1, left / len) : 1;
     g.lineTo(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k); left -= len;
   }
-  g.stroke({ color, width, alpha });
+  g.stroke(round ? { color, width, alpha, cap: "round", join: "round" } : { color, width, alpha });
 }
-export type Visual = Extract<SceneObject, { type: "flow" | "table" | "code" | "figure" | "bits" | "stack" }>;
-export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#000") {
+/** Explicit width/height (stage fractions) apply only to objects with numeric x and y; otherwise the auto layout's default px size holds. */
+export function box(o: Record<string, unknown>, w: number, h: number, dw: number, dh: number): [number, number] {
+  const on = typeof o.x === "number" && typeof o.y === "number";
+  return [on && typeof o.width === "number" ? o.width * w : dw, on && typeof o.height === "number" ? o.height * h : dh];
+}
+export const fmtNum = (v: number) => String(Math.round(v * 100) / 100);
+export type Visual = Extract<SceneObject, { type: "flow" | "table" | "code" | "figure" | "bits" | "stack" | "chart" }>;
+type Cell = { cw?: number; ch?: number } | undefined;
+export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#000", cellOf: () => Cell = () => undefined) {
   const node = new Container();
   const ink = new Graphics(); node.addChild(ink);
   let lastW = 0, lastH = 0;
@@ -50,7 +57,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       image.texture = texture; ready = true; fallback.visible = false; refresh();
     }).catch(() => { if (!node.destroyed) { fallback.text = "Figure unavailable"; refresh(); } });
     return { node, draw(s: ObjState, w: number, h: number) {
-      const bw = w * .72, bh = h * .48;
+      const [bw, bh] = box(o, w, h, w * .72, h * .48);
       mask.clear().rect(-bw/2, -bh/2, bw, bh).fill(0xffffff);
       frame.clear().rect(-bw/2, -bh/2, bw, bh).stroke({ color: fg, width: 1, alpha: .4 });
       if (!ready) return;
@@ -66,11 +73,12 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
     const byId = new Map(cells.map(c => [c.def.id, c]));
     const edgeLabels = o.edges.map(e => label(e.label ?? ""));
     return { node, draw(s: ObjState, w: number, h: number) {
-      const bw = Math.min(w * .8 / cells.length * .75, h * .2), bh = h * .13;
+      const [fw, fh] = box(o, w, h, w * .8, h * .5);
+      const bw = Math.min(fw / cells.length * .75, h * .2), bh = h * .13;
       const resize = w !== lastW || h !== lastH;
       cells.forEach((c, i) => {
-        c.x = c.def.x === undefined ? (i - (cells.length-1)/2) * w * .8 / cells.length : (c.def.x - .5) * w * .8;
-        c.y = c.def.y === undefined ? 0 : (c.def.y - .5) * h * .5;
+        c.x = c.def.x === undefined ? (i - (cells.length-1)/2) * fw / cells.length : (c.def.x - .5) * fw;
+        c.y = c.def.y === undefined ? 0 : (c.def.y - .5) * fh;
         const p = childProgress(s, Math.min(cells.length + o.edges.length - 1, i * 2), cells.length + o.edges.length);
         c.g.clear().roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: bg }).roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: fg, alpha: .035 + s.hl * .12 }).stroke({ color: fg, width: 2 });
         c.g.position.set(c.x, c.y + (1 - ease(p)) * 18); c.g.alpha = p;
@@ -93,6 +101,38 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       lastW = w; lastH = h;
     } };
   }
+  if (o.type === "chart") {
+    const n = o.values.length, line = o.kind === "line";
+    const top = Math.max(...o.values, 0), max = o.max ?? (top || 1);
+    const vals = o.values.map(() => label("", true)), cats = o.labels.map(l => label(l));
+    return { node, draw(s: ObjState, w: number, h: number) {
+      const cell = cellOf();
+      let bw = (o.width ?? .7) * w, bh = (o.height ?? .45) * h; // charts always honor their size
+      if (cell?.cw && cell.ch) { bw = Math.min(bw, cell.cw * .95); bh = Math.min(bh, cell.ch - h * .12); }
+      bh = Math.max(h * .1, bh);
+      const slot = bw / n, base = bh / 2, resize = w !== lastW || h !== lastH;
+      const hc = s.col, pts: Point[] = o.values.map((v, i) => [-bw / 2 + (i + .5) * slot, base - Math.max(0, v) / max * bh]);
+      ink.clear();
+      ink.moveTo(-bw / 2, base).lineTo(bw / 2, base);
+      if (line) ink.moveTo(-bw / 2, base).lineTo(-bw / 2, base - bh);
+      ink.stroke({ color: fg, width: 2, alpha: .5 });
+      if (line) {
+        strokePath(ink, pts, s.reveal ?? 1, fg, 4, .9, true);
+        pts.forEach(([x, y], i) => { if ((s.reveal ?? 1) >= i / Math.max(1, n - 1)) ink.circle(x, y, h * .008 + (hc === i ? h * .008 * s.hl : 0)).fill({ color: fg }); });
+      }
+      o.values.forEach((v, i) => {
+        const p = line ? (s.reveal ?? 1) >= i / Math.max(1, n - 1) ? 1 : 0 : staggerProgress(s.reveal ?? 1, i, n, s.gap), [x, y] = pts[i];
+        const bar = (base - y) * ease(p), on = hc === i ? s.hl : 0, dim = hc === undefined ? 1 : 1 - .6 * s.hl;
+        if (!line) ink.roundRect(x - slot * .3, base - bar, slot * .6, bar, 4).fill({ color: fg, alpha: (.18 + .77 * on) * dim }).stroke({ color: fg, width: 2, alpha: .85 * dim });
+        vals[i].position.set(x, (line ? y : base - bar) - h * .03); vals[i].alpha = p * dim;
+        if (vals[i].text !== fmtNum(v)) vals[i].text = fmtNum(v);
+        cats[i].position.set(x, base + h * .035); cats[i].alpha = (line ? 1 : p) * dim;
+        if (resize) { fitText(cats[i], o.labels[i], slot * .9, h * .06, h * .028); fitText(vals[i], fmtNum(v), slot * .9, h * .04, h * .03); }
+      });
+      lastW = w; lastH = h;
+      return [bw / 2, bh / 2 + h * .05] as [number, number];
+    } };
+  }
   // Tables, code, bits and stack share bounded cells, with one retained label per cell.
   const rows = o.type === "table" ? [o.headers, ...o.rows]
     : o.type === "code" ? o.lines.map(line => [line])
@@ -101,7 +141,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
   const cells = rows.flatMap((row, r) => row.map((text, col) => ({ text, r, col, t: label(text, o.type === "code" || o.type === "bits"), fitted: text })));
   const bitLabel = o.type === "bits" && o.label ? label(o.label) : null;
   return { node, draw(s: ObjState, w: number, h: number) {
-    const bw = o.type === "stack" ? w * .4 : w * .78, bh = Math.min(h * .48, rows.length * h * (o.type === "stack" ? .15 : .075));
+    const [bw, bh] = box(o, w, h, o.type === "stack" ? w * .4 : w * .78, Math.min(h * .48, rows.length * h * (o.type === "stack" ? .15 : .075)));
     const rh = bh / rows.length, cw = bw / rows[0].length;
     const resize = w !== lastW || h !== lastH;
     ink.clear();
@@ -114,11 +154,24 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       const p = childProgress(s, i, cells.length);
       const active = o.type === "table" ? cell.r === 0 || (hr !== undefined && cell.r === hr+1) || hc === cell.col
         : o.type === "code" && range ? cell.r >= range[0] && cell.r <= range[1] : false;
-      ink.rect(x-cw/2, y-rh/2, cw, rh).fill({ color: fg, alpha: p * (active ? .22 : .035) }).stroke({ color: fg, width: 1, alpha: .3 * p });
-      cell.t.position.set(x, y + (1-ease(p))*10); cell.t.alpha = p;
-      if (resize) {
-        fitText(cell.t, cell.text, cw * .88, rh * .8, h * (o.type === "bits" ? .04 : .03));
-        cell.fitted = cell.t.text;
+      if (o.type === "code") { // one editor-like panel: left-aligned lines, indentation kept, highlight bars only
+        if (i === 0) ink.roundRect(-bw/2, -bh/2, bw, bh, 10).fill({ color: fg, alpha: .04 }).stroke({ color: fg, width: 1, alpha: .25 });
+        if (active) ink.rect(-bw/2, y-rh/2, bw, rh).fill({ color: fg, alpha: .16 });
+        cell.t.anchor.set(0, .5);
+        cell.t.position.set(-bw/2 + Math.min(24, bw * .04), y);
+        if (resize) {
+          let size = Math.min(h * .032, rh * .7);
+          const style = new TextStyle({ fontFamily: MONO, fontSize: size });
+          while (size > 8 && CanvasTextMetrics.measureText(cell.text, style).width > bw * .92) style.fontSize = size *= .92;
+          cell.t.style.fontSize = size; cell.t.style.whiteSpace = "pre"; cell.fitted = cell.text;
+        }
+      } else {
+        ink.rect(x-cw/2, y-rh/2, cw, rh).fill({ color: fg, alpha: p * (active ? .22 : .035) }).stroke({ color: fg, width: 1, alpha: .3 * p });
+        cell.t.position.set(x, y + (1-ease(p))*10); cell.t.alpha = p;
+        if (resize) {
+          fitText(cell.t, cell.text, cw * .88, rh * .8, h * (o.type === "bits" ? .04 : .03));
+          cell.fitted = cell.t.text;
+        }
       }
       if (o.type === "code") {
         const visible = Math.max(0, Math.floor((s.reveal ?? 1) * totalChars) - offset);

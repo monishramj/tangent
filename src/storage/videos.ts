@@ -2,12 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Scene } from "../dsl/schema";
 import type { Timeline } from "../dsl/compile";
 import type { PipelineEvent } from "../pipeline/streamVideo";
+import type { Checkpoint } from "../gen/checkpoints";
 
 export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number };
 export type VideoBundle = {
-  id: string; title: string; createdAt: number; complete: boolean;
+  id: string; title: string; createdAt: number; complete: boolean; projectId?: string;
   source: { pdfPath: string; sectionId: string; sectionTitle: string };
   scenes: StoredScene[];
+  checkpoints?: Checkpoint[];
 };
 /** audioFile is a temp path when saving and an absolute app-data path when loaded. */
 export type VideoStore = {
@@ -45,8 +47,8 @@ type SceneEvent = Extract<PipelineEvent, { type: "scene" }>;
  * Tee a pipeline stream into the store: save after every scene (so a partial watch survives),
  * mark complete only if the stream ends cleanly with no scene errors. Save failures never break playback.
  */
-export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"] }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
-  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
+export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"]; projectId?: string }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
+  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, projectId: meta.projectId, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
   let chain: Promise<unknown> = Promise.resolve();
   const persist = () => { const snap = structuredClone(bundle); chain = chain.then(() => store.save(snap)).catch(onError); return chain; };
   return (async function* () {
@@ -58,7 +60,8 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
           const e: SceneEvent = ev;
           bundle.scenes.push({ sceneId: e.sceneId, scene: e.scene, timeline: e.timeline, audioFile: e.wavPath, durationSec: e.timeline.totalSec });
           void persist();
-        } else clean = false;
+        } else if (ev.type === "checkpoints") { bundle.checkpoints = ev.items; void persist(); }
+        else clean = false;
         yield ev;
       }
       finished = true;
@@ -71,4 +74,5 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
 /** Stored scenes as pipeline events: no LLM, no TTS. */
 export async function* replayStream(b: VideoBundle): AsyncGenerator<PipelineEvent> {
   for (const s of b.scenes) yield { type: "scene", sceneId: s.sceneId, scene: s.scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0 };
+  if (b.checkpoints?.length) yield { type: "checkpoints", items: b.checkpoints };
 }

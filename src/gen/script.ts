@@ -32,6 +32,8 @@ export function checkScript(beats: Beat[]): Violation[] {
 function scriptPrompt(sectionMarkdown: string): string {
   return `Rewrite the textbook section below as a spoken script for a narrated explainer video. This is a rewrite for the ear, not a summary and not prose read aloud. Return JSON only, without commentary or fences: an array of beats, each {"say": string, "visualIntent": string, "cite"?: string}.
 
+Voice: a fast, witty tech explainer in the style of Fireship's "The Code Report". Open with a hook: a surprising fact, a bold claim or a question. Keep it punchy and conversational, use vivid analogies and the occasional dry joke, set up tension ("but here's the catch"), and land each idea with a short memorable line. End with a quick recap of the key idea. Never trade accuracy for a joke.
+
 Speech rules, all mandatory:
 1. Short sentences, one idea each. Never more than ${MAX_WORDS} words in a sentence. One idea per beat: one sentence or two short ones.
 2. Signpost: "first X, then Y", "here's the key move", "so the takeaway is".

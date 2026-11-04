@@ -208,3 +208,46 @@ def test_real_pdf(tmp_path, monkeypatch):
     assert pages == set(range(1, 14))
     assert metrics["latex_survived"]
     assert all(Path(f["image_path"]).is_file() for f in figures)
+
+
+def test_assets_dir_param_is_used_and_validated(document, tmp_path, monkeypatch):
+    pdf = tmp_path / "t.pdf"
+    pdf.write_bytes(b"%PDF-1.7\nfixture")
+    monkeypatch.setattr(ingest, "_convert_pdf", lambda path: document)
+    out = tmp_path / "figs" / "src1"
+    ir = handle({"id": 1, "method": "ingest_pdf", "params": {"path": str(pdf), "assets_dir": str(out)}})["result"]
+    figure = next(f for n in flatten(ir) for f in n["figures"])
+    assert Path(figure["image_path"]).parent == out.resolve() and Path(figure["image_path"]).is_file()
+    for bad in ("relative/dir", 3):
+        assert "error" in handle({"id": 2, "method": "ingest_pdf", "params": {"path": str(pdf), "assets_dir": bad}})
+
+
+def test_figure_without_image_is_skipped(document, tmp_path, monkeypatch, capsys):
+    from docling_core.types.doc import PictureItem
+    monkeypatch.setattr(PictureItem, "get_image", lambda self, doc, *a, **k: None)
+    nodes = flatten(ingest.document_to_ir(document, tmp_path))
+    assert not any(n["figures"] for n in nodes)
+    assert "skipping" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("title", ["Check yourself", "Self-check", "Checkpoint", "Quick Check", "Try it",
+                                   "Participation Activity 2.1", "Challenge activity", "Problems", "Questions", "Exercises"])
+def test_exercise_heading_conventions(title):
+    assert ingest.EXERCISE_HEADING.search(title)
+
+
+@pytest.mark.parametrize("title", ["Marginals", "Joint distributions", "Checking account"])
+def test_non_exercise_headings(title):
+    assert not ingest.EXERCISE_HEADING.search(title)
+
+
+def test_pdf_info(tmp_path):
+    import pypdfium2
+    pdf = pypdfium2.PdfDocument.new()
+    for _ in range(3):
+        pdf.new_page(200, 200)
+    path = tmp_path / "three.pdf"
+    pdf.save(str(path))
+    assert handle({"id": 1, "method": "pdf_info", "params": {"path": str(path)}}) == {"id": 1, "result": {"pages": 3}}
+    for params in (None, {}, {"path": ""}, {"path": str(tmp_path / "nope.pdf")}):
+        assert "error" in handle({"id": 2, "method": "pdf_info", "params": params})
