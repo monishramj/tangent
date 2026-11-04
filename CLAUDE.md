@@ -226,8 +226,8 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
 - The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
 - **Mid-scene silence drifts A/V.** The compiler inserts silence, but the single scene WAV isn't padded, so visuals lag the audio after an insert. Fix: pad the WAV at insert points, or forbid mid-scene inserts.
-- **Objects accumulate across beats.** Nothing auto-fades them; layout runs once per scene over all objects.
-- **Slow first scene.** About 3 min to first frame with Haiku (script + first scene). After that, generation stays ahead of playback.
+- **Objects accumulate only in raw-DSL beats.** Template beats clear the previous frame (unless `keep:true`); escape-hatch objects still rely on the model to fade them.
+- **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.
 - **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
 
