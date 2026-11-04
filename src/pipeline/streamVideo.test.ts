@@ -56,6 +56,8 @@ it("beats playback time with fake latencies and overlaps TTS with the preceding 
     expect(event.type).toBe("scene");
     if (event.type === "scene") {
       expect(event.generationMs).toBeGreaterThanOrEqual(300);
+      expect(event.scene.scene).toBe(event.sceneId);
+      expect(event.scene.objects[0].id).toBe("a");
       expect(event.generationMs).toBeLessThan(event.timeline.totalSec * 1000);
       expect(event.timeline.events.find(e => e.verb === "create")?.start).toBe(0.25);
       expect(event.timeline.events.filter(e => e.verb === "move")).toHaveLength(2);

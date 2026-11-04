@@ -10,8 +10,8 @@ import { applyEventsAt } from "./stage/scene";
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // `drawRef.current(t)` is filled once Pixi is ready: update the scene to t, then render (on demand; the ticker never runs).
-type Props = { scene: Scene; timeline: Timeline; drawRef: RefObject<((t: number) => void) | null>; annotateRef?: RefObject<((a: Annotation[]) => void) | null> };
-export default function Stage({ scene, timeline, drawRef, annotateRef }: Props) {
+type Props = { scene: Scene; timeline: Timeline; drawRef: RefObject<((t: number) => void) | null>; annotateRef?: RefObject<((a: Annotation[]) => void) | null>; timeRef?: RefObject<number> };
+export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const math = useRef<HTMLDivElement>(null);
 
@@ -36,7 +36,7 @@ export default function Stage({ scene, timeline, drawRef, annotateRef }: Props) 
         app.renderer.on("resize", () => draw(last));
         drawRef.current = draw;
         if (annotateRef) annotateRef.current = (a) => { r?.setAnnotations(a); draw(last); };
-        draw(last);
+        draw(timeRef?.current ?? last);
       });
 
     return () => {
@@ -46,7 +46,7 @@ export default function Stage({ scene, timeline, drawRef, annotateRef }: Props) 
       r?.destroy();
       if (ready) app.destroy(true);
     };
-  }, [scene, timeline, drawRef, annotateRef]);
+  }, [scene, timeline, drawRef, annotateRef, timeRef]);
 
   return (
     <div ref={host} role="img" aria-label="Video stage" className="absolute inset-0">

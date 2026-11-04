@@ -4,9 +4,10 @@ import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "../dsl/ops";
 import type { Timeline, Word } from "../dsl/compile";
 import type { LLMProvider } from "../llm/provider";
+import type { Scene } from "../dsl/schema";
 
 export type PipelineEvent =
-  | { type: "scene"; sceneId: string; timeline: Timeline; wavPath: string; generationMs: number }
+  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number }
   | { type: "error"; sceneId: string; error: Error };
 
 type Options = {
@@ -89,7 +90,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         narration.say = spoken;
         narration.actions = narration.actions.map(action => ({ ...action, at: mathToSpeech(action.at) }));
         const timeline = compileOps(scene, [{ words: audio.words, duration: audio.sec }]);
-        return { type: "scene", sceneId, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };
+        return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };
       } catch (cause) {
         checkAbort();
         error = cause instanceof Error ? cause : new Error(String(cause));

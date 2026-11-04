@@ -6,6 +6,7 @@ type Opts = {
   render: (t: number) => void; // Stage: update scene to t, then app.render()
   raf?: (cb: () => void) => number;
   caf?: (h: number) => void;
+  onEnd?: () => void;
 };
 
 export class Player {
@@ -22,7 +23,7 @@ export class Player {
   private tick = () => {
     const t = this.time;
     this.o.render(t);
-    if (t >= this.o.timeline.totalSec) return this.pause();
+    if (t >= this.o.timeline.totalSec) { this.pause(); this.o.onEnd?.(); return; }
     this.h = this.raf(this.tick);
   };
   private cancel() { if (this.h !== null) this.caf(this.h); this.h = null; }

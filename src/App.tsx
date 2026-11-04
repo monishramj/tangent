@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   ArrowLeft02Icon,
   ArrowRight02Icon,
@@ -19,6 +20,8 @@ import Home from "./home/Home";
 import Panel from "./Panel";
 import Stage from "./Stage";
 import { Player } from "./player/player";
+import { SceneQueue } from "./player/queue";
+import type { PipelineEvent } from "./pipeline/streamVideo";
 import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
 import type { Annotation } from "./tutor/annotations";
@@ -50,28 +53,77 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
-function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; onBack?: () => void }) {
+type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
+export function PlayerScreen({ provider: injected, onBack, stream }: { provider?: LLMProvider; onBack?: () => void; stream?: AsyncIterable<PipelineEvent> }) {
   const provider = injected ?? providers.claude; // ponytail: provider choice moves to a settings page later
 
   const [sidecar, setSidecar] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(stream ? 0 : DURATION);
+  const [buffering, setBuffering] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [currentScene, setCurrentScene] = useState<StreamedScene | null>(null);
+  const localTime = useRef(0);
   const drawRef = useRef<((t: number) => void) | null>(null);
   const annotateRef = useRef<((a: Annotation[]) => void) | null>(null);
   const priorQs = useRef<string[]>([]);
   const askedAt = useRef(0);
   // One clock: the <audio> element. The Player paces redraws from audio.currentTime.
-  const [audio] = useState(() => Object.assign(new Audio(AUDIO_URL), { preload: "auto" }));
-  const [player] = useState(() => new Player({ timeline, audio, render: (t) => {
+  const [audio] = useState(() => stream ? null : Object.assign(new Audio(AUDIO_URL), { preload: "auto" }));
+  const [player] = useState<Player | SceneQueue<StreamedScene>>(() => stream ? new SceneQueue<StreamedScene>({
+    createAudio: path => new Audio(path.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(path) : path),
+    render: (data, t) => {
+      localTime.current = t;
+      setCurrentScene(data);
+      drawRef.current?.(t);
+    },
+    onChange: () => {
+      setTime(p => Math.abs(p - player.time) < 0.1 ? p : player.time);
+      setDuration(player instanceof SceneQueue ? player.duration : DURATION);
+      setPlaying(player.playing);
+      setBuffering(player instanceof SceneQueue && player.buffering);
+    },
+    onError: error => setPlaybackError(String(error)),
+  }) : new Player({ timeline, audio: audio!, render: (t) => {
     drawRef.current?.(t);
     setTime((p) => (Math.abs(p - t) < 0.1 ? p : t)); // don't re-render React at 60fps
   } }));
   useEffect(() => {
+    if (!audio) return;
     const stop = () => { setPlaying(false); setTime(audio.currentTime); };
     audio.addEventListener("ended", stop);
     audio.addEventListener("pause", stop);
     return () => { audio.removeEventListener("ended", stop); audio.removeEventListener("pause", stop); player.pause(); };
   }, [audio, player]);
+  useEffect(() => {
+    if (!stream || !(player instanceof SceneQueue)) return;
+    let live = true;
+    let iterator: AsyncIterator<PipelineEvent> | undefined;
+    // Defer consumption so StrictMode's discarded effect cannot abort the live stream.
+    void Promise.resolve().then(async () => {
+      if (!live) return;
+      iterator = stream[Symbol.asyncIterator]();
+      try {
+        while (live) {
+          const next = await iterator.next();
+          if (!live) return;
+          if (next.done) break;
+          if (next.value.type === "scene") player.enqueue(next.value);
+          else setPlaybackError(`Scene ${next.value.sceneId}: ${next.value.error.message}`);
+        }
+      } catch (error) {
+        if (live) setPlaybackError(String(error));
+      } finally {
+        if (live) player.finish();
+      }
+    });
+    return () => {
+      live = false;
+      player.dispose();
+      void iterator?.return?.().catch(() => {});
+    };
+  }, [stream, player]);
   const [panel, setPanel] = useState<"Sections" | "Ask" | null>(null);
   const [active, setActive] = useState(2);
   const [tutor, setTutor] = useState<{ s: "idle" | "loading" | "error" | "answered"; answer?: string }>({ s: "idle" });
@@ -101,14 +153,14 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
   }, [playing, panel]);
 
   const seek = (s: number) => {
-    const t = Math.min(DURATION, Math.max(0, s));
+    const t = Math.min(duration, Math.max(0, s));
     player.seek(t);
     setTime(t);
   };
   const togglePlay = () => {
     if (playing) player.pause();
     else {
-      if (player.time >= DURATION - 0.05) player.seek(0);
+      if (duration > 0 && player.time >= duration - 0.05 && !buffering) player.seek(0);
       player.play();
     }
     setPlaying(!playing);
@@ -125,7 +177,8 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
     annotateRef.current?.([]);
     try {
       // ponytail: transcript left empty until the timeline exposes words up to t; scene ids/types are enough to ground marks.
-      const context = buildTutorContext({ objects: scene.objects.map((o) => ({ id: o.id, type: o.type })), transcript: "", section: "Heapify", priorQuestions: priorQs.current });
+      const liveScene = player instanceof SceneQueue ? player.current?.scene : scene;
+      const context = buildTutorContext({ objects: liveScene?.objects.map((o) => ({ id: o.id, type: o.type })) ?? [], transcript: "", section: liveScene?.scene ?? "", priorQuestions: priorQs.current });
       const r = await ask({ question, context, provider });
       priorQs.current.push(question);
       annotateRef.current?.(r.annotations);
@@ -137,7 +190,8 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
   const resume = () => {
     annotateRef.current?.([]);
     setTutor({ s: "idle" });
-    player.seek(resumeTime(STARTS, askedAt.current));
+    player.seek(resumeTime(player instanceof SceneQueue ? player.beatStarts : STARTS, askedAt.current));
+    setTime(player.time);
     player.play();
     setPlaying(true);
     setPanel(null);
@@ -146,7 +200,9 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
 
   return (
     <main className={`relative h-screen overflow-hidden bg-bg ${idle ? "cursor-none" : ""}`}>
-      <Stage scene={scene} timeline={timeline} drawRef={drawRef} annotateRef={annotateRef} />
+      {(!stream || currentScene) && <Stage scene={currentScene?.scene ?? scene} timeline={currentScene?.timeline ?? timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={stream ? localTime : undefined} />}
+      {buffering && <p role="status" aria-label="Buffering" className="absolute inset-x-0 top-16 text-center text-sm text-muted">Buffering…</p>}
+      {playbackError && <p role="status" aria-label="Playback error" className="absolute inset-x-0 top-24 text-center text-sm text-muted">{playbackError}</p>}
 
       <div data-idle={idle} className={`absolute inset-0 transition-opacity duration-300 ${idle ? "opacity-0" : "opacity-100"}`}>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-bg via-bg/60 to-transparent" />
@@ -180,11 +236,11 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
         <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 px-8 pb-6">
           <div className="flex items-end justify-between gap-6">
             <div className="max-w-xl">
-              <p className="text-sm font-medium text-subtle">CS 251 · Heaps</p>
-              <h1 className="mt-1 text-5xl font-semibold tracking-tight">Heapify</h1>
-              <p className="mt-2 line-clamp-2 text-base text-muted">
+              <p className="text-sm font-medium text-subtle">{stream ? "Tangent" : "CS 251 · Heaps"}</p>
+              <h1 className="mt-1 text-5xl font-semibold tracking-tight">{stream ? currentScene?.sceneId ?? "Video" : "Heapify"}</h1>
+              {!stream && <p className="mt-2 line-clamp-2 text-base text-muted">
                 How one broken spot in a heap gets fixed: the parent swaps with its bigger child, then we check again one level down.
-              </p>
+              </p>}
             </div>
             <div className="flex gap-1">
               {(["Sections", "Ask"] as const).map((name) => (
@@ -203,16 +259,16 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
             <input
               type="range"
               aria-label="Seek"
-              aria-valuetext={`${clock(time)} of ${clock(DURATION)}`}
+              aria-valuetext={`${clock(time)} of ${clock(duration)}`}
               min={0}
-              max={DURATION}
+              max={duration}
               step="any"
               value={time}
               onChange={(e) => seek(Number(e.target.value))}
               className="scrubber h-11 flex-1"
-              style={{ "--p": `${(time / DURATION) * 100}%` } as React.CSSProperties}
+              style={{ "--p": `${duration ? (time / duration) * 100 : 0}%` } as React.CSSProperties}
             />
-            <span aria-label={`${clock(DURATION - time)} remaining`}>-{clock(DURATION - time)}</span>
+            <span aria-label={`${clock(duration - time)} remaining`}>-{clock(duration - time)}</span>
           </div>
         </div>
       </div>
@@ -288,11 +344,11 @@ function PlayerScreen({ provider: injected, onBack }: { provider?: LLMProvider; 
 
 // Routing: "player" is the default so the demo player stays the app's fallback; main.tsx starts on "home".
 // ponytail: onStart just opens the demo player until the real pipeline is wired in.
-export default function App({ provider, initial = "player" }: { provider?: LLMProvider; initial?: "home" | "player" }) {
+export default function App({ provider, initial = "player", stream }: { provider?: LLMProvider; initial?: "home" | "player"; stream?: AsyncIterable<PipelineEvent> }) {
   const [screen, setScreen] = useState(initial);
   return screen === "home" ? (
     <Home onStart={() => setScreen("player")} onDemo={() => setScreen("player")} />
   ) : (
-    <PlayerScreen provider={provider} onBack={() => setScreen("home")} />
+    <PlayerScreen provider={provider} stream={stream} onBack={() => setScreen("home")} />
   );
 }
