@@ -9,3 +9,5 @@ const call = <T>(method: string, params: Record<string, unknown>) => invoke<T>("
 
 export const ingestPdf = (path: string) => call<IR>("ingest_pdf", { path });
 export const listSections = (ir: IR) => call<SectionRef[]>("list_sections", { ir });
+
+export const sectionText = (ir: IR, id: string) => call<string>("section_text", { ir, id });

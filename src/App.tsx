@@ -17,11 +17,13 @@ import ShinyText from "@/components/ShinyText";
 import type { LLMProvider } from "./llm/provider";
 import { providers } from "./llm/registry";
 import Home from "./home/Home";
+import { sectionText, type IR } from "./home/api";
+import { startSession } from "./pipeline/session";
 import Panel from "./Panel";
 import Stage from "./Stage";
 import { Player } from "./player/player";
 import { SceneQueue } from "./player/queue";
-import type { PipelineEvent } from "./pipeline/streamVideo";
+import type { GenerationStatus, PipelineEvent } from "./pipeline/streamVideo";
 import { AUDIO_URL, scene, timeline } from "./stage/demo";
 import { ping } from "./ipc";
 import type { Annotation } from "./tutor/annotations";
@@ -54,7 +56,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 const iconBtn = "grid size-11 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
-export function PlayerScreen({ provider: injected, onBack, stream }: { provider?: LLMProvider; onBack?: () => void; stream?: AsyncIterable<PipelineEvent> }) {
+export function PlayerScreen({ provider: injected, onBack, stream, section, progress, onRetry, autoPlay = false }: { provider?: LLMProvider; onBack?: () => void; stream?: AsyncIterable<PipelineEvent>; section?: string; progress?: GenerationStatus; onRetry?: () => void; autoPlay?: boolean }) {
   const provider = injected ?? providers.claude; // ponytail: provider choice moves to a settings page later
 
   const [sidecar, setSidecar] = useState<string | null>(null);
@@ -104,6 +106,7 @@ export function PlayerScreen({ provider: injected, onBack, stream }: { provider?
     void Promise.resolve().then(async () => {
       if (!live) return;
       iterator = stream[Symbol.asyncIterator]();
+      if (autoPlay) player.play();
       try {
         while (live) {
           const next = await iterator.next();
@@ -123,7 +126,7 @@ export function PlayerScreen({ provider: injected, onBack, stream }: { provider?
       player.dispose();
       void iterator?.return?.().catch(() => {});
     };
-  }, [stream, player]);
+  }, [stream, player, autoPlay]);
   const [panel, setPanel] = useState<"Sections" | "Ask" | null>(null);
   const [active, setActive] = useState(2);
   const [tutor, setTutor] = useState<{ s: "idle" | "loading" | "error" | "answered"; answer?: string }>({ s: "idle" });
@@ -178,7 +181,7 @@ export function PlayerScreen({ provider: injected, onBack, stream }: { provider?
     try {
       // ponytail: transcript left empty until the timeline exposes words up to t; scene ids/types are enough to ground marks.
       const liveScene = player instanceof SceneQueue ? player.current?.scene : scene;
-      const context = buildTutorContext({ objects: liveScene?.objects.map((o) => ({ id: o.id, type: o.type })) ?? [], transcript: "", section: liveScene?.scene ?? "", priorQuestions: priorQs.current });
+      const context = buildTutorContext({ objects: liveScene?.objects.map((o) => ({ id: o.id, type: o.type })) ?? [], transcript: "", section: section ?? liveScene?.scene ?? "", priorQuestions: priorQs.current });
       const r = await ask({ question, context, provider });
       priorQs.current.push(question);
       annotateRef.current?.(r.annotations);
@@ -202,7 +205,15 @@ export function PlayerScreen({ provider: injected, onBack, stream }: { provider?
     <main className={`relative h-screen overflow-hidden bg-bg ${idle ? "cursor-none" : ""}`}>
       {(!stream || currentScene) && <Stage scene={currentScene?.scene ?? scene} timeline={currentScene?.timeline ?? timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={stream ? localTime : undefined} />}
       {buffering && <p role="status" aria-label="Buffering" className="absolute inset-x-0 top-16 text-center text-sm text-muted">Buffering…</p>}
-      {playbackError && <p role="status" aria-label="Playback error" className="absolute inset-x-0 top-24 text-center text-sm text-muted">{playbackError}</p>}
+      {progress && progress !== "done" && !playbackError && (
+        <p role="status" aria-label="Generation progress" className="absolute inset-x-0 top-24 text-center text-sm text-muted">
+          <ShinyText text={`${progress[0].toUpperCase()}${progress.slice(1)}…`} color={css("--fg-subtle")} shineColor={css("--fg")} />
+        </p>
+      )}
+      {playbackError && <div className="absolute inset-x-0 top-24 z-10 text-center text-sm text-muted">
+        <p role="alert">{playbackError}</p>
+        {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 text-fg hover:bg-fg/10">Try again</button>}
+      </div>}
 
       <div data-idle={idle} className={`absolute inset-0 transition-opacity duration-300 ${idle ? "opacity-0" : "opacity-100"}`}>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-bg via-bg/60 to-transparent" />
@@ -342,13 +353,45 @@ export function PlayerScreen({ provider: injected, onBack, stream }: { provider?
   );
 }
 
-// Routing: "player" is the default so the demo player stays the app's fallback; main.tsx starts on "home".
-// ponytail: onStart just opens the demo player until the real pipeline is wired in.
+function SectionSession({ id, ir, provider, onBack }: { id: string; ir: IR; provider?: LLMProvider; onBack: () => void }) {
+  const [attempt, setAttempt] = useState(0);
+  const [session, setSession] = useState<{ stream: ReturnType<typeof startSession>; markdown: string } | null>(null);
+  const [progress, setProgress] = useState<GenerationStatus>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    const controller = new AbortController();
+    setSession(null);
+    setError(undefined);
+    setProgress(undefined);
+    void (async () => {
+      try {
+        const markdown = await sectionText(ir, id);
+        if (controller.signal.aborted) return;
+        const stream = startSession({ irSection: { markdown }, provider, signal: controller.signal,
+          onStatus: status => { if (!controller.signal.aborted) setProgress(status); } });
+        setSession({ stream, markdown });
+      } catch (e) {
+        if (!controller.signal.aborted) setError(String(e));
+      }
+    })();
+    return () => controller.abort();
+  }, [id, ir, provider, attempt]);
+  const retry = () => { setSession(null); setAttempt(n => n + 1); };
+  if (session) return <PlayerScreen provider={provider} stream={session.stream} section={session.markdown} progress={progress} autoPlay onRetry={retry} onBack={onBack} />;
+  return <main className="flex h-screen flex-col items-center justify-center gap-4 bg-bg text-fg">
+    <button type="button" onClick={onBack} className="absolute left-4 top-4 rounded-lg border border-line px-4 py-2">Back</button>
+    {error ? <>
+      <p role="alert">Couldn't start this section: {error}</p>
+      <button type="button" onClick={retry} className="rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>
+    </> : <p role="status"><ShinyText text="Reading section…" color={css("--fg-subtle")} shineColor={css("--fg")} /></p>}
+  </main>;
+}
+
+// main.tsx opens Home; the default remains the demo for existing callers.
 export default function App({ provider, initial = "player", stream }: { provider?: LLMProvider; initial?: "home" | "player"; stream?: AsyncIterable<PipelineEvent> }) {
-  const [screen, setScreen] = useState(initial);
-  return screen === "home" ? (
-    <Home onStart={() => setScreen("player")} onDemo={() => setScreen("player")} />
-  ) : (
-    <PlayerScreen provider={provider} stream={stream} onBack={() => setScreen("home")} />
-  );
+  const [screen, setScreen] = useState<"home" | "player" | { id: string; ir: IR }>(initial);
+  const back = () => setScreen("home");
+  if (screen === "home") return <Home onStart={(id, ir) => setScreen({ id, ir })} onDemo={() => setScreen("player")} />;
+  if (typeof screen === "object") return <SectionSession id={screen.id} ir={screen.ir} provider={provider} onBack={back} />;
+  return <PlayerScreen provider={provider} stream={stream} onBack={back} />;
 }

@@ -10,7 +10,10 @@ export type PipelineEvent =
   | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number }
   | { type: "error"; sceneId: string; error: Error };
 
+export type GenerationStatus = "writing script" | "generating narration" | "building scenes" | "done";
+
 type Options = {
+  onStatus?: (status: GenerationStatus) => void;
   sectionMarkdown: string;
   provider: LLMProvider;
   ttsAlign: (text: string, options?: { signal?: AbortSignal; sceneId: string }) => Promise<{
@@ -22,7 +25,7 @@ type Options = {
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 2, signal, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 2, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -58,6 +61,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         checkAbort();
+        onStatus?.("generating narration");
         const spoken = mathToSpeech(beat.say);
         const audio = await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
         checkAbort();
@@ -71,6 +75,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
           end = word.end;
         }
         // The pipeline owns retries; suppress generateScene's additional model calls.
+        onStatus?.("building scenes");
         let called = false;
         const result = await generateScene({
           section: JSON.stringify({ ...beat, instruction: "Preserve say exactly; return exactly one narrated beat and no reaction beats." }),
@@ -117,6 +122,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   async function* run(): AsyncGenerator<PipelineEvent, void, unknown> {
     try {
       checkAbort();
+      onStatus?.("writing script");
       const script = await generateScript({ sectionMarkdown, provider: complete });
       if (!script.beats || script.violations.length) throw new Error("Invalid script");
       beats = script.beats;
@@ -132,7 +138,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         yield event;
       }
     } finally {
-      if (state !== "aborted") state = "done";
+      if (state !== "aborted") { state = "done"; onStatus?.("done"); }
       controller.abort();
       signal?.removeEventListener("abort", onAbort);
       ready.clear();
