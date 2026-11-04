@@ -17,8 +17,9 @@ import ShinyText from "@/components/ShinyText";
 import type { LLMProvider } from "./llm/provider";
 import { providers } from "./llm/registry";
 import Home from "./home/Home";
-import { sectionText, type IR } from "./home/api";
+import { sectionFigures, sectionText, type IR } from "./home/api";
 import { recordStream, replayStream, type VideoBundle } from "./storage/videos";
+import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import Panel from "./Panel";
 import Stage from "./Stage";
@@ -372,9 +373,9 @@ function SectionSession({ id, ir, pdfPath, title, provider, onBack }: { id: stri
     setProgress(undefined);
     void (async () => {
       try {
-        const markdown = await sectionText(ir, id);
+        const markdown = stripWatermarks(await sectionText(ir, id));
         if (controller.signal.aborted) return;
-        const stream = startSession({ irSection: { markdown }, provider, signal: controller.signal,
+        const stream = startSession({ irSection: { markdown, figures: sectionFigures(ir, id) }, provider, signal: controller.signal,
           onStatus: status => { devlog(`status ${status}`); if (!controller.signal.aborted) setProgress(status); } });
         setSession({ markdown, stream: recordStream(stream, { title, source: { pdfPath, sectionId: id, sectionTitle: title } }, undefined, e => devlog(`video save failed ${String(e)}`)) });
       } catch (e) {

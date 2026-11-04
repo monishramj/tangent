@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ingestPdf, listSections, sectionText } from "./api";
 
@@ -16,4 +16,16 @@ it("loads section markdown through section_text", async () => {
   const ir = { sections: [] };
   await sectionText(ir, "s1");
   expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "section_text", params: { ir, id: "s1" } });
+});
+
+describe("sectionFigures", () => {
+  it("collects figures from a section and its descendants", async () => {
+    const { sectionFigures } = await import("./api");
+    const fig = (id: string) => ({ id, caption: id, image_path: `/${id}.png` });
+    const child = { id: "c", title: "c", level: 3, anchors: [], children: [], figures: [fig("f2")] };
+    const ir = { sections: [{ id: "p", title: "p", level: 2, anchors: [], children: [child], figures: [fig("f1")] }] };
+    expect(sectionFigures(ir, "p").map(f => f.id)).toEqual(["f1", "f2"]);
+    expect(sectionFigures(ir, "c").map(f => f.id)).toEqual(["f2"]);
+    expect(sectionFigures(ir, "nope")).toEqual([]);
+  });
 });

@@ -8,14 +8,14 @@ vi.mock("@tauri-apps/api/path", () => ({ tempDir: async () => "/tmp", join: asyn
 const say = "Arrays grow.";
 const script = JSON.stringify([{ say, visualIntent: "Show an array" }]);
 const scene = JSON.stringify({ scene: "s", objects: [{ id: "a", type: "Array", init: [1] }],
-  beats: [{ say, actions: [{ at: "Arrays", do: "create", target: "a" }] }] });
+  beats: [{ say, actions: [{ at: "Arrays", do: "create", target: "a" }, { at: "grow", do: "highlight", target: "a" }] }] });
 const audio = { wavPath: "/fake.wav", sec: 2, words: [{ word: "Arrays", start: 0, end: 1 }, { word: "grow.", start: 1, end: 2 }] };
 beforeEach(() => { vi.mocked(invoke).mockReset(); });
 
 it("runs a section with real defaults through fake IPC and returns playable scenes and status", async () => {
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     const a = args as { prompt: string; params: { out_path: string } };
-    if (command === "llm_complete") return a.prompt.startsWith("Rewrite") ? script : scene;
+    if (command === "llm_complete") return a.prompt.startsWith("Rewrite") ? script : a.prompt.startsWith("Group") ? "[]" : scene; // "[]" plan -> chunk fallback
     return { wav_path: a.params.out_path, sec: audio.sec, words: audio.words };
   });
   const session = startSession({ irSection: { markdown: "Source arrays." } });
@@ -29,7 +29,7 @@ it("runs a section with real defaults through fake IPC and returns playable scen
 });
 
 it("accepts provider and TTS overrides without IPC", async () => {
-  const complete = vi.fn().mockResolvedValueOnce(script).mockResolvedValueOnce(scene);
+  const complete = vi.fn().mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValueOnce(scene);
   const ttsAlign = vi.fn().mockResolvedValue(audio);
   const session = startSession({ irSection: { markdown: "Arrays" }, provider: { complete }, ttsAlign });
   expect((await session.next()).value).toMatchObject({ type: "scene", wavPath: audio.wavPath });
@@ -50,4 +50,13 @@ it("forwards cancellation without starting real work", async () => {
 it("rejects an empty section before starting work", () => {
   expect(() => startSession({ irSection: { markdown: "  " } })).toThrow(/section/i);
   expect(invoke).not.toHaveBeenCalled();
+});
+
+it("offers section figures to the model as asset-protocol sources", async () => {
+  const complete = vi.fn().mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValueOnce(scene);
+  const session = startSession({ irSection: { markdown: "Arrays", figures: [{ id: "figure-1", caption: "An array", image_path: "/img/a.png" }] },
+    provider: { complete }, ttsAlign: vi.fn().mockResolvedValue(audio) });
+  await session.next();
+  await session.return();
+  expect(complete.mock.calls[1][0]).toContain("asset:///img/a.png");
 });

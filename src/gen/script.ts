@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { LLMProvider } from "../llm/provider";
+import { stripWatermarks } from "./sanitize";
 
 export const Beat = z.object({ say: z.string().min(1), visualIntent: z.string().min(1), cite: z.string().optional() });
 export type Beat = z.infer<typeof Beat>;
@@ -57,7 +58,7 @@ function parse(response: string): { beats?: Beat[]; error?: string } {
 }
 
 export async function generateScript({ sectionMarkdown, provider }: { sectionMarkdown: string; provider: LLMProvider }): Promise<ScriptResult> {
-  const base = scriptPrompt(sectionMarkdown);
+  const base = scriptPrompt(stripWatermarks(sectionMarkdown));
   let prompt = base;
   let beats: Beat[] | null = null;
   let violations: Violation[] = [];

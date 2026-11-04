@@ -88,9 +88,28 @@ def _figures(sec):
     sec["markdown"] = "\n\n".join(out)
 
 
+# Watermark/footer stripping must run before any text can reach a model (see src/gen/sanitize.ts).
+_ZYBOOKS = re.compile(r"©\s*zyBooks.*$", re.I)  # ©zyBooks MM/DD/YY HH:MM EDT <id> <name> <COURSE+TERM>
+_STAMP = re.compile(r"\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}.*\d{6,}.*$")
+_FOOTER = re.compile(r"^[\s*_>|]*(?:©|\(c\)\s|copyright\b).{0,160}$", re.I)
+_MARKUP_ONLY = re.compile(r"^[\s*_>|]*$")
+
+
+def strip_footers(markdown):
+    out = []
+    for line in markdown.split("\n"):
+        if _FOOTER.match(line):
+            continue
+        cut = _STAMP.sub("", _ZYBOOKS.sub("", line))
+        if cut != line and _MARKUP_ONLY.match(cut):
+            continue
+        out.append(cut)
+    return "\n".join(out)
+
+
 def _clean(n):
     n["title"] = " ".join(JUNK.sub("", n["title"]).split())
-    n["markdown"] = JUNK.sub("", n["markdown"])
+    n["markdown"] = strip_footers(JUNK.sub("", n["markdown"]))
 
 
 def postprocess(ir):

@@ -75,3 +75,11 @@ describe("generateScript", () => {
     expect(r.beats).toHaveLength(1);
   });
 });
+
+describe("generateScript privacy", () => {
+  it("never sends watermark lines or the person's name to the model", async () => {
+    const provider = mockProvider(JSON.stringify([{ say: "Muxes pick.", visualIntent: "x" }]));
+    await generateScript({ sectionMarkdown: "Muxes pick.\n©zyBooks 01/15/26 14:03 EST 1234567 Jane Q Student PURDUECS250Fall2026\nDone.", provider });
+    expect(provider.complete.mock.calls[0][0]).not.toMatch(/Jane|1234567|zyBooks/);
+  });
+});

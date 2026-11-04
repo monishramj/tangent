@@ -1,5 +1,7 @@
 import { generateScript, type Beat } from "../gen/script";
-import { generateScene } from "../gen/scene";
+import { generateGroupScene } from "../gen/scene";
+import { planScenes, type Figure, type ScenePlan } from "../gen/plan";
+import { splitBeatAudio } from "./splitAudio";
 import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "../dsl/ops";
 import type { Timeline, Word } from "../dsl/compile";
@@ -20,12 +22,15 @@ type Options = {
     wavPath: string; sec: number; words: Word[];
   }>;
   concurrency?: number;
+  /** Scenes allowed to be in flight or ready beyond the one being played. */
+  lookahead?: number;
+  figures?: Figure[];
   signal?: AbortSignal;
   clock?: { now(): number };
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 2, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], signal, onStatus, clock = { now: () => Date.now() } }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -52,9 +57,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   let cursor = 0;
   let issued = 0;
   let active = 0;
-  let beats: Beat[] = [];
+  let groups: { beats: Beat[]; plan: ScenePlan }[] = [];
 
-  async function build(beat: Beat, index: number): Promise<PipelineEvent> {
+  async function build({ beats, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
     const sceneId = `scene-${index + 1}`;
     const start = clock.now();
     let error = new Error("Scene generation failed");
@@ -62,8 +67,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       try {
         checkAbort();
         onStatus?.("generating narration");
-        const spoken = mathToSpeech(beat.say);
-        const audio = await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
+        const spoken = beats.map(beat => mathToSpeech(beat.say));
+        // One wav per scene; beat boundaries stay as sentence boundaries in the joined text.
+        const audio = await Promise.race([ttsAlign(spoken.join(" "), { sceneId, signal: controller.signal }), aborted]);
         checkAbort();
         if (!audio.wavPath?.trim() || !Number.isFinite(audio.sec) || audio.sec <= 0 || !audio.words.length)
           throw new Error("Invalid alignment audio");
@@ -74,27 +80,20 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
             throw new Error("Invalid alignment word timestamps");
           end = word.end;
         }
-        // The pipeline owns retries; suppress generateScene's additional model calls.
+        const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
-        let called = false;
-        const result = await generateScene({
-          section: JSON.stringify({ ...beat, instruction: "Preserve say exactly; return exactly one narrated beat and no reaction beats." }),
-          provider: { complete(prompt, opts) {
-            if (called) throw new Error("Invalid scene DSL");
-            called = true;
-            return complete.complete(prompt, opts);
-          } },
-        });
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete });
         checkAbort();
         const scene = result.scene;
-        if (!scene) throw new Error("Invalid scene DSL");
-        const narration = scene.beats[0];
-        if (scene.beats.length !== 1 || !narration || !("say" in narration) || narration.say !== beat.say)
-          throw new Error("Scene narration must match the script exactly");
+        if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
         scene.scene = sceneId;
-        narration.say = spoken;
-        narration.actions = narration.actions.map(action => ({ ...action, at: mathToSpeech(action.at) }));
-        const timeline = compileOps(scene, [{ words: audio.words, duration: audio.sec }]);
+        scene.beats.forEach((beat, i) => {
+          if (!("say" in beat)) return;
+          beat.say = spoken[i];
+          beat.actions = beat.actions.map(action => ({ ...action, at: mathToSpeech(action.at) }));
+        });
+        // pause 0: beats are contiguous slices of the single wav.
+        const timeline = compileOps(scene, clips, 0);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };
       } catch (cause) {
         checkAbort();
@@ -105,12 +104,12 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   }
 
   function fill() {
-    // Retain lookahead even with one worker; a paused consumer bounds all prefetch.
-    while (!controller.signal.aborted && active < concurrency && issued < beats.length
-      && issued < cursor + Math.max(2, concurrency)) {
+    // Window = the scene being awaited plus `lookahead` after it; a paused consumer bounds all prefetch.
+    while (!controller.signal.aborted && active < concurrency && issued < groups.length
+      && issued <= cursor + lookahead) {
       const index = issued++;
       active++;
-      const job = build(beats[index], index).then(event => {
+      const job = build(groups[index], index).then(event => {
         ready.set(index, event);
         return event;
       }).finally(() => { active--; fill(); });
@@ -125,12 +124,12 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       onStatus?.("writing script");
       const script = await generateScript({ sectionMarkdown, provider: complete });
       if (!script.beats || script.violations.length) throw new Error("Invalid script");
-      beats = script.beats;
+      const beats = script.beats;
+      const plans = await planScenes({ beats, provider: complete, figures });
+      groups = plans.map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));
       fill();
-      while (cursor < beats.length) {
+      while (cursor < groups.length) {
         const event = await Promise.race([jobs.get(cursor)!, aborted]);
-        // Release a scene only after its successor is ready (except at EOF).
-        if (cursor + 1 < beats.length) await Promise.race([jobs.get(cursor + 1)!, aborted]);
         checkAbort();
         ready.delete(cursor);
         jobs.delete(cursor++);

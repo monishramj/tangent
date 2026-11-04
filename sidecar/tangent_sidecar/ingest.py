@@ -10,6 +10,8 @@ from contextlib import redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
+from .postprocess import strip_footers
+
 
 @lru_cache(maxsize=1)
 def _load_converter():
@@ -219,4 +221,4 @@ def section_text(params_or_ir, section_id=None):
     node = find(params_or_ir["sections"])
     if node is None:
         raise ValueError(f"unknown section: {section_id}")
-    return "\n\n".join(t for t in texts(node) if t)
+    return strip_footers("\n\n".join(t for t in texts(node) if t))

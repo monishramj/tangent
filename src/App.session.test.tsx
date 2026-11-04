@@ -16,7 +16,7 @@ const ir = { sections: [] };
 const markdown = "# Arrays\nArrays hold a sequence of values.";
 const say = "Arrays grow.";
 const script = JSON.stringify([{ say, visualIntent: "Show an array" }]);
-const scene = JSON.stringify({ scene: "arrays", objects: [{ id: "a", type: "Array", init: [1] }], beats: [{ say, actions: [{ at: "Arrays", do: "create", target: "a" }] }] });
+const scene = JSON.stringify({ scene: "arrays", objects: [{ id: "a", type: "Array", init: [1] }], beats: [{ say, actions: [{ at: "Arrays", do: "create", target: "a" }, { at: "grow", do: "highlight", target: "a" }] }] });
 const complete = vi.fn();
 const provider = { complete };
 const play = vi.fn().mockResolvedValue(undefined);
@@ -57,7 +57,7 @@ async function pick() {
 it("runs a picked section, reports real generation phases, autoplays and grounds the tutor in markdown", async () => {
   const writing = deferred<string>();
   const building = deferred<string>();
-  complete.mockReturnValueOnce(writing.promise).mockReturnValueOnce(building.promise)
+  complete.mockReturnValueOnce(writing.promise).mockResolvedValueOnce("[]").mockReturnValueOnce(building.promise)
     .mockResolvedValue(JSON.stringify({ answer: "A sequence.", annotations: [] }));
   await pick();
   expect((await screen.findByRole("status", { name: "Generation progress" })).textContent).toMatch(/writing script/i);
@@ -91,7 +91,7 @@ it("surfaces section loading errors and retries the same section", async () => {
     if ((args as { method?: string })?.method === "section_text" && !failed) { failed = true; throw new Error("Section unavailable"); }
     return base(cmd, args);
   });
-  complete.mockResolvedValueOnce(script).mockResolvedValue(scene);
+  complete.mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValue(scene);
   await pick();
   expect((await screen.findByRole("alert")).textContent).toContain("Section unavailable");
   fireEvent.click(screen.getByRole("button", { name: /try again/i }));
@@ -122,7 +122,7 @@ it("surfaces scene build errors and retries generation from the section", async 
   tts.resolve();
   await pick();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Scene scene-1: Invalid scene DSL/);
-  complete.mockReset().mockResolvedValueOnce(script).mockResolvedValue(scene);
+  complete.mockReset().mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValue(scene);
   fireEvent.click(screen.getByRole("button", { name: /try again/i }));
   await waitFor(() => expect(screen.getByRole("slider").getAttribute("max")).toBe("2"));
   expect(screen.queryByRole("alert")).toBeNull();
@@ -142,18 +142,18 @@ it("ignores a late section response after returning Home", async () => {
 });
 
 it("starts only one pipeline under the app's StrictMode effects", async () => {
-  complete.mockResolvedValueOnce(script).mockResolvedValue(scene);
+  complete.mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValue(scene);
   tts.resolve();
   const view = render(<StrictMode><App initial="home" provider={provider} /></StrictMode>);
   fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files: [{ name: "book.pdf", path: "/book.pdf" }] } });
   fireEvent.click(await screen.findByRole("option", { name: "Arrays" }));
   await waitFor(() => expect(screen.getByRole("slider").getAttribute("max")).toBe("2"));
-  expect(complete).toHaveBeenCalledTimes(2);
+  expect(complete).toHaveBeenCalledTimes(3); // script, plan, scene
   expect(play).toHaveBeenCalled();
 });
 
 it("saves the streamed video, lists it on Home, and replays it with no LLM or TTS calls", async () => {
-  complete.mockResolvedValueOnce(script).mockResolvedValue(scene);
+  complete.mockResolvedValueOnce(script).mockResolvedValueOnce("[]").mockResolvedValue(scene);
   tts.resolve();
   const saved: Record<string, any>[] = [];
   const base = vi.mocked(invoke).getMockImplementation()!;

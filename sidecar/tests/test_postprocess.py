@@ -89,3 +89,15 @@ def test_inline_math_collapse():
     assert out[0]["markdown"] == "Let be rvs \U0001d44b \U0001d44c ok"
     assert out[0]["needs_math_check"] is True
     assert "needs_math_check" not in out[1]
+
+
+WATERMARK = "©zyBooks 01/15/26 14:03 EST 1234567 Jane Q Student PURDUECS250Fall2026"
+
+
+def test_watermarks_and_footers_stripped_before_text_leaves_sidecar():
+    from tangent_sidecar.ingest import section_text
+    md = f"Muxes pick one input.\n\n{WATERMARK}\n\nThe ALU adds. {WATERMARK}\n\n*01/15/26 14:03 1234567 Jane Q Student*\n\nCopyright 2026 Publisher.\n\nDone."
+    ir = {"sections": [node("4.1 Datapath", md=md)]}
+    for text in (postprocess(ir)["sections"][0]["markdown"], section_text(ir, "s-4.1 Datapath")):
+        assert "Jane" not in text and "1234567" not in text and "zyBooks" not in text and "Copyright" not in text
+        assert "Muxes pick one input." in text and "The ALU adds." in text and "Done." in text
