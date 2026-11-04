@@ -90,3 +90,30 @@ anchors and available LaTeX, verifies extracted figure paths, and reports wall
 seconds, section count, LaTeX survival, and figure count. It writes `ir.json`
 and `metrics.json` alongside figure files in pytest's temporary directory.
 The converter limits model CPU threads to one; first use may download weights.
+
+## Desktop pipeline bridge
+
+`startSession({irSection, provider?, ttsAlign?, signal?})` in
+`src/pipeline/session.ts` returns an async iterable with `next()`, `return()`,
+`status()` and `bufferedAhead()`. The section's `markdown` runs through
+`streamVideo`; defaults are Claude CLI and the `sidecarTts` adapter.
+
+The adapter writes unique `tangent-<uuid>.wav` files directly in the OS temp
+folder, then uses `convertFileSrc` for playback. Tauri must enable the
+`protocol-asset` Cargo feature and `app.security.assetProtocol` with a scope of
+`$TEMP/tangent-*.wav` (configured in this repo). Temp audio lasts until OS
+cleanup; session-owned cleanup/persistent audio caching is deferred.
+
+The Rust `sidecar_call` IPC accepts optional `timeoutMs` (default 300000).
+The response timeout starts after the serialized request is sent, excluding
+queue wait and process spawn. A timeout or transport error kills/resets the
+connection so a subsequent request cannot receive a stale response. Blocking
+work runs on Tauri's blocking pool. `ping` uses its own lazy sidecar process,
+so long ingest/TTS calls do not block it; it checks that separate connection,
+not whether the generation worker is idle. Work requests remain serial.
+Aborting a session stops consumption promptly; an already dispatched IPC call
+continues until completion/timeout and may leave a temp WAV.
+
+`TANGENT_SIDECAR_DIR` overrides the uv project directory. Debug builds otherwise
+use `CARGO_MANIFEST_DIR/../sidecar`. Release builds without an override return
+an explicit error: bundled-sidecar resolution is a TODO until packaging lands.
