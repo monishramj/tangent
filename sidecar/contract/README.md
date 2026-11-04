@@ -34,3 +34,59 @@ Tests: `cd sidecar && uv run pytest` uses fake TTS/alignment models and excludes
 test uses the first sentence of `spikes/tts/script.txt`, reports end-to-end
 compute/audio RTF (including cold model load), and checks word count, bounds,
 monotonic timestamps, and positive durations. No warm-up synthesis is performed.
+
+## PDF ingestion
+
+- `ingest_pdf {"path": "/absolute/path/chapter.pdf"}` →
+  `{"sections": [{"id": "section-1", "title": "Joint distributions", "level": 1,
+  "markdown": "Text and $$p_{X,Y}(x,y)$$", "figures": [{"id": "figure-1",
+  "caption": "Joint probabilities", "image_path": "/absolute/path/figure-1.png"}],
+  "exercises": [{"id": "section-1-exercise-1", "markdown": "1. Find the marginal.",
+  "anchors": [{"page": 2}]}], "anchors": [{"page": 1}, {"page": 2}], "children": []}]}`
+  (illustrative content).
+- `list_sections {"ir": <ingest_pdf result>}` → a depth-first flat list of
+  `{id, title, level, anchors}` for the section picker. An empty tree returns `[]`.
+
+Paths must identify existing local PDFs; URLs and non-PDF files are rejected
+before loading models. Relative paths use the sidecar working directory.
+Docling loads lazily, enriches formulas, extracts figure PNGs, and serializes
+Markdown including tables and available LaTeX. Partial conversions return an
+RPC error rather than an incomplete IR. Diagnostics go to stderr.
+
+Section levels follow Docling headings; text before the first heading becomes
+a level-0 section named after the document. IDs are deterministic in document
+order. Markdown belongs to each section; descendants are stored in `children`.
+Page anchors are unique, sorted, **1-based**, and include descendants' pages.
+Figure PNGs live in a unique directory under `sidecar/.ingest/`, with absolute
+paths returned in the IR. Keep these files while using the IR; deleting that
+directory invalidates saved image paths. Repeated ingestions create separate
+asset directories and do not overwrite previous figures or the source PDF.
+
+Noise filtering drops Docling furniture and detects repeated lines in the top
+or bottom 15% of pages, normalizing whitespace, case, and changing numbers.
+A line must occur on at least two distinct pages and at least half the pages.
+Only margin occurrences are removed; matching text in the body is preserved.
+There are no person-name or publisher-specific rules. Watermarks in the middle
+of a page that Docling labels as body text are outside this heuristic.
+
+Exercises are copied from explicitly titled English exercise/review/practice/
+activity sections. Numbered items start new exercises; following content,
+including formulas, stays with the preceding exercise. These are source
+exercises, not generated questions. OCR is disabled as in the benchmark;
+image-only PDFs and exercise conventions without explicit headings need
+additional support.
+
+The fast suite uses hand-made Docling items and never loads PDF models.
+Run just the PDF integration (excluding the separate TTS integration) with:
+
+```sh
+taskpolicy -b env OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  VECLIB_MAXIMUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
+  uv run --project sidecar python -m pytest sidecar/tests/test_ingest.py -m slow -s
+```
+
+It parses `spikes/pdf/inputs/stat350_ch5_joint_pmfs.pdf` once, checks all 13 page
+anchors and available LaTeX, verifies extracted figure paths, and reports wall
+seconds, section count, LaTeX survival, and figure count. It writes `ir.json`
+and `metrics.json` alongside figure files in pytest's temporary directory.
+The converter limits model CPU threads to one; first use may download weights.
