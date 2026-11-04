@@ -5,8 +5,11 @@ import unicodedata
 from pathlib import Path
 
 NON_STRUCTURAL = re.compile(
-    r"(participation activity|challenge activity|animation|try it|example|examples)(\s+[\d.]+)?:?", re.I)
+    r"(solutions?|answers?|participation activity|challenge activity|animation|try it|example|examples)(\s+[\d.]+)?:?", re.I)
 NUMBERED = re.compile(r"\s*(?:(?:chapter|section)\s+)?(\d{1,3}(?:\.\d{1,3})*)\.?(?:\s|:|$)", re.I)
+# Dotted numbers (5.2.1) are real headings; "1. Foo" is a list item Docling promoted.
+DOTTED = re.compile(r"\s*\d{1,3}(?:\.\d{1,3})+\.?(?:\s|:|$)")
+JUNK = re.compile("[\ue000-\uf8ff\U000f0000-\U0010ffff\U0001f300-\U0001faff\u2600-\u27bf\ufe0f\u200d]")
 CAPTION = re.compile(r"(?:figure|fig\.?)\s*\d", re.I)
 # ponytail: tiny wordlist; point at a real dictionary if more U+FFFD ligatures need fixing.
 WORDS = set("""file files first final find field fine fit five flow flows flat float flag flip fleet
@@ -85,6 +88,11 @@ def _figures(sec):
     sec["markdown"] = "\n\n".join(out)
 
 
+def _clean(n):
+    n["title"] = " ".join(JUNK.sub("", n["title"]).split())
+    n["markdown"] = JUNK.sub("", n["markdown"])
+
+
 def postprocess(ir):
     flat = []
 
@@ -93,10 +101,12 @@ def postprocess(ir):
             flat.append(n)
             walk(n["children"])
             n["children"] = []
+            _clean(n)
     walk(ir["sections"])
     sizes = sorted({n["font_size"] for n in flat if "font_size" in n and not NUMBERED.match(n["title"])},
                    reverse=True)
     kept, roots, stack = [], [], []
+    numbered = None  # most recent dotted heading; unnumbered ones nest beneath it
     for n in flat:
         if n["level"] > 0 and kept and NON_STRUCTURAL.fullmatch(n["title"].strip()):
             host = kept[-1]
@@ -111,6 +121,10 @@ def postprocess(ir):
             continue
         if n["level"] > 0:
             n["level"] = _level(n, kept[-1]["level"] if kept else 0, sizes)
+            if DOTTED.match(n["title"]):
+                numbered = n
+            elif numbered and not re.match(r"(chapter|section)\b", n["title"], re.I):
+                n["level"] = numbered["level"] + 1
         kept.append(n)
     for n in kept:
         while stack and stack[-1]["level"] >= n["level"]:

@@ -1,6 +1,7 @@
 """Docling PDF adapter. The IR contains only JSON values and local figure paths."""
 
 import math
+import os
 import re
 import sys
 import tempfile
@@ -20,15 +21,15 @@ def _load_converter():
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
-        accelerator_options=AcceleratorOptions(num_threads=1),
+        accelerator_options=AcceleratorOptions(num_threads=int(os.environ.get("TANGENT_THREADS", "8"))),
     )
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 
-def _convert_pdf(path):
+def _convert_pdf(path, pages=None):
     from docling.datamodel.base_models import ConversionStatus
 
-    result = _load_converter().convert(path)
+    result = _load_converter().convert(path, **({"page_range": pages} if pages else {}))
     if result.status != ConversionStatus.SUCCESS:
         raise ValueError(f"PDF conversion incomplete: {result.status}")
     return result.document
@@ -50,9 +51,15 @@ def ingest_pdf(params):
     with path.open("rb") as stream:
         if not stream.read(1024).lstrip().startswith(b"%PDF-"):
             raise ValueError("path must contain a PDF")
+    pages = params.get("pages")
+    if pages is not None:
+        if (not isinstance(pages, list) or len(pages) != 2 or any(type(p) is not int for p in pages)
+                or not 1 <= pages[0] <= pages[1]):
+            raise ValueError("pages must be [first, last], 1-based and ascending")
+        pages = tuple(pages)
     # Model diagnostics must never become JSON-lines responses.
     with redirect_stdout(sys.stderr):
-        document = _convert_pdf(path)
+        document = _convert_pdf(path, pages) if pages else _convert_pdf(path)
         root = _assets_root()
         root.mkdir(parents=True, exist_ok=True)
         assets = Path(tempfile.mkdtemp(prefix="pdf-", dir=root))
@@ -188,3 +195,28 @@ def list_sections(params):
 
     visit(params["ir"].get("sections"))
     return flat
+
+
+def section_text(params_or_ir, section_id=None):
+    """Own markdown of a section plus all descendants', in document order."""
+    if section_id is None:  # RPC form: {"ir": ..., "id": ...}
+        params_or_ir, section_id = params_or_ir.get("ir"), params_or_ir.get("id")
+    if not isinstance(params_or_ir, dict) or not isinstance(params_or_ir.get("sections"), list):
+        raise ValueError("ir must be an object with a sections array")
+
+    def find(nodes):
+        for n in nodes:
+            if n["id"] == section_id:
+                return n
+            if (hit := find(n.get("children", []))):
+                return hit
+
+    def texts(n):
+        yield n["markdown"]
+        for c in n.get("children", []):
+            yield from texts(c)
+
+    node = find(params_or_ir["sections"])
+    if node is None:
+        raise ValueError(f"unknown section: {section_id}")
+    return "\n\n".join(t for t in texts(node) if t)

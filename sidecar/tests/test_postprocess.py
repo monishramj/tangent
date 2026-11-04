@@ -32,7 +32,7 @@ def test_levels_from_numbering_and_words():
     assert levels["Chapter 5 Probability"] == 1 and levels["5.1 Basics"] == 2
     assert levels["5.1.2 Deep"] == 3 and levels["5.2 More"] == 2 and levels["Section Overview"] == 2
     assert [c["title"] for c in out[0]["children"]][0] == "5.1 Basics"
-    assert levels["Loose heading"] == 1  # unnumbered keeps Docling level (clamped to prev+1)
+    assert levels["Loose heading"] == 3  # unnumbered nests under last dotted heading (5.2)
 
 
 def test_font_size_hint():

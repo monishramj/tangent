@@ -3,7 +3,7 @@ import sys
 from typing import Any, NotRequired, TypedDict
 
 from .tts import tts_align
-from .ingest import ingest_pdf, list_sections
+from .ingest import ingest_pdf, list_sections, section_text
 
 
 class Request(TypedDict):
@@ -19,7 +19,8 @@ class Response(TypedDict):
 
 
 HANDLERS = {"ping": lambda params: "pong", "tts_align": tts_align,
-            "ingest_pdf": ingest_pdf, "list_sections": list_sections}
+            "ingest_pdf": ingest_pdf, "list_sections": list_sections,
+            "section_text": section_text}
 
 
 def handle(req: Request) -> Response:
