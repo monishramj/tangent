@@ -18,6 +18,7 @@ import type { LLMProvider } from "./llm/provider";
 import { providers } from "./llm/registry";
 import Home from "./home/Home";
 import { sectionText, type IR } from "./home/api";
+import { recordStream, replayStream, type VideoBundle } from "./storage/videos";
 import { startSession } from "./pipeline/session";
 import Panel from "./Panel";
 import Stage from "./Stage";
@@ -359,9 +360,9 @@ export function PlayerScreen({ provider: injected, onBack, stream, section, prog
   );
 }
 
-function SectionSession({ id, ir, provider, onBack }: { id: string; ir: IR; provider?: LLMProvider; onBack: () => void }) {
+function SectionSession({ id, ir, pdfPath, title, provider, onBack }: { id: string; ir: IR; pdfPath: string; title: string; provider?: LLMProvider; onBack: () => void }) {
   const [attempt, setAttempt] = useState(0);
-  const [session, setSession] = useState<{ stream: ReturnType<typeof startSession>; markdown: string } | null>(null);
+  const [session, setSession] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string } | null>(null);
   const [progress, setProgress] = useState<GenerationStatus>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -375,15 +376,15 @@ function SectionSession({ id, ir, provider, onBack }: { id: string; ir: IR; prov
         if (controller.signal.aborted) return;
         const stream = startSession({ irSection: { markdown }, provider, signal: controller.signal,
           onStatus: status => { devlog(`status ${status}`); if (!controller.signal.aborted) setProgress(status); } });
-        setSession({ stream, markdown });
+        setSession({ markdown, stream: recordStream(stream, { title, source: { pdfPath, sectionId: id, sectionTitle: title } }, undefined, e => devlog(`video save failed ${String(e)}`)) });
       } catch (e) {
         if (!controller.signal.aborted) setError(String(e));
       }
     })();
     return () => controller.abort();
-  }, [id, ir, provider, attempt]);
+  }, [id, ir, pdfPath, title, provider, attempt]);
   const retry = () => { setSession(null); setAttempt(n => n + 1); };
-  if (session) return <PlayerScreen provider={provider} stream={session.stream} section={session.markdown} progress={progress} autoPlay onRetry={retry} onBack={onBack} />;
+  if (session) return <PlayerScreen provider={provider} stream={session.stream} section={session.markdown} title={title} progress={progress} autoPlay onRetry={retry} onBack={onBack} />;
   return <main className="flex h-screen flex-col items-center justify-center gap-4 bg-bg text-fg">
     <button type="button" onClick={onBack} className="absolute left-4 top-4 rounded-lg border border-line px-4 py-2">Back</button>
     {error ? <>
@@ -393,11 +394,17 @@ function SectionSession({ id, ir, provider, onBack }: { id: string; ir: IR; prov
   </main>;
 }
 
+function ReplayScreen({ video, provider, onBack }: { video: VideoBundle; provider?: LLMProvider; onBack: () => void }) {
+  const [stream] = useState(() => replayStream(video));
+  return <PlayerScreen provider={provider} stream={stream} section={video.title} title={video.title} autoPlay onBack={onBack} />;
+}
+
 // main.tsx opens Home; the default remains the demo for existing callers.
 export default function App({ provider, initial = "player", stream }: { provider?: LLMProvider; initial?: "home" | "player"; stream?: AsyncIterable<PipelineEvent> }) {
-  const [screen, setScreen] = useState<"home" | "player" | { id: string; ir: IR }>(initial);
+  const [screen, setScreen] = useState<"home" | "player" | { id: string; ir: IR; pdfPath: string; title: string } | { replay: VideoBundle }>(initial);
   const back = () => setScreen("home");
-  if (screen === "home") return <Home onStart={(id, ir) => setScreen({ id, ir })} onDemo={() => setScreen("player")} />;
-  if (typeof screen === "object") return <SectionSession id={screen.id} ir={screen.ir} provider={provider} onBack={back} />;
+  if (screen === "home") return <Home onStart={(id, ir, m) => setScreen({ id, ir, ...m })} onDemo={() => setScreen("player")} onOpenVideo={replay => setScreen({ replay })} />;
+  if (typeof screen === "object" && "replay" in screen) return <ReplayScreen key={screen.replay.id} video={screen.replay} provider={provider} onBack={back} />;
+  if (typeof screen === "object") return <SectionSession id={screen.id} ir={screen.ir} pdfPath={screen.pdfPath} title={screen.title} provider={provider} onBack={back} />;
   return <PlayerScreen provider={provider} stream={stream} onBack={back} />;
 }

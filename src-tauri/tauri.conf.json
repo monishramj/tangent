@@ -22,7 +22,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$TEMP/tangent-*.wav"
+          "$TEMP/tangent-*.wav",
+          "$APPDATA/videos/**"
         ]
       }
     }

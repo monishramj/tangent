@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import Home from "./Home";
 import { ingestPdf, listSections } from "./api";
+import { fakeVideoStore, type VideoBundle } from "../storage/videos";
 
 vi.mock("./api", () => ({ ingestPdf: vi.fn(), listSections: vi.fn() }));
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
@@ -45,7 +46,7 @@ it("ingests a chosen PDF, shows loading, then nested sections with pages; pickin
   expect(opts[0].textContent).toContain("pp. 3-5");
   expect(opts[1].textContent).toContain("p. 4");
   fireEvent.click(opts[1]);
-  expect(onStart).toHaveBeenCalledWith("s2", ir);
+  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify" });
 });
 
 it("records a recent video when a section starts", async () => {
@@ -130,4 +131,48 @@ it("in Tauri, dropping only non-PDFs shows an error", async () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/pdf/i);
     expect(ingestPdf).not.toHaveBeenCalled();
   } finally { delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__; }
+});
+
+const vid = (over: Partial<VideoBundle> = {}): VideoBundle => ({
+  id: "v1", title: "Heaps", createdAt: Date.UTC(2026, 0, 2, 12), complete: false,
+  source: { pdfPath: "/x/book.pdf", sectionId: "s1", sectionTitle: "Heaps" },
+  scenes: [{ sceneId: "scene-1", scene: {} as never, timeline: {} as never, audioFile: "/a.wav", durationSec: 75 }], ...over,
+});
+
+it("lists saved videos with duration and partial/complete badge; clicking opens one", async () => {
+  const onOpenVideo = vi.fn();
+  render(<Home store={fakeVideoStore([vid(), vid({ id: "v2", title: "Done", complete: true, createdAt: 1 })])} onOpenVideo={onOpenVideo} />);
+  const items = await within(await screen.findByRole("list", { name: "Your videos" })).findAllByRole("listitem");
+  expect(items[0].textContent).toMatch(/Heaps.*1:15.*Partial/);
+  expect(items[1].textContent).toMatch(/Done.*Complete/);
+  fireEvent.click(within(items[0]).getByText("Heaps"));
+  expect(onOpenVideo.mock.calls[0][0].id).toBe("v1");
+});
+
+it("delete asks for confirmation, can be cancelled, then removes from the store", async () => {
+  const store = fakeVideoStore([vid()]);
+  render(<Home store={store} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Delete Heaps" }));
+  fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+  expect(store.bundles.size).toBe(1);
+  fireEvent.click(screen.getByRole("button", { name: "Delete Heaps" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+  await waitFor(() => expect(store.bundles.size).toBe(0));
+  expect(await screen.findByText(/no saved videos/i)).toBeTruthy();
+});
+
+it("starting a section that already has a saved video offers Open saved vs Regenerate", async () => {
+  const store = fakeVideoStore([vid()]);
+  const onStart = vi.fn(), onOpenVideo = vi.fn();
+  const { container } = render(<Home store={store} onStart={onStart} onOpenVideo={onOpenVideo} />);
+  await screen.findByRole("list", { name: "Your videos" });
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
+  fireEvent.click((await screen.findAllByRole("option"))[0]);
+  expect(onStart).not.toHaveBeenCalled();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Open saved" }));
+  expect(onOpenVideo.mock.calls[0][0].id).toBe("v1");
+  expect(onStart).not.toHaveBeenCalled();
+  fireEvent.click((await screen.findAllByRole("option"))[0]);
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Regenerate" }));
+  expect(onStart).toHaveBeenCalledWith("s1", ir, { pdfPath: "/x/book.pdf", title: "Heaps" });
 });

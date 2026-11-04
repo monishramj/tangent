@@ -6,6 +6,10 @@ import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import { ingestPdf, listSections, type IR, type SectionRef } from "./api";
+import { tauriVideoStore, videoDuration, type VideoBundle, type VideoStore } from "../storage/videos";
+
+export type StartMeta = { pdfPath: string; title: string };
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 const KEY = "tangent.recent";
 type Recent = { path: string; sectionId: string; title: string };
@@ -32,7 +36,16 @@ const isTauri = () => "__TAURI_INTERNALS__" in window;
 const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
 const notPdf = "That isn't a PDF. Choose a .pdf file.";
 
-export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStart?: (sectionId: string, ir: IR) => void; onDemo?: () => void }) {
+export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVideo = () => {}, store = tauriVideoStore }: { onStart?: (sectionId: string, ir: IR, meta: StartMeta) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore }) {
+  const [videos, setVideos] = useState<VideoBundle[]>([]);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [choice, setChoice] = useState<{ saved: VideoBundle; title: string; regenerate: () => void } | null>(null);
+  useEffect(() => { let live = true; store.list().then(v => live && setVideos(v), () => {}); return () => { live = false; }; }, [store]);
+  const remove = async (id: string) => {
+    setConfirm(null);
+    try { await store.remove(id); setVideos(v => v.filter(x => x.id !== id)); } catch (e) { setState({ s: "error", msg: `Couldn't delete: ${e}` }); }
+  };
+  const savedFor = (path: string, sectionId: string) => videos.find(v => v.source.pdfPath === path && v.source.sectionId === sectionId);
   const [state, setState] = useState<State>({ s: "idle" });
   const [recent, setRecent] = useState(readRecent);
   const [over, setOver] = useState(false);
@@ -76,13 +89,23 @@ export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStar
     const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
     localStorage.setItem(KEY, JSON.stringify(next));
     setRecent(next);
-    onStart(sectionId, ir);
+    const go = () => onStart(sectionId, ir, { pdfPath: path, title });
+    const saved = savedFor(path, sectionId);
+    if (saved) setChoice({ saved, title, regenerate: go }); else go();
   };
   const reopen = async (r: Recent) => {
+    const regenerate = async () => {
+      setChoice(null);
+      setState({ s: "loading", name: r.title });
+      try { onStart(r.sectionId, await ingestPdf(r.path), { pdfPath: r.path, title: r.title }); }
+      catch (e) { setState({ s: "error", msg: String(e) }); }
+    };
+    const saved = savedFor(r.path, r.sectionId);
+    if (saved) return setChoice({ saved, title: r.title, regenerate });
     setState({ s: "loading", name: r.title });
     try {
       const ir = await ingestPdf(r.path);
-      onStart(r.sectionId, ir);
+      onStart(r.sectionId, ir, { pdfPath: r.path, title: r.title });
     } catch (e) {
       setState({ s: "error", msg: String(e) });
     }
@@ -155,6 +178,45 @@ export default function Home({ onStart = () => {}, onDemo = () => {} }: { onStar
             <input ref={input} type="file" accept="application/pdf,.pdf" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { take(e.target.files?.[0]); e.target.value = ""; }} />
           </div>
         )}
+
+        {choice && (
+          <section role="dialog" aria-label="Saved video found" className="flex flex-col gap-3 rounded-2xl border border-line p-4">
+            <p className="text-base text-fg">You already have a video for “{choice.title}”.</p>
+            <div className="flex gap-2">
+              <button type="button" className={btn} onClick={() => { onOpenVideo(choice.saved); setChoice(null); }}>Open saved</button>
+              <button type="button" className={btn} onClick={() => { const r = choice.regenerate; setChoice(null); r(); }}>Regenerate</button>
+              <button type="button" className={btn} onClick={() => setChoice(null)}>Cancel</button>
+            </div>
+          </section>
+        )}
+
+        <section aria-labelledby="videos" className="flex flex-col gap-3">
+          <h2 id="videos" className="text-lg font-semibold">Your videos</h2>
+          {videos.length === 0 ? (
+            <p className="text-sm text-subtle">No saved videos yet.</p>
+          ) : (
+            <ul aria-label="Your videos" className="flex flex-col gap-1">
+              {videos.map((v) => (
+                <li key={v.id} className="flex items-center gap-2">
+                  <button type="button" onClick={() => onOpenVideo(v)} className="flex min-h-11 flex-1 flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
+                    <span className="text-fg">{v.title}</span>
+                    <span className="text-xs text-subtle">
+                      {clock(videoDuration(v))} · {new Date(v.createdAt).toLocaleDateString()} · {v.complete ? "Complete" : "Partial"}
+                    </span>
+                  </button>
+                  {confirm === v.id ? (
+                    <>
+                      <button type="button" className={btn} onClick={() => remove(v.id)}>Confirm delete</button>
+                      <button type="button" className={btn} onClick={() => setConfirm(null)}>Keep</button>
+                    </>
+                  ) : (
+                    <button type="button" aria-label={`Delete ${v.title}`} className={btn} onClick={() => setConfirm(v.id)}>Delete</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section aria-labelledby="recent" className="flex flex-col gap-3">
           <h2 id="recent" className="text-lg font-semibold">Recent videos</h2>

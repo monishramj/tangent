@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
@@ -85,8 +85,12 @@ it("runs a picked section, reports real generation phases, autoplays and grounds
 });
 
 it("surfaces section loading errors and retries the same section", async () => {
-  vi.mocked(invoke).mockImplementationOnce(async () => ir).mockImplementationOnce(async () => [{ id: "s1", title: "Arrays", level: 1, anchors: [] }])
-    .mockRejectedValueOnce(new Error("Section unavailable"));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let failed = false;
+  vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+    if ((args as { method?: string })?.method === "section_text" && !failed) { failed = true; throw new Error("Section unavailable"); }
+    return base(cmd, args);
+  });
   complete.mockResolvedValueOnce(script).mockResolvedValue(scene);
   await pick();
   expect((await screen.findByRole("alert")).textContent).toContain("Section unavailable");
@@ -146,4 +150,31 @@ it("starts only one pipeline under the app's StrictMode effects", async () => {
   await waitFor(() => expect(screen.getByRole("slider").getAttribute("max")).toBe("2"));
   expect(complete).toHaveBeenCalledTimes(2);
   expect(play).toHaveBeenCalled();
+});
+
+it("saves the streamed video, lists it on Home, and replays it with no LLM or TTS calls", async () => {
+  complete.mockResolvedValueOnce(script).mockResolvedValue(scene);
+  tts.resolve();
+  const saved: Record<string, any>[] = [];
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+    if (cmd === "save_video_bundle") { const b = structuredClone((args as any).bundle); b.scenes.forEach((s: any) => (s.audioFile = `/data/videos/${b.id}/${s.sceneId}.wav`)); saved.push(b); return b; }
+    if (cmd === "list_video_bundles") return saved.slice(-1);
+    return base(cmd, args);
+  });
+  await pick();
+  await waitFor(() => expect(screen.getByRole("slider").getAttribute("max")).toBe("2"));
+  await waitFor(() => expect(saved[saved.length - 1]?.complete).toBe(true));
+  expect(saved[0]).toMatchObject({ title: "Arrays", complete: false, source: { pdfPath: "/book.pdf", sectionId: "s1", sectionTitle: "Arrays" } });
+  expect(saved[saved.length - 1].scenes[0]).toMatchObject({ sceneId: "scene-1", durationSec: 2 });
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  const llmCalls = complete.mock.calls.length;
+  const ttsCalls = () => vi.mocked(invoke).mock.calls.filter(([, a]) => (a as any)?.method === "tts_align").length;
+  const ttsBefore = ttsCalls();
+  const list = await screen.findByRole("list", { name: "Your videos" });
+  fireEvent.click(within(list).getByText("Arrays"));
+  await waitFor(() => expect(screen.getByRole("slider").getAttribute("max")).toBe("2"));
+  expect(stage).toHaveBeenLastCalledWith(expect.objectContaining({ scene: expect.objectContaining({ scene: "scene-1" }) }));
+  expect(complete.mock.calls.length).toBe(llmCalls);
+  expect(ttsCalls()).toBe(ttsBefore);
 });
