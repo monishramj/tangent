@@ -2,14 +2,14 @@ import { expect, it } from "vitest";
 import { BufferClock } from "./bufferClock";
 
 function fakeCtx() {
-  const sources: { offset: number; stopped: boolean; playbackRate: { value: number }; onended: (() => void) | null }[] = [];
+  const sources: { offset: number; stopped: boolean; playbackRate: { value: number }; buffer: unknown; onended: (() => void) | null }[] = [];
   const ctx = {
     currentTime: 0,
     destination: {},
     resume: () => Promise.resolve(),
     decodeAudioData: () => Promise.reject(new Error("unused")),
     createBufferSource() {
-      const s = { buffer: null, playbackRate: { value: 1 }, onended: null as (() => void) | null, offset: 0, stopped: false,
+      const s = { buffer: null as unknown, playbackRate: { value: 1 }, onended: null as (() => void) | null, offset: 0, stopped: false,
         connect() {}, disconnect() {}, start(_w: number, o: number) { s.offset = o; }, stop() { s.stopped = true; } };
       sources.push(s);
       return s;
@@ -45,13 +45,19 @@ it("tracks the context clock across play, pause, seek and end", async () => {
   expect(clock.ended).toBe(false);
 });
 
-it("playbackRate scales the clock and the source", async () => {
+it("rate ≠ 1 plays a stretched copy at 1× (same pitch) and the clock still counts scene time", async () => {
   const { ctx, sources } = fakeCtx();
-  const clock = new BufferClock(Promise.resolve({ duration: 10 } as AudioBuffer), ctx);
+  const made: { len: number }[] = [];
+  Object.assign(ctx, { createBuffer: (_c: number, len: number) => { const b = { len, copyToChannel() {} }; made.push(b); return b; } });
+  const buf = { duration: 10, length: 1000, sampleRate: 100, numberOfChannels: 1, getChannelData: () => new Float32Array(1000) };
+  const clock = new BufferClock(Promise.resolve(buf as unknown as AudioBuffer), ctx);
   await Promise.resolve();
   clock.playbackRate = 2; clock.play();
-  expect(sources[0].playbackRate.value).toBe(2);
+  expect([sources[0].playbackRate.value, made[0].len]).toEqual([1, 500]);
   ctx.currentTime = 1; expect(clock.currentTime).toBe(2);
-  clock.playbackRate = 1; expect(sources[0].playbackRate.value).toBe(1);
+  clock.playbackRate = 1; // restarts on the original buffer at the same scene time
+  expect([sources[1].buffer, sources[1].offset]).toEqual([buf, 2]);
   ctx.currentTime = 2; expect(clock.currentTime).toBe(3);
+  clock.currentTime = 4; clock.playbackRate = 2; // cached: no second stretch; offset is in stretched time
+  expect([made.length, sources[sources.length - 1].offset]).toEqual([1, 2]);
 });

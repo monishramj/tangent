@@ -208,8 +208,13 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
     this.sync();
   }
   finish() { this.complete = true; this.sync(); }
+  /** Stop and empty the queue. It can be filled again: React re-runs the stream effect on the same queue (StrictMode, Fast
+   *  Refresh), and a queue left `complete` made every re-run fail with "Scene queue is complete". */
   dispose() {
     this.pause();
+    this.leaveGap();
     this.entries.forEach(e => { e.cleanup(); e.player.pause(); });
+    this.entries = []; this.index = 0; this.total = 0; this.complete = false; this.waiting = false;
+    this.options.onChange?.();
   }
 }

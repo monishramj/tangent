@@ -155,6 +155,14 @@ describe("SceneQueue", () => {
     audios[0].dispatchEvent(new Event("ended"));
     expect(audios[1].play).not.toHaveBeenCalled(); expect(callbacks.size).toBe(0);
   });
+  it("after dispose a finished queue can be filled again (effect re-run on the same queue)", () => {
+    const { queue } = setup();
+    queue.enqueue(scene("a")); queue.finish();
+    queue.dispose();
+    expect([queue.duration, queue.current]).toEqual([0, undefined]);
+    expect(() => queue.enqueue(scene("a"))).not.toThrow();
+    expect(queue.sceneBeats.map(b => b.sceneId)).toEqual(["a"]);
+  });
   it("rejects invalid durations and ignores non-finite seeks", () => {
     const { queue } = setup();
     expect(() => queue.enqueue(scene("bad", NaN))).toThrow(/duration/i);

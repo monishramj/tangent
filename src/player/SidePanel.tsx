@@ -29,10 +29,11 @@ export default function SidePanel(p: Props) {
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : [])];
   return (
-    // Docked beside the video on wide windows; floats over it below lg so the video doesn't shrink to a sliver.
-    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="calc(100% - 1.5rem)" borderRadius={16}
-      className="slide-in m-3 shrink-0 max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 lg:ml-0">
-    <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
+    // Always floats over the video (never docks), so opening it never resizes or moves the video, and the frosted glass has
+    // something behind it to blur. The dark tint keeps text readable over bright scenes.
+    <div className="slide-in absolute inset-y-3 right-3 z-30">
+    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="100%" borderRadius={16}>
+    <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl bg-black/45">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">
           {tabs.map(([t, label]) => <button key={t} role="tab" type="button" aria-selected={p.tab === t} onClick={() => p.onTab(t)}
@@ -45,6 +46,7 @@ export default function SidePanel(p: Props) {
       {p.tab === "checks" && p.checks}
     </div>
     </GlassSurface>
+    </div>
   );
 }
 

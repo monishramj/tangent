@@ -3,7 +3,9 @@
  * Why: one <audio> per scene made WebKit re-activate its audio session on every play/pause/seek, and that sync IPC to the
  * GPU process deadlocked the whole webview (frozen window, no right-click). One context that keeps running = one activation.
  */
-type Ctx = Pick<AudioContext, "currentTime" | "destination" | "createBufferSource" | "resume" | "decodeAudioData">;
+import { stretch } from "./stretch";
+
+type Ctx = Pick<AudioContext, "currentTime" | "destination" | "createBufferSource" | "createBuffer" | "resume" | "decodeAudioData">;
 let shared: AudioContext | null = null;
 const sharedCtx = () => (shared ??= new AudioContext());
 
@@ -12,8 +14,9 @@ export class BufferClock extends EventTarget {
   readyState = 0;
   private buffer: AudioBuffer | null = null;
   private src: AudioBufferSourceNode | null = null;
-  preservesPitch = true; // accepted for SceneQueue; Web Audio can't honor it (pitch shifts with rate)
+  preservesPitch = true; // always: rates ≠ 1 play a WSOLA-stretched copy at 1×, so the voice keeps its pitch
   private rate = 1;
+  private stretched = new Map<number, AudioBuffer>();
   private startedAt = 0; // ctx time when the current source started
   private pos = 0; // buffer position at startedAt (or while stopped)
 
@@ -42,24 +45,39 @@ export class BufferClock extends EventTarget {
   }
   get playbackRate() { return this.rate; }
   set playbackRate(r: number) {
-    if (this.src) { this.pos = this.currentTime; this.startedAt = this.ctx.currentTime; this.src.playbackRate.value = r; }
+    if (r === this.rate) return;
+    const playing = !!this.src;
+    this.pause();
     this.rate = r;
+    if (playing) this.start();
   }
   pause() { if (this.src) { this.pos = this.currentTime; this.stop(); } }
 
   private start() {
     const s = this.ctx.createBufferSource();
-    s.buffer = this.buffer;
+    s.buffer = this.forRate();
     s.connect(this.ctx.destination);
     s.onended = () => {
       if (this.src !== s) return;
       this.src = null; this.pos = this.duration;
       this.dispatchEvent(new Event("ended"));
     };
-    s.playbackRate.value = this.rate;
     this.startedAt = this.ctx.currentTime;
-    s.start(0, this.pos);
+    s.start(0, this.pos / this.rate);
     this.src = s;
+  }
+  /** The buffer to play at 1× for the current rate; stretched lazily (only when a source starts) and cached per rate. */
+  private forRate(): AudioBuffer {
+    const b = this.buffer!;
+    if (this.rate === 1) return b;
+    let out = this.stretched.get(this.rate);
+    if (!out) {
+      const len = Math.ceil(b.length / this.rate);
+      out = this.ctx.createBuffer(b.numberOfChannels, len, b.sampleRate);
+      for (let c = 0; c < b.numberOfChannels; c++) out.copyToChannel(stretch(b.getChannelData(c), this.rate, b.sampleRate), c);
+      this.stretched.set(this.rate, out);
+    }
+    return out;
   }
   private stop() {
     const s = this.src;

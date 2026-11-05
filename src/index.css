@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark; /* light-dark() in GlassSurface etc. picks the dark values */
   --bg: #000000;
   --surface: #0a0a0a;
   --surface-2: #171717;

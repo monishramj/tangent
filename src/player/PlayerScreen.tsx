@@ -147,6 +147,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     void Promise.resolve().then(async () => { // deferred so StrictMode's discarded effect can't abort the live stream
       if (!live) return;
       it = stream[Symbol.asyncIterator]();
+      setScenes([]); setDone(false); setError(initialError ?? null); // a re-run (Fast Refresh, new stream) starts from an empty queue
       if (autoPlay) queue.play();
       try {
         while (live) {
@@ -347,11 +348,12 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const fmtSpeed = (r: number) => `${r}×`;
 
   return (
-    <main className="relative flex h-screen bg-bg">
-      {/* The video is a 16:9 box letterboxed in the space left; all chrome floats over it. */}
-      <div className="grid min-w-0 flex-1 place-items-center [container-type:size]">
-        <div data-testid="frame" data-chrome={chrome ? "shown" : "hidden"} onPointerMove={poke} onPointerDown={poke}
-          className={`relative ${chrome ? "" : "cursor-none"}`} style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
+    <main onPointerMove={poke} onPointerDown={poke} className={`relative h-screen overflow-hidden bg-bg ${chrome ? "" : "cursor-none"}`}>
+      {/* The video is a 16:9 box letterboxed in the window and never moves; header, controls and the side panel float over it,
+          pinned to the window edges. */}
+      <div className="grid size-full place-items-center [container-type:size]">
+        <div data-testid="frame" data-chrome={chrome ? "shown" : "hidden"}
+          className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
           <div data-testid="video" onClick={canPlay && !activeCp ? toggle : undefined}
             className={`relative aspect-video w-full overflow-hidden bg-bg ${canPlay && !activeCp ? "cursor-pointer" : ""}`}>
             {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
@@ -375,84 +377,85 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
 
           {cc && <Captions cues={activeCp ? [] : cues} time={time} lift={chrome} />}
 
-          <header data-hidden={!chrome || undefined} {...chromeHover}
-            className="chrome scrim-top pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-1 px-2 pt-2 pb-8 sm:px-3">
-            <button type="button" aria-label="Back" title="Back" onClick={onBack} className={`${iconBtn} pointer-events-auto`}><Icon icon={ArrowLeft02Icon} /></button>
-            <div className="min-w-0 flex-1 pt-0.5 [text-shadow:0_1px_8px_rgba(0,0,0,.6)]">
-              <p className="truncate text-xs text-fg/60">{kicker}</p>
-              <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
-            </div>
-            <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "max-lg:hidden" : ""}`}>
-              {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
-                <Icon icon={CheckListIcon} size={22} />
-                <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
-              </button>}
-              <button type="button" aria-label="Transcript" aria-pressed={tab === "transcript"} title="Transcript" onClick={() => openTab("transcript")} className={iconBtn}><Icon icon={TextAlignLeftIcon} size={22} /></button>
-              <button type="button" aria-label="Ask" aria-pressed={tab === "ask"} title="Ask a question" onClick={() => openTab("ask")} className={iconBtn}><Icon icon={BubbleChatIcon} size={22} /></button>
-              <button type="button" aria-label="Toggle fullscreen" title="Fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} size={22} /></button>
-            </div>
-          </header>
+        </div>
+      </div>
 
-          <div data-hidden={!chrome || undefined} {...chromeHover} className="chrome scrim-bottom pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pt-10 pb-1.5 sm:px-3">
-            <div className="group pointer-events-auto relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
-              {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-[20rem] truncate whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
-                style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)} · {hover.label}</span>}
-              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/25 transition-transform duration-150 ease-out group-hover:scale-y-150">
-                <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
-              </div>
-              {/* Scene boundaries as gaps in the bar. */}
-              {duration > 0 && beats.slice(1).map(b => <span key={b.sceneId} aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-black" style={{ left: `${b.offset / duration * 100}%` }} />)}
-              <span aria-hidden className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ left: `${p}%` }} />
-              <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
-                // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
-                onPointerDown={() => { scrubResume.current = queue.playing; queue.pause(); }}
-                onPointerUp={() => { if (scrubResume.current) { scrubResume.current = false; queue.play(); } }}
-                onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-6 w-full" />
-              {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
-                onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
-                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
-              {/* One diamond per scene end (its checkpoints share that moment): hollow = something left, filled = all right. */}
-              {duration > 0 && [...new Set(checkpoints.map(c => c.afterScene))].map(sceneI => {
-                const group = checkpoints.flatMap((cp, i) => cp.afterScene === sceneI ? [{ cp, n: i + 1 }] : []);
-                const at = cpTime(group[0].cp);
-                if (at === undefined) return null;
-                const ss = group.map(g => status[g.cp.id]);
-                const s = ss.every(x => x === "right") ? "right" : ss.includes("upcoming") ? "upcoming" : ss.includes("wrong") ? "wrong" : "skipped";
-                const target = group.find(g => status[g.cp.id] === "upcoming") ?? group[0];
-                const label = group.length > 1 ? `Checkpoints ${group[0].n}–${group[group.length - 1].n} at ${clock(at)}` : `Checkpoint ${group[0].n} at ${clock(at)}`;
-                return <button key={sceneI} type="button" aria-label={label} title={group.map(g => g.cp.prompt).join("\n")} onClick={() => openCp(target.cp)}
-                  className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 transition-transform hover:scale-125 ${
-                    s === "right" ? "border-black bg-fg" : s === "wrong" ? "border-fg bg-black" : s === "skipped" ? "border-fg/50 bg-black" : "border-fg bg-black"}`}
-                  style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
-              })}
-              {/* Generation finished: the bar's end is the video's real end, nothing more is coming. */}
-              {done && duration > 0 && <span role="img" aria-label="Fully generated" title="Fully generated, nothing left to load"
-                className="pointer-events-auto absolute top-1/2 left-full ml-0.5 -translate-y-1/2 text-fg/70"><Icon icon={Flag02Icon} size={12} /></span>}
+      <header data-hidden={!chrome || undefined} {...chromeHover}
+        className="chrome scrim-top pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-1 px-2 pt-2 pb-8 sm:px-3">
+        <button type="button" aria-label="Back" title="Back" onClick={onBack} className={`${iconBtn} pointer-events-auto`}><Icon icon={ArrowLeft02Icon} /></button>
+        <div className="min-w-0 flex-1 pt-0.5 [text-shadow:0_1px_8px_rgba(0,0,0,.6)]">
+          <p className="truncate text-xs text-fg/60">{kicker}</p>
+          <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
+        </div>
+        <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "hidden" : ""}`}>
+          {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
+            <Icon icon={CheckListIcon} size={22} />
+            <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
+          </button>}
+          <button type="button" aria-label="Transcript" aria-pressed={tab === "transcript"} title="Transcript" onClick={() => openTab("transcript")} className={iconBtn}><Icon icon={TextAlignLeftIcon} size={22} /></button>
+          <button type="button" aria-label="Ask" aria-pressed={tab === "ask"} title="Ask a question" onClick={() => openTab("ask")} className={iconBtn}><Icon icon={BubbleChatIcon} size={22} /></button>
+          <button type="button" aria-label="Toggle fullscreen" title="Fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} size={22} /></button>
+        </div>
+      </header>
+
+      <div data-hidden={!chrome || undefined} {...chromeHover} className="chrome scrim-bottom pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pt-10 pb-1.5 sm:px-3">
+        <div className="group pointer-events-auto relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
+          {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-[20rem] truncate whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
+            style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)} · {hover.label}</span>}
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/25 transition-transform duration-150 ease-out group-hover:scale-y-150">
+            <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
+          </div>
+          {/* Scene boundaries as gaps in the bar. */}
+          {duration > 0 && beats.slice(1).map(b => <span key={b.sceneId} aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-black" style={{ left: `${b.offset / duration * 100}%` }} />)}
+          <span aria-hidden className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ left: `${p}%` }} />
+          <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
+            // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
+            onPointerDown={() => { scrubResume.current = queue.playing; queue.pause(); }}
+            onPointerUp={() => { if (scrubResume.current) { scrubResume.current = false; queue.play(); } }}
+            onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-6 w-full" />
+          {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
+            onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
+            className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
+          {/* One diamond per scene end (its checkpoints share that moment): hollow = something left, filled = all right. */}
+          {duration > 0 && [...new Set(checkpoints.map(c => c.afterScene))].map(sceneI => {
+            const group = checkpoints.flatMap((cp, i) => cp.afterScene === sceneI ? [{ cp, n: i + 1 }] : []);
+            const at = cpTime(group[0].cp);
+            if (at === undefined) return null;
+            const ss = group.map(g => status[g.cp.id]);
+            const s = ss.every(x => x === "right") ? "right" : ss.includes("upcoming") ? "upcoming" : ss.includes("wrong") ? "wrong" : "skipped";
+            const target = group.find(g => status[g.cp.id] === "upcoming") ?? group[0];
+            const label = group.length > 1 ? `Checkpoints ${group[0].n}–${group[group.length - 1].n} at ${clock(at)}` : `Checkpoint ${group[0].n} at ${clock(at)}`;
+            return <button key={sceneI} type="button" aria-label={label} title={group.map(g => g.cp.prompt).join("\n")} onClick={() => openCp(target.cp)}
+              className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 transition-transform hover:scale-125 ${
+                s === "right" ? "border-black bg-fg" : s === "wrong" ? "border-fg bg-black" : s === "skipped" ? "border-fg/50 bg-black" : "border-fg bg-black"}`}
+              style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
+          })}
+          {/* Generation finished: the bar's end is the video's real end, nothing more is coming. */}
+          {done && duration > 0 && <span role="img" aria-label="Fully generated" title="Fully generated, nothing left to load"
+            className="pointer-events-auto absolute top-1/2 left-full ml-0.5 -translate-y-1/2 text-fg/70"><Icon icon={Flag02Icon} size={12} /></span>}
+        </div>
+        <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
+          <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (Space)" : "Play (Space)"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
+            <Icon icon={playing ? PauseIcon : PlayIcon} className="fill-current" /></button>
+          <button type="button" aria-label="Back 10 seconds" title="Back 10 s (←)" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
+          <button type="button" aria-label="Forward 10 seconds" title="Forward 10 s (→)" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
+          <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
+          <div className="ml-auto flex items-center gap-0.5">
+            {beats.length > 1 && <>
+              <button type="button" aria-label="Previous scene" title="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
+              <span className="whitespace-nowrap max-sm:hidden">Scene {sceneIdx + 1} <span className="text-fg/50">of {beats.length}</span></span>
+              <button type="button" aria-label="Next scene" title="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
+            </>}
+            <div ref={speedMenu} className="relative">
+              <button type="button" aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedOpen} title="Speed (< >)" onClick={() => setSpeedOpen(o => !o)}
+                className={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>{fmtSpeed(speed)}</button>
+              {speedOpen && <div role="menu" aria-label="Speed" className="glass-solid fade-in absolute right-0 bottom-full mb-2 w-36 rounded-xl p-1">
+                {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" aria-checked={r === speed} onClick={() => { changeSpeed(r); setSpeedOpen(false); }}
+                  className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm tabular-nums transition-colors hover:bg-fg/10 ${r === speed ? "text-fg" : "text-muted"}`}>
+                  {r === 1 ? "Normal" : fmtSpeed(r)}{r === speed && <Icon icon={Tick02Icon} size={16} />}</button>)}
+              </div>}
             </div>
-            <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
-              <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (Space)" : "Play (Space)"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
-                <Icon icon={playing ? PauseIcon : PlayIcon} className="fill-current" /></button>
-              <button type="button" aria-label="Back 10 seconds" title="Back 10 s (←)" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
-              <button type="button" aria-label="Forward 10 seconds" title="Forward 10 s (→)" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
-              <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
-              <div className="ml-auto flex items-center gap-0.5">
-                {beats.length > 1 && <>
-                  <button type="button" aria-label="Previous scene" title="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
-                  <span className="whitespace-nowrap max-sm:hidden">Scene {sceneIdx + 1} <span className="text-fg/50">of {beats.length}</span></span>
-                  <button type="button" aria-label="Next scene" title="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
-                </>}
-                <div ref={speedMenu} className="relative">
-                  <button type="button" aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedOpen} title="Speed (< >)" onClick={() => setSpeedOpen(o => !o)}
-                    className={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>{fmtSpeed(speed)}</button>
-                  {speedOpen && <div role="menu" aria-label="Speed" className="glass-solid fade-in absolute right-0 bottom-full mb-2 w-36 rounded-xl p-1">
-                    {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" aria-checked={r === speed} onClick={() => { changeSpeed(r); setSpeedOpen(false); }}
-                      className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm tabular-nums transition-colors hover:bg-fg/10 ${r === speed ? "text-fg" : "text-muted"}`}>
-                      {r === 1 ? "Normal" : fmtSpeed(r)}{r === speed && <Icon icon={Tick02Icon} size={16} />}</button>)}
-                  </div>}
-                </div>
-                <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
-              </div>
-            </div>
+            <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
           </div>
         </div>
       </div>
