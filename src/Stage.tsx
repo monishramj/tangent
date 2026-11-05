@@ -49,7 +49,10 @@ export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef }
       app.current = a;
       setReady(true);
     });
-    return () => { dead = true; app.current = null; if (inited) a.destroy(true); };
+    // Pixi's resizeTo only listens to window resize; the box also shrinks when the side panel opens.
+    const ro = new ResizeObserver(() => { if (inited && !dead) a.resize(); });
+    ro.observe(host.current!);
+    return () => { dead = true; ro.disconnect(); app.current = null; if (inited) a.destroy(true); };
   }, []);
 
   return (

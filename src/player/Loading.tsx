@@ -31,10 +31,10 @@ export default function Loading({ progress, compact = false }: { progress?: Prog
   );
   return (
     <div role="status" aria-label="Generation progress" className="absolute inset-0 flex flex-col items-center justify-center gap-6 p-8">
-      <div className="w-full max-w-md">
+      <div className="glass w-full max-w-md rounded-2xl p-6">
         <div className="mb-2 flex justify-between text-sm"><span className="text-fg">{STEPS[Math.min(step, 2)].label}…</span><span className="text-subtle tabular-nums">{Math.round(fraction * 100)}%</span></div>
         <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)} className="h-1.5 overflow-hidden rounded-full bg-fg/10">
-          <div className="h-full rounded-full bg-fg transition-[width] duration-300" style={{ width: `${fraction * 100}%` }} />
+          <div className="h-full rounded-full bg-fg transition-[width] duration-500 ease-out" style={{ width: `${fraction * 100}%` }} />
         </div>
         <ol className="mt-5 flex flex-col gap-2 text-sm">
           {STEPS.map((s, i) => <li key={s.key} className={`flex items-center gap-3 ${i < step ? "text-muted" : i === step ? "text-fg" : "text-subtle"}`}>

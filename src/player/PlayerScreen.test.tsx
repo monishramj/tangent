@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import PlayerScreen from "./PlayerScreen";
+import PlayerScreen, { clock } from "./PlayerScreen";
 import type { PipelineEvent } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
@@ -74,6 +74,19 @@ it("play and pause buttons drive the audio", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Pause" }));
   expect(s.audios[0].pause).toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
+});
+
+it("scrubbing never calls play per input event, then resumes once on release", async () => {
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  const slider = screen.getByRole("slider");
+  fireEvent.pointerDown(slider);
+  s.audios[0].play.mockClear();
+  for (const v of [1, 2, 3]) fireEvent.change(slider, { target: { value: String(v) } });
+  expect(s.audios[0].play).not.toHaveBeenCalled();
+  fireEvent.pointerUp(slider);
+  expect(s.audios[0].play).toHaveBeenCalledTimes(1);
 });
 
 it("an error before any scene shows an alert and Try again calls onRetry", async () => {
@@ -208,4 +221,36 @@ it("a wrong answer offers 'Ask about it', which opens a thread", async () => {
   expect(s.complete).toHaveBeenCalledTimes(1);
   expect(s.complete.mock.calls[0][0]).toContain("Why is the answer \"The bigger\"");
   await waitFor(() => expect((s.store.data.get("threads-vid1") as Thread[])).toHaveLength(1));
+});
+
+it("the dock Play/Pause button toggles playback", async () => {
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(s.audios[0].play).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Pause video" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+  expect(s.audios[0].pause).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Play video" })).toBeTruthy();
+});
+
+it("hovering the seek bar previews the time and scene without seeking", async () => {
+  const s = setup();
+  await startWithScene(s);
+  const wrap = screen.getByRole("slider").parentElement!;
+  wrap.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, right: 100, bottom: 10, height: 10, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerMove(wrap, { clientX: 50 });
+  expect(screen.getByTestId("scrub-preview").textContent).toBe(`${clock(timeline.totalSec / 2)} · Scene 1`);
+  expect(s.audios[0].currentTime).toBe(0);
+  fireEvent.pointerLeave(wrap);
+  expect(screen.queryByTestId("scrub-preview")).toBeNull();
+});
+
+it("clicking a scene card seeks to that scene's offset", async () => {
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+  const s = setup();
+  await startWithScene(s); await s.push(sceneEvent("s2"));
+  fireEvent.click(screen.getByRole("button", { name: "Scenes" }));
+  fireEvent.click(screen.getByRole("option", { name: /2\. Scene 2/ }));
+  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec, 1);
 });

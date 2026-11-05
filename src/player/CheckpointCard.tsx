@@ -10,7 +10,7 @@ export const results = (s: JsonStore) => ({
   async put(videoId: string, id: string, r: CheckpointResult) { await s.write(`checks-${videoId}`, { ...(await this.get(videoId)), [id]: r }); },
 });
 
-const btn = "flex min-h-11 items-center justify-center rounded-xl border border-line px-4 text-fg hover:bg-fg/10";
+const btn = "flex min-h-11 items-center justify-center rounded-2xl border border-line px-4 text-fg active:scale-[.98]";
 
 export default function CheckpointCard({ checkpoint: cp, provider, store, videoId, onDone, onAskAbout }: {
   checkpoint: Checkpoint; provider: LLMProvider; store: JsonStore; videoId?: string; onDone: () => void; onAskAbout: (q: string) => void;
@@ -39,7 +39,7 @@ export default function CheckpointCard({ checkpoint: cp, provider, store, videoI
       ) : (
         <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); void submit(answer); }}>
           <textarea aria-label="Your answer" value={answer} disabled={!!grade} onChange={e => setAnswer(e.target.value)} rows={3}
-            className="resize-none rounded-xl border border-line bg-bg/60 p-3 text-fg placeholder:text-subtle" placeholder="Answer in a sentence…" />
+            className="resize-none rounded-2xl border border-line bg-bg/60 p-3 text-fg placeholder:text-subtle" placeholder="Answer in a sentence…" />
           {!grade && <button type="submit" disabled={!answer.trim() || grading} className={`${btn} bg-fg text-bg disabled:opacity-40`}>Check</button>}
         </form>
       )}
@@ -53,7 +53,7 @@ export default function CheckpointCard({ checkpoint: cp, provider, store, videoI
           {!grade.correct && <button type="button" onClick={() => onAskAbout(`I got this checkpoint wrong: "${cp.prompt}" I answered "${answer}". Why is the answer "${cp.answer}"?`)} className={`${btn} flex-1`}>Ask about it</button>}
         </div>
       </div>}
-      {!grade && <button type="button" onClick={onDone} className="self-start text-sm text-subtle hover:text-fg">Skip</button>}
+      {!grade && <button type="button" onClick={onDone} className="min-h-10 self-start rounded-full px-3 text-sm text-subtle transition-colors hover:text-fg">Skip</button>}
     </section>
   );
 }
