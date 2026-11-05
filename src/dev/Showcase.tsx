@@ -1,4 +1,4 @@
-// Dev-only: ?showcase=<template>[&variant=..][&t=..][&prev=<template>&tr=whip|push|cut] renders one templated beat with
+// Dev-only: ?showcase=<template>[&variant=..][&t=..][&beat=<json>][&data=<json>][&prev=<template>&tr=whip|push|cut] renders one templated beat with
 // fake word timings (no LLM/TTS). `prev` puts another template's beat first so the clear + transition are visible.
 // window.__draw(t) / window.__total let a frame-capture script scrub the beat without reloading.
 import { useEffect, useRef } from "react";
@@ -13,8 +13,11 @@ export default function Showcase() {
   const name = q.get("showcase") ?? "title", sample = SAMPLES[name as keyof typeof SAMPLES];
   const prev = q.get("prev"), prevSample = prev ? SAMPLES[prev as keyof typeof SAMPLES] : undefined;
   const say = sample.say;
-  const beat = { say, template: name, variant: q.get("variant") ?? undefined, data: sample.data, transition: q.get("tr") ?? undefined };
-  const beats = prevSample ? [{ say: prevSample.say, template: prev, variant: q.get("pv") ?? undefined, data: prevSample.data }, beat] : [beat];
+  // &beat=<json> merges extra beat fields (emphasis, energy, texture, accent, objects/actions ...); &data=<json> replaces the sample data.
+  const extra: Record<string, unknown> = JSON.parse(q.get("beat") ?? "{}"), data = q.get("data") ? JSON.parse(q.get("data")!) : sample.data;
+  const beat: Record<string, unknown> & { say: string } = { say, template: name, variant: q.get("variant") ?? undefined, data, transition: q.get("tr") ?? undefined, ...extra };
+  if (extra.template === null) delete beat.template; // raw objects only
+  const beats: { say: string }[] = prevSample ? [{ say: prevSample.say, template: prev, variant: q.get("pv") ?? undefined, data: prevSample.data }, beat] : [beat];
   const { scene, errors } = expandTemplates({ beats });
   const drawRef = useRef<((t: number) => void) | null>(null);
   const audio = beats.map((b) => {

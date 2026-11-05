@@ -38,3 +38,9 @@ export function peak(d: Dist): number {
   if (d.kind === "binomial") return Math.max(...Array.from({ length: d.n + 1 }, (_, k) => binomialPmf(k, d.n, d.p)));
   return d.kind === "normal" ? density(d, d.mean) : 1 / (d.max - d.min);
 }
+
+/** Numberline values map onto the middle NL_SPAN of its width (the ends hold the arrowheads). */
+export const NL_SPAN = .9;
+/** Stage-x of value v on a numberline object with explicit x and width. */
+export const numberlineX = (o: { x?: unknown; width?: number; min: number; max: number }, v: number) =>
+  (typeof o.x === "number" ? o.x : .5) + ((v - o.min) / (o.max - o.min) - .5) * (o.width ?? .8) * NL_SPAN;

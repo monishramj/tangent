@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
 import { CLAUDE_BASE_ARGS, ClaudeCodeCLI, parseStreamResult, type Spawn } from "../llm/claudeCli";
 import { validateScene } from "@motion/dsl/validate";
-import { checkTemplateScene, generateGroupScene } from "./scene";
+import { TEMPLATE_GUIDE, TemplateScene } from "@motion/dsl/templates";
+import { checkTemplateScene, generateGroupScene, recentFor } from "./scene";
 
 const mockProvider = (...responses: string[]) => ({
   complete: vi.fn<LLMProvider["complete"]>().mockImplementation(async () => responses.shift()!),
@@ -29,6 +30,7 @@ describe("generateGroupScene", () => {
     expect(r.attempts).toBe(1);
     expect(validateScene(r.scene)).toEqual([]);
     const p = provider.complete.mock.calls[0][0];
+    expect(TEMPLATE_GUIDE.length).toBeLessThan(7000); // prompt budget
     for (const t of ["Code Report", "versus", "diagram", "datapath", "verbatim", "siftDown"]) expect(p).toContain(t);
   });
 
@@ -54,6 +56,26 @@ describe("generateGroupScene", () => {
     expect(msgs).toContain("at least 2 different templates");
     const fig = { objects: [], beats: [{ say: beats[0].say, template: "figure" as const, data: { src: "x.png" } }] };
     expect(checkTemplateScene(fig, beats.slice(0, 1), [{ id: "f", caption: "", src: "y.png" }])[0].message).toContain("figure src");
+  });
+});
+
+describe("variety across scenes", () => {
+  it("rejects the previous scene's last two template+variants and a template on > half the beats", () => {
+    const recent = [{ template: "title", variant: "slam" }, { template: "callout", variant: "underline" }];
+    const msgs = checkTemplateScene(TemplateScene.parse(good), beats, [], recent).map(e => e.message).join(" ");
+    expect(msgs).toContain("title/slam was just used");
+    expect(msgs).toContain("callout/underline was just used");
+    expect(checkTemplateScene(TemplateScene.parse(good), beats, [], [{ template: "title", variant: "punch" }])).toEqual([]);
+    const heavy = { objects: [], beats: [good.beats[0], { ...good.beats[1], template: "title" as const, variant: "words", data: { text: "x" } }, good.beats[2]] };
+    expect(checkTemplateScene(TemplateScene.parse(heavy), beats).map(e => e.message).join(" ")).toContain("more than half");
+  });
+  it("puts recent templates in the prompt and records what a scene used", async () => {
+    const provider = mockProvider(JSON.stringify(good));
+    const p1 = { ...plan }, r = await generateGroupScene({ beats, plan: p1, provider, recent: [{ template: "stat", variant: "side" }] });
+    expect(provider.complete.mock.calls[0][0]).toContain("Recently used (avoid repeating; the last two are not allowed): stat/side");
+    expect(r.used).toEqual([{ template: "title", variant: "slam" }, { template: "array", variant: "default" }, { template: "callout", variant: "underline" }]);
+    expect(recentFor([p1], 2)).toEqual(r.used!.slice(-2));
+    expect(provider.complete.mock.calls[0][0].length).toBeLessThan(13000);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { counterValue, dashPolylines, formatCount, partialPath, pathLength, routePoints, shapeOutline, trimPath, wordPlacements } from "./geometry";
+import { SHAPES } from "../dsl/schema";
+import { smoothOutline, counterValue, dashPolylines, formatCount, partialPath, pathLength, routePoints, shapeOutline, trimPath, wordPlacements } from "./geometry";
 
 describe("routePoints", () => {
   it("straight", () => expect(routePoints([0, 0], [10, 5])).toEqual([[0, 0], [10, 5]]));
@@ -29,10 +30,11 @@ describe("trim/partial/dash", () => {
 });
 describe("shapeOutline", () => {
   it("fits its box for every kind", () => {
-    for (const k of ["rect", "circle", "polygon", "diamond", "pill", "cylinder", "trapezoid", "hexagon", "parallelogram", "alu"]) {
-      const { pts, fill } = shapeOutline(k, 200, 100);
-      expect(pts.length).toBeGreaterThan(2); expect(fill.length).toBeGreaterThan(2);
-      for (const [x, y] of pts) { expect(Math.abs(x)).toBeLessThanOrEqual(100.001); expect(Math.abs(y)).toBeLessThanOrEqual(50.001); }
+    for (const k of SHAPES) {
+      const { pts, fill, open, extra } = shapeOutline(k, 200, 100);
+      expect(pts.length).toBeGreaterThan(open ? 1 : 2); expect(fill.length > 2 || open).toBe(true);
+      for (const [x, y] of [...pts, ...(extra ?? []).flat()]) { expect(Math.abs(x)).toBeLessThanOrEqual(100.001); expect(Math.abs(y)).toBeLessThanOrEqual(50.001); }
+      expect(smoothOutline(k, 200, 100).pts.length).toBeGreaterThan(1);
     }
   });
   it("alu has a V notch on the left", () => expect(shapeOutline("alu", 100, 100).fill).toContainEqual([-25, 0]));

@@ -50,7 +50,7 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   const isText = (i: LItem) => i.type === "text" || i.type === "KineticText";
   const isTitle = (i: LItem) => i.type === "KineticText";
   const flowed = items.filter((i) => isText(i) && !isNum(i.y));
-  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree", "flow", "table", "code", "figure", "bits", "stack", "icon", "emoji", "counter", "person", "chart", "gif"].includes(i.type) && !isNum(i.y));
+  const visuals = items.filter((i) => !isText(i) && ["shape", "Math", "Array", "Tree", "flow", "table", "code", "figure", "bits", "stack", "icon", "emoji", "counter", "person", "chart", "gif", "numberline", "matrix", "distribution", "Stack", "Queue", "LinkedList", "Graph"].includes(i.type) && !isNum(i.y));
   const bold = (i: LItem) => isTitle(i) || i.weight === "bold";
   const stack = (i: LItem) => i.variant === "stack"; // one word per line
   const base = (i: LItem, f: number) => (i.size ? i.size : isTitle(i) ? 0.12 : 0.045) * h * f;
@@ -112,10 +112,12 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
 /** Labels are bounded by their shape; unlike page text they may shrink below MIN_FONT. */
 export function fitLabel(text: string, base: number, width: number, height: number, m: Measure) {
   let size = Math.max(.01, base);
+  const words = text.split(/\s+/).filter(Boolean);
   for (;;) {
     const lines = text.split("\n").flatMap(line => wrap(line, size, false, width, m));
     const h = lines.length * size * LH;
-    if (h <= height && lines.every(line => m(line, size, false) <= width)) return { text: lines.join("\n"), size, h };
+    const whole = size < base * .5 || words.every(w => m(w, size, false) <= width); // shrink before breaking a word, down to half size
+    if (whole && h <= height && lines.every(line => m(line, size, false) <= width)) return { text: lines.join("\n"), size, h };
     size *= .85;
   }
 }

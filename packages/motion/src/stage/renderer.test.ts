@@ -35,8 +35,18 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
     { id: "left", type: "text", text: "left", x: .1, y: .1, align: "left", size: .04 },
     { id: "db", type: "shape", shape: "cylinder", label: "DB", sublabel: "postgres", filled: true },
     { id: "alu", type: "shape", shape: "alu", label: "ALU" },
+    { id: "gear", type: "shape", shape: "gear", label: "G" }, { id: "brace", type: "shape", shape: "brace" }, { id: "venn", type: "shape", shape: "circle", ghost: true },
+    { id: "stk", type: "Stack", init: [1, 2] }, { id: "q", type: "Queue", init: ["a"] }, { id: "ll", type: "LinkedList", init: [4, 5] },
+    { id: "gr", type: "Graph", nodes: [{ id: "A" }, { id: "B" }], edges: [{ from: "A", to: "B", w: 3 }], directed: true },
+    { id: "nl", type: "numberline", min: 0, max: 10, x: .5, y: .5 }, { id: "mx", type: "matrix", rows: [[1, 2], [3, 4]] },
+    { id: "nd", type: "distribution", kind: "normal" }, { id: "bd", type: "distribution", kind: "binomial", n: 6, a: 2, b: 4 },
+    { id: "mk", type: "mark", target: "text", text: "world", mark: "circle" }, { id: "mk2", type: "mark", target: "gear", mark: "underline" },
+    { id: "tex", type: "texture", pattern: "grid" },
   ], beats: [] });
-  const tl = { totalSec: 10, insertedSilences: [], events: [...scene.objects.map(o => ({ start: 0, end: 1, verb: "create" as const, target: o.id, args: {}, beat: 0 })), { start: 1, end: 2, verb: "pulse" as const, target: "elbow", args: {}, beat: 0 }] };
+  const tl = { totalSec: 10, insertedSilences: [], events: [...scene.objects.map(o => ({ start: 0, end: 1, verb: "create" as const, target: o.id, args: {}, beat: 0 })), { start: 1, end: 2, verb: "pulse" as const, target: "elbow", args: {}, beat: 0 },
+    { start: 1, end: 2, verb: "transform" as const, target: "stk", args: { snap: { items: [{ k: "i0", v: 1 }, { k: "i1", v: 2 }, { k: "n2", v: 3 }] } }, beat: 0 },
+    { start: 1, end: 2, verb: "transform" as const, target: "gr", args: { snap: { visited: ["A"], frontier: ["B"], current: "A", tree: [["A", "B"]], mode: "bfs" } }, beat: 0 },
+    { start: 1, end: 2, verb: "highlight" as const, target: "mx", args: { row: 1 }, beat: 0 }] };
   const app = { stage: new Container(), screen: { width: 1280, height: 720 }, render: vi.fn() };
   const layer = document.createElement("div");
   const renderer = new SceneRenderer(app as unknown as Application, scene, layer, name => name === "--bg" ? "#000000" : "#ffffff");
@@ -47,7 +57,7 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
   expect(app.render).toHaveBeenCalled();
   expect(layer.children).toHaveLength(2); // Math + gif
   const root = app.stage.children[0] as Container;
-  const box = root.children[8] as Container; // connectors are inserted at index 0, so the rect shape sits after the 3 arrows
+  const box = root.children[9] as Container; // bg layer first, then the 3 connectors (inserted at index 1), then the rect shape
   const label = box.children[1] as Text;
   expect(label.text.split("\n").length * Number(label.style.fontSize) * 1.15).toBeLessThanOrEqual(800*.24*.84);
   renderer.destroy();

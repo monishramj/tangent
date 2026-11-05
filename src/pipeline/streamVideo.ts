@@ -1,5 +1,5 @@
 import { generateScript, type Beat, type DetailLevel } from "../gen/script";
-import { generateGroupScene } from "../gen/scene";
+import { generateGroupScene, recentFor } from "../gen/scene";
 import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
 import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/checkpoints";
 import { resolveGifs, type GifSearch } from "../media/giphy";
@@ -111,7 +111,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
         progress("animation", index);
-        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1 });
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)) });
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);

@@ -234,13 +234,14 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Detail level per video (`overview | standard | detailed | complete`) picked on Home, flows to the script prompt (`targetBeats`), saved on the bundle.
 - Keychain is read only if `tangent.giphy.set` is set (no prompt on Home load). Linux keyring is non-persistent (kernel keyring).
 
+- Templates phase 1: 18 more (timeline, definition, analogy, steps, procon, quote, hook, checklist, numberline, venn, matrix, distribution, pipeline, encoding, stack, queue, linkedlist, graph) in `dsl/vocabTemplates.ts` (helpers `dsl/tplkit.ts`). Computed components Stack/Queue/LinkedList/Graph (real BFS/DFS) in `dsl/components.ts`; on-screen numbers (matrix products, distribution areas `dsl/stats.ts`, pipeline stalls, encoding fits) are computed, never from the LLM. 24 shape kinds, 391 curated icons + synonyms, emoji packs. Per-beat `emphasis`/`energy`/`texture`/`accent`. Cross-scene variety via `recent` (soft: enforced on the first attempt only). Template guide ≈6.2k chars (test caps it at 7k).
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
 - The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
 - Beat/scene gaps (0.45 s / 0.6 s) are untuned; listen on a real chapter.
-- Retaking a check replaces the saved result (a retake can lower the score).
 - **Objects accumulate only in raw-DSL beats.** Template beats clear the previous frame (unless `keep:true`); escape-hatch objects still rely on the model to fade them.
 - **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.
@@ -284,4 +285,5 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
 - Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage.
+- Retaking a check replaces the earlier answer; Escape closes the speed menu and the side panel together (2026-11-05).
 - Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Projects = NotebookLM-style with notes. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.

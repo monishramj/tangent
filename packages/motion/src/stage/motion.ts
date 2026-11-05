@@ -26,16 +26,20 @@ export const MOTION = {
   slide: .06, // "slide" entrances travel this far (fraction of stage width), not across the whole stage
   punchSec: .35, // highlight punch: a single scale bump, then hold (no looping wobble)
   punch: .06,
+  // per-beat energy: entrance durations scale by `dur`; punchy beats also get a quick camera punch (zoom, then back)
+  energy: { calm: { dur: 1.4, zoom: 1.03 }, punchy: { dur: .65, zoom: 1.06 } },
 };
+/** The one restrained accent colour (beat.accent: true tints only that beat's key element). Everything else stays monochrome. */
+export const ACCENT = "#ffb224";
 /** Stroke width (px) for a stage of height h: one scale for shapes, connectors, components and charts. */
 export const strokeW = (h: number, k = 1) => Math.max(1.5, h * .0036 * k);
 /** 0..1 sub-window of a progress value: window(p, .6, 1) is 0 until p = .6, then ramps to 1 at p = 1. */
 export const window01 = (p: number, a: number, b: number) => clamp01((p - a) / (b - a));
 export const defaultStyle = (o: SceneObject): Style => {
   if (o.style) return o.style;
-  if (["shape", "arrow", "line"].includes(o.type)) return "draw";
+  if (["shape", "arrow", "line", "numberline", "distribution", "mark"].includes(o.type)) return "draw";
   if (["text", "code"].includes(o.type)) return "type";
-  if (["Array", "Tree", "flow", "table", "bits", "stack", "chart"].includes(o.type)) return "stagger";
+  if (["Array", "Tree", "flow", "table", "bits", "stack", "chart", "Stack", "Queue", "LinkedList", "Graph", "matrix", "texture"].includes(o.type)) return "stagger";
   return "pop";
 };
 export function staggerProgress(p: number, i: number, count: number, gap = .12) {

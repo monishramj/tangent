@@ -85,3 +85,9 @@ export const SYNONYMS: Record<string, string> = {
 
 /** Compact prompt guide: a few names per category (any curated name or plain noun also works). */
 export const ICON_GUIDE = Object.entries(ICON_CATEGORIES).map(([k, v]) => `${k}: ${v.split(" ").slice(0, 6).join(", ")}`).join("; ");
+/** Emoji packs by mood/topic for the prompt (emoji render in colour; use sparingly as punctuation). */
+export const EMOJI_PACKS: Record<string, string> = {
+  hype: "🔥 🚀 ⚡ 💥 🎉 🏆", aha: "💡 🤯 ✨ 👀 🎯", confused: "🤔 🧐 ❓ 😵‍💫 🫠", oops: "😬 😱 💀 🐛 ❌ ⚠️", good: "✅ 👍 🙌 😌 💯",
+  speed: "⏱️ 🐢 🐇 ⏳ 🏎️", cs: "💻 🧠 🌲 🔗 🧮 📦", science: "🧪 🔬 🧬 ⚛️ 📈", school: "📚 ✏️ 🎓 📝", money: "💰 📉 💸",
+};
+export const EMOJI_GUIDE = Object.entries(EMOJI_PACKS).map(([k, v]) => `${k} ${v}`).join("; ");

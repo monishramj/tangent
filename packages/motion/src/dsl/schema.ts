@@ -111,7 +111,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   }),
   obj("mark", { target: id, text: z.string().optional(), mark: z.enum(MARKS) }), // hand-drawn emphasis on an object (or a phrase inside a text)
   obj("texture", { pattern: z.enum(["dots", "grid", "scanlines"]) }), // subtle full-stage background
-  ...SEQ_TYPES.map(t => obj(t, { init: z.array(value).max(10), label: z.string().optional() })),
+  ...SEQ_TYPES.map(t => obj(t, { init: z.array(value).max(10), label: z.string().optional(), cap: z.number().int().min(1).max(10).optional() })), // cap: slots to lay out
   obj("Graph", {
     nodes: z.array(z.object({ id, label: z.string().optional(), x: unit.optional(), y: unit.optional() })).min(1).max(12),
     edges: z.array(z.object({ from: id, to: id, w: z.number().optional() })).max(30), directed: z.boolean().default(false),

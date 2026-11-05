@@ -3,6 +3,8 @@
 import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
 import { fromLevel } from "../dsl/trees/shared";
 import type { ObjState, SceneState } from "./scene";
+import type { GraphSnap, SeqSnap } from "../dsl/components";
+import { area, type Dist } from "../dsl/stats";
 
 const SEEN = 0.05; // opacity / highlight threshold
 const MAX_LINE = 240;
@@ -67,6 +69,26 @@ function detail(o: SceneObject, s: ObjState): { tag: string; info: string } {
       const lit = Object.entries(s.valHl ?? {}).filter(([, v]) => v > SEEN).map(([k]) => k);
       return { tag: `Tree ${o.kind}`, info: parts(`keys in level order: ${treeKeys(o)}`, lit.length > 0 && `${lit.join(", ")} highlighted`, hl) };
     }
+    case "Stack": case "Queue": case "LinkedList": {
+      const items = (s.snap as SeqSnap | undefined)?.items ?? o.init.map((v, i) => ({ k: `i${i}`, v }));
+      const lit = items.flatMap((x, i) => (s.keyHl?.[x.k] ?? 0) > SEEN ? [i] : []);
+      const order = o.type === "Stack" ? "bottom→top" : o.type === "Queue" ? "front→back" : "head→tail";
+      return { tag: o.type, info: parts(o.label && q(o.label), `${order} [${items.map(x => x.v).join(", ")}]`, lit.length > 0 && `position ${lit.join(", ")} highlighted`) };
+    }
+    case "Graph": {
+      const g = s.snap as GraphSnap | undefined;
+      return { tag: `${o.directed ? "directed " : ""}graph`, info: parts(`edges ${o.edges.map(e => `${e.from}${o.directed ? "→" : "-"}${e.to}${e.w !== undefined ? `(${e.w})` : ""}`).join(", ")}`,
+        g?.mode && `${g.mode.toUpperCase()} visit order ${g.visited.join(", ") || "none yet"}`, g?.mode && g.frontier.length > 0 && `${g.mode === "dfs" ? "stack" : "queue"} ${g.frontier.join(", ")}`, g?.current && `at ${g.current}`) };
+    }
+    case "numberline": return { tag: "number line", info: `${o.min} to ${o.max}` };
+    case "matrix": return { tag: "matrix", info: parts(o.label && q(o.label), `[${o.rows.map(r => r.join(" ")).join("; ")}]`, s.hl > SEEN && s.row !== undefined && `row ${s.row} highlighted`, s.hl > SEEN && s.col !== undefined && `column ${s.col} highlighted`) };
+    case "distribution": {
+      const params = o.kind === "normal" ? `mean ${o.mean}, sd ${o.sd}` : o.kind === "uniform" ? `on [${o.min}, ${o.max}]` : `n ${o.n}, p ${o.p}`;
+      const shaded = o.a !== undefined || o.b !== undefined;
+      return { tag: `${o.kind} distribution`, info: parts(params, shaded && `shaded ${o.a ?? "-∞"} to ${o.b ?? "∞"}, area ${area(o as Dist, o.a, o.b).toFixed(3)}`) };
+    }
+    case "mark": return { tag: `${o.mark} mark`, info: `on ${o.target}${o.text ? ` (${q(o.text)})` : ""}` };
+    case "texture": return { tag: "background texture", info: o.pattern };
     default: return { tag: (o as { type: string }).type, info: hl };
   }
 }

@@ -2,15 +2,14 @@
 // objects and word-anchored actions. Layout, sizing and timing live here, so a weak model can't make a clunky frame.
 // Positions are stage fractions on a 16:9 stage. Anchors: a phrase from `say` if it occurs exactly once, else "@f".
 import { z } from "zod";
-import { Pose, SceneObject, Transition, type Scene } from "./schema";
-
-const s = z.string().min(1);
-const visual = { icon: s.optional(), emoji: s.max(16).optional() };
-const at = { at: s.optional() };
+import { MARKS, Pose, SceneObject, Transition, type Scene } from "./schema";
+import { C, Op, TRANSITIONS, at, ctx, frac, occurrences, s, spread, visual, visualAt } from "./tplkit";
+import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
+import { ACCENT, MOTION } from "../stage/motion";
+import { ICON_GUIDE, EMOJI_GUIDE } from "../stage/icons";
 const Item = z.object({ text: s, ...visual, ...at });
 const Side = z.object({ title: s, ...visual, points: z.array(s).max(3).optional() });
 const Node = z.object({ id: z.string().regex(/^[A-Za-z_][\w-]*$/), label: s, shape: z.string().optional(), sub: z.string().optional(), ...at });
-const Op = z.object({ op: s, args: z.array(z.unknown()).default([]), ...at });
 
 export const TEMPLATES = {
   title: z.object({ text: s, kicker: s.optional(), ...visual }),
@@ -30,14 +29,18 @@ export const TEMPLATES = {
   gif: z.object({ query: s, caption: s.optional() }),
   callout: z.object({ text: s, sub: s.optional() }),
   table: z.object({ headers: z.array(s).min(1).max(5), rows: z.array(z.array(z.string())).min(1).max(6), highlightRows: z.array(z.number().int().min(0)).optional() }),
+  ...VOCAB_TEMPLATES,
 } as const;
 export type TemplateName = keyof typeof TEMPLATES;
 export const VARIANTS: Record<TemplateName, string[]> = {
   title: ["slam", "punch", "words", "stack"], stat: ["center", "side"], versus: ["split", "cards"], list: ["column", "grid", "steps"],
   character: ["left", "right", "duo"], diagram: ["flow-h", "flow-v", "cycle", "hub", "datapath", "layers"], math: ["derive", "focus"],
   code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["center", "side"],
-  callout: ["underline", "box", "punch"], table: ["default"],
+  callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS,
 };
+/** The variant a beat actually gets: the requested one if valid, else a rotation by beat index. */
+export const resolveVariant = (template: TemplateName, variant: string | undefined, b: number) =>
+  variant && VARIANTS[template].includes(variant) ? variant : VARIANTS[template][b % VARIANTS[template].length];
 
 const Sticker = z.object({ ...visual, ...at }).refine(x => x.icon || x.emoji, "sticker needs icon or emoji");
 export const TemplateBeat = z.object({
@@ -48,6 +51,10 @@ export const TemplateBeat = z.object({
   keep: z.boolean().optional(), // keep the previous beat's objects on screen (build on them with actions)
   sticker: Sticker.optional(),
   camera: z.enum(["drift", "zoom", "shake"]).optional(),
+  emphasis: z.array(z.object({ text: s.optional(), target: s.optional(), mark: z.enum(MARKS), ...at }).refine(e => e.text || e.target, "emphasis needs text or target")).max(3).optional(),
+  energy: z.enum(["calm", "punchy"]).optional(), // calm: slower entrances + slow drift; punchy: faster entrances + a camera punch
+  texture: z.enum(["none", "dots", "grid", "scanlines"]).optional(), // subtle background for this frame
+  accent: z.boolean().optional(), // tint this beat's key element with the one accent colour
   objects: z.array(z.unknown()).optional(), // escape hatch: raw DSL objects
   actions: z.array(z.unknown()).optional(), // raw DSL actions (e.g. highlight/pulse/op on kept objects)
   cite: z.string().optional(),
@@ -57,11 +64,6 @@ export const TemplateScene = z.object({ scene: z.string().optional(), objects: z
 export type TemplateBeat = z.infer<typeof TemplateBeat>;
 export type TemplateSceneT = z.input<typeof TemplateScene>;
 export type ExpandError = { path: string; message: string; beat?: number };
-
-const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const occurrences = (say: string, phrase: string) => [...say.matchAll(new RegExp(`(?<![\\w'])${esc(phrase)}(?![\\w'])`, "gi"))].length;
-const frac = (f: number) => `@${Math.min(1, Math.max(0, f)).toFixed(3).replace(/\.?0+$/, "") || "0"}`;
-const TRANSITIONS: z.infer<typeof Transition>[] = ["whip", "push", "cut", "whip"];
 
 /** Shape kind from a free-form hint or a datapath label ("ALU" -> alu, "MUX" -> trapezoid, "Data memory" -> cylinder). */
 export function shapeFor(hint: string | undefined, label: string): string {
@@ -90,32 +92,6 @@ export function layers(nodes: { id: string }[], edges: { from: string; to: strin
   const pos = new Map<string, [number, number]>();
   for (const n of nodes) { const l = layer.get(n.id)!; const i = count.get(l) ?? 0; count.set(l, i + 1); pos.set(n.id, [l, i]); }
   return { pos, layerCount: Math.max(...layer.values()) + 1, perLayer: count };
-}
-
-type Ctx = { b: number; say: string; objects: SceneObject[]; actions: unknown[]; ids: Set<string> };
-
-function ctx(b: number, say: string, ids: Set<string>): Ctx & {
-  id(base: string): string; anchor(f: number, phrase?: string): string;
-  add(o: Record<string, unknown>, when: string, create?: Record<string, unknown>): string; act(a: Record<string, unknown>): void;
-} {
-  const c = { b, say, objects: [] as SceneObject[], actions: [] as unknown[], ids };
-  return {
-    ...c,
-    id(base) { let id = base, n = 2; while (ids.has(id)) id = `${base}_${n++}`; ids.add(id); return id; },
-    anchor(f, phrase) { return phrase && occurrences(say, phrase) === 1 ? phrase : frac(f); },
-    add(o, when, create = {}) { c.objects.push(o as SceneObject); c.actions.push({ at: when, do: "create", target: o.id, ...create }); return o.id as string; },
-    act(a) { c.actions.push(a); },
-    get objects() { return c.objects; }, get actions() { return c.actions; },
-  };
-}
-type C = ReturnType<typeof ctx>;
-/** n evenly spread reveal anchors over [from, to] of the beat. */
-const spread = (n: number, from = 0, to = .7) => Array.from({ length: n }, (_, i) => n === 1 ? from : from + (to - from) * i / (n - 1));
-
-function visualAt(c: C, base: string, v: { icon?: string; emoji?: string }, x: number, y: number, size: number, when: string, label?: string) {
-  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "pop" });
-  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "pop" });
-  return undefined;
 }
 
 // Each expander gets parsed data and a variant; it adds objects + actions through the context.
@@ -284,6 +260,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (v === "punch") c.act({ at: frac(.3), do: "camera", zoom: 1.08, duration: 2 });
     if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .04, opacity: .6 }, frac(.5), { style: "type" });
   },
+  ...VOCAB_EXPAND,
   table(c, d) {
     const cols = d.headers.length, rows = d.rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ""));
     const id = c.add({ id: c.id("table"), type: "table", headers: d.headers, rows, x: .5, y: .5, width: .8, height: Math.min(.75, (rows.length + 1) * .1) }, frac(0), { style: "stagger" });
@@ -291,6 +268,35 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     spread(hl.length, .35, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, row: hl[i] }));
   },
 };
+
+/** Per-beat customization on top of the template: emphasis marks, energy, texture, accent. */
+function decorate(c: C, beat: TemplateBeat, onScreen: string[], prior: unknown[], errors: ExpandError[]) {
+  const all = [...prior, ...c.objects] as SceneObject[], live = new Set([...(beat.keep ? onScreen : []), ...c.objects.map(o => o.id)]);
+  (beat.emphasis ?? []).forEach((e, i) => {
+    const hit = e.target ? all.find(o => o.id === e.target && live.has(o.id))
+      : [...all].reverse().find(o => live.has(o.id) && (o.type === "text" || o.type === "KineticText") && o.text.toLowerCase().includes(e.text!.toLowerCase()));
+    if (!hit) return errors.push({ path: `beats[${c.b}].emphasis[${i}]`, message: e.target ? `no on-screen object "${e.target}"` : `no on-screen text contains "${e.text}"`, beat: c.b });
+    const phrase = e.at ?? e.text, when = phrase && occurrences(c.say, phrase) === 1 ? phrase : frac(.55 + .12 * i);
+    c.add({ id: c.id(`mark_${hit.id}`), type: "mark", target: hit.id, text: e.text, mark: e.mark }, when, { style: "draw", duration: e.mark === "circle" ? .6 : .45 });
+  });
+  if (beat.texture && beat.texture !== "none") {
+    const id = c.id("texture");
+    c.objects.unshift({ id, type: "texture", pattern: beat.texture } as SceneObject);
+    c.actions.unshift({ at: "@0", do: "create", target: id, duration: .3 });
+  }
+  if (beat.energy) {
+    const k = MOTION.energy[beat.energy];
+    for (const a of c.actions as Record<string, unknown>[]) if (a.do === "create") a.duration = Math.max(.15, Number(a.duration ?? .4) * k.dur);
+    if (beat.energy === "punchy" && !beat.camera) {
+      c.act({ at: "@0.1", do: "camera", zoom: k.zoom, duration: .12, easing: "outExpo" });
+      c.act({ at: "@0.2", do: "camera", zoom: 1, duration: .35, easing: "inOutQuad" });
+    } else if (beat.energy === "calm" && !beat.camera) c.act({ at: "@0.05", do: "camera", zoom: k.zoom, duration: 5, easing: "inOutSine" });
+  }
+  if (beat.accent) {
+    const key = c.objects.find(o => o.id === c.keyId) ?? c.objects.find(o => ["KineticText", "counter"].includes(o.type)) ?? c.objects.find(o => o.type === "text");
+    if (key && key.type !== "emoji") (key as { color?: string }).color = ACCENT;
+  }
+}
 
 const issuePath = (p: PropertyKey[]) => p.map(x => typeof x === "number" ? `[${x}]` : `.${String(x)}`).join("");
 
@@ -320,13 +326,13 @@ export function expandTemplates(raw: unknown): { scene: Scene | null; errors: Ex
       const data = schema.safeParse(beat.data ?? {});
       if (!data.success) for (const i of data.error.issues) errors.push({ path: `beats[${b}].data${issuePath(i.path)}`, message: `${beat.template}: ${i.message}`, beat: b });
       else {
-        const variants = VARIANTS[beat.template];
-        const variant = beat.variant && variants.includes(beat.variant) ? beat.variant : variants[b % variants.length];
+        const variant = resolveVariant(beat.template, beat.variant, b);
         try { (EXPAND[beat.template] as (c: C, d: unknown, v: string) => void)(c, data.data, variant); }
         catch (e) { errors.push({ path: `beats[${b}].data`, message: `${beat.template}: ${e instanceof Error ? e.message : String(e)}`, beat: b }); }
       }
     }
     if (beat.sticker) visualAt(c, "sticker", beat.sticker, .87, .2, .12, c.anchor(.5, beat.sticker.at));
+    decorate(c, beat, onScreen, objects, errors);
     if (beat.camera === "drift") c.act({ at: "@0.05", do: "camera", zoom: 1.06, duration: 4 });
     if (beat.camera === "zoom") c.act({ at: "@0.4", do: "camera", zoom: 1.15, duration: .8, easing: "outExpo" });
     if (beat.camera === "shake") c.act({ at: "@0.3", do: "camera", shake: .02, duration: .4 });
@@ -355,4 +361,7 @@ export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.da
 - gif {query, caption?} center|side. Reaction gif (e.g. "mind blown", "wait what"). At most one per scene, never mid-explanation.
 - callout {text, sub?} underline|box|punch. The key idea, the takeaway, "here's the catch".
 - table {headers, rows, highlightRows?}.
-Beat extras: keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;
+${VOCAB_GUIDE}
+Icons (any simple noun works; e.g.) ${ICON_GUIDE}.
+Emoji packs: ${EMOJI_GUIDE}.
+Beat extras: emphasis:[{text|target, mark:"underline"|"circle"|"strike"|"marker", at?}] (<=2; text = a phrase that is ON SCREEN, e.g. in a callout); energy:"calm"|"punchy"; texture:"dots"|"grid"|"scanlines" (rarely); accent:true (at most one beat per scene: tints its key element); keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;
