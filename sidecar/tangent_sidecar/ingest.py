@@ -20,10 +20,16 @@ def _load_converter():
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
+    import torch
+
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
-        accelerator_options=AcceleratorOptions(num_threads=int(os.environ.get("TANGENT_THREADS", "8"))),
+        accelerator_options=AcceleratorOptions(
+            device=os.environ.get("TANGENT_DEVICE", device),
+            num_threads=int(os.environ.get("TANGENT_THREADS", "8")),
+        ),
     )
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 

@@ -246,7 +246,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.
 - **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
-- **This branch diverged from uncommitted `main` work** (WAV silence padding, captions, Docling MPS + progress events, auto-fade). Merge before building further. Docling on this branch runs on CPU, so formula enrichment on a math-heavy PDF takes many minutes with no progress.
+- **Old `main` work was mostly superseded** (branch replaced main on 2026-11-05; old work kept in `backup/main-uncommitted-2026-11-04`). Ported: Docling on MPS (`TANGENT_DEVICE` overrides) and section cleanup (captions/help text/watermark titles are not sections, page spans rebuilt after reparenting). Not ported: real Docling progress events, so PDF progress is still an estimate.
 - GlassSurface's SVG refraction needs backdrop-filter `url()`, which WKWebView lacks, so the side panel and paused play button fall back to a plain blur.
 
 **Recently fixed (2026-11-04), don't regress:**

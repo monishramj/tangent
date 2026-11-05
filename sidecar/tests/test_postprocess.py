@@ -101,3 +101,22 @@ def test_watermarks_and_footers_stripped_before_text_leaves_sidecar():
     for text in (postprocess(ir)["sections"][0]["markdown"], section_text(ir, "s-4.1 Datapath")):
         assert "Jane" not in text and "1234567" not in text and "zyBooks" not in text and "Copyright" not in text
         assert "Muxes pick one input." in text and "The ALU adds." in text and "Done." in text
+
+
+def test_promoted_caption_and_watermark_are_content_not_sections():
+    ir = {"sections": [node("4.1 Introduction"), node("Implementation"),
+                       node("How to use this tool \ue5cf", md="Help"),
+                       node("Figure 4.1.2: The datapath. " + WATERMARK, md="Explanation", pages=(2,)),
+                       node(WATERMARK, md="Retained body", pages=(3,)),
+                       node("4.2 Logic design conventions", pages=(4,))]}
+    out = postprocess(ir)["sections"]
+    assert [n["title"] for n in flat(out)] == ["4.1 Introduction", "Implementation", "4.2 Logic design conventions"]
+    text = out[0]["children"][0]["markdown"]
+    assert "Figure 4.1.2: The datapath." in text and "Explanation" in text and "Retained body" in text
+    assert "zyBooks" not in str(out) and "Jane" not in str(out)
+    assert out[0]["anchors"] == [{"page": 1}, {"page": 2}, {"page": 3}]
+
+
+def test_new_chapter_resets_last_numbered_section():
+    out = postprocess({"sections": [node("4.1 Intro"), node("Chapter 5"), node("Overview")]})["sections"]
+    assert [n["level"] for n in flat(out)] == [2, 1, 1]

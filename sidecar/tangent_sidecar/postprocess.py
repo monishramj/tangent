@@ -5,7 +5,7 @@ import unicodedata
 from pathlib import Path
 
 NON_STRUCTURAL = re.compile(
-    r"(solutions?|answers?|participation activity|challenge activity|animation|try it|example|examples)(\s+[\d.]+)?:?", re.I)
+    r"(solutions?|answers?|participation activity|challenge activity|animation|try it|how to use this tool|example|examples)(\s+[\d.]+)?:?", re.I)
 NUMBERED = re.compile(r"\s*(?:(?:chapter|section)\s+)?(\d{1,3}(?:\.\d{1,3})*)\.?(?:\s|:|$)", re.I)
 # Dotted numbers (5.2.1) are real headings; "1. Foo" is a list item Docling promoted.
 DOTTED = re.compile(r"\s*\d{1,3}(?:\.\d{1,3})+\.?(?:\s|:|$)")
@@ -108,7 +108,7 @@ def strip_footers(markdown):
 
 
 def _clean(n):
-    n["title"] = " ".join(JUNK.sub("", n["title"]).split())
+    n["title"] = " ".join(strip_footers(JUNK.sub("", n["title"])).split())
     n["markdown"] = strip_footers(JUNK.sub("", n["markdown"]))
 
 
@@ -127,9 +127,11 @@ def postprocess(ir):
     kept, roots, stack = [], [], []
     numbered = None  # most recent dotted heading; unnumbered ones nest beneath it
     for n in flat:
-        if n["level"] > 0 and kept and NON_STRUCTURAL.fullmatch(n["title"].strip()):
+        if n["level"] > 0 and kept and (not n["title"] or CAPTION.match(n["title"])
+                                            or NON_STRUCTURAL.fullmatch(n["title"])):
             host = kept[-1]
-            host["markdown"] += ("\n\n" if host["markdown"] else "") + f"**{n['title'].strip()}**"
+            if n["title"]:
+                host["markdown"] += ("\n\n" if host["markdown"] else "") + f"**{n['title']}**"
             if n["markdown"]:
                 host["markdown"] += "\n\n" + n["markdown"]
             host["figures"] += n["figures"]
@@ -142,6 +144,8 @@ def postprocess(ir):
             n["level"] = _level(n, kept[-1]["level"] if kept else 0, sizes)
             if DOTTED.match(n["title"]):
                 numbered = n
+            elif re.match(r"chapter\b", n["title"], re.I):
+                numbered = None
             elif numbered and not re.match(r"(chapter|section)\b", n["title"], re.I):
                 n["level"] = numbered["level"] + 1
         kept.append(n)
@@ -155,4 +159,8 @@ def postprocess(ir):
         n["markdown"], hits = DUP_MATH.subn(r"\g<g>", n["markdown"])
         if hits:
             n["needs_math_check"] = True
+    # Reparenting changes page spans too; propagate only after the final tree exists.
+    for n in reversed(kept):
+        n["anchors"] = [{"page": p} for p in sorted(
+            {a["page"] for s in [n, *n["children"]] for a in s["anchors"]})]
     return {**ir, "sections": roots}
