@@ -167,7 +167,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       onStatus?.("writing script");
       progress("script", 0);
       const script = await generateScript({ sectionMarkdown, provider: complete, detail });
-      if (!script.beats || script.violations.length) throw new Error("Invalid script");
+      if (!script.beats || script.violations.length) throw new Error("Invalid script: " + script.violations.slice(0, 5).map(v => `beat ${v.beat} ${v.rule}: ${v.message}`).join(" | "));
       const beats = script.beats;
       says = beats.map(b => b.say);
       groups = chunkBeats(beats, 4, 3).map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));

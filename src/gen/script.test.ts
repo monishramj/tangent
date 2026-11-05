@@ -47,6 +47,7 @@ describe("generateScript", () => {
     const r = await generateScript({ sectionMarkdown: "# Heaps", provider });
     expect(r).toEqual({ beats: JSON.parse(good), attempts: 1, violations: [] });
     const prompt = provider.complete.mock.calls[0][0];
+    expect(provider.complete.mock.calls[0][1]).toMatchObject({ model: "sonnet" }); // Haiku scripts missed the speech rules
     for (const t of ["JSON only", "parentheticals", "former", "respectively", "22 words", "Define a term", "n log n", "visualIntent", "<source>\n# Heaps\n</source>", "No markdown", "No emoji"])
       expect(prompt).toContain(t);
   });

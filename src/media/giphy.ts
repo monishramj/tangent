@@ -7,7 +7,8 @@ export type GifSearch = (query: string) => Promise<string | null>;
 const BANNED = /\b(nsfw|sexy|gore|blood|drunk)\b/i;
 
 // The Keychain prompts on every read in unsigned dev builds, so a non-secret localStorage flag says whether a
-// key exists. No flag = no Keychain access at all; with the flag, the key is read once per app session.
+// key exists (the Settings UI reads only the flag). giphyKey runs at generation time only and reads the Keychain once per
+// session even without the flag: a missing entry never prompts, and a key saved before the flag existed is still found.
 export const GIPHY_FLAG = "tangent.giphy.set";
 export function hasGiphyKey(): boolean {
   try { return localStorage.getItem(GIPHY_FLAG) === "1"; } catch { return false; }
@@ -17,10 +18,8 @@ function setFlag(on: boolean) {
 }
 
 let key: Promise<string | null> | undefined;
-export const giphyKey = (): Promise<string | null> => {
-  if (!hasGiphyKey()) return Promise.resolve(null);
-  return key ??= invoke<string | null>("get_secret", { name: "giphy" }).then(k => k || null, () => null);
-};
+export const giphyKey = (): Promise<string | null> =>
+  key ??= invoke<string | null>("get_secret", { name: "giphy" }).then(k => { setFlag(!!k); return k || null; }, () => null);
 /** Store (non-empty) or delete (empty) the key, keep the flag in step, and cache the new value without re-reading. */
 export async function saveGiphyKey(value: string): Promise<void> {
   await invoke("set_secret", { name: "giphy", value });
@@ -29,16 +28,16 @@ export async function saveGiphyKey(value: string): Promise<void> {
 }
 export const resetGiphyKey = () => { key = undefined; };
 
-/** Top results for the query, one picked at random so repeated intents don't repeat the same gif. */
-export function giphySearch(apiKey: string, fetchFn: typeof fetch = fetch, pick = Math.random): GifSearch {
+/** GIPHY's most relevant hit for the query. Top-1, not a random pick from the top few: lower ranks drift off-topic. */
+export function giphySearch(apiKey: string, fetchFn: typeof fetch = fetch): GifSearch {
   return async query => {
     if (BANNED.test(query)) return null;
-    const url = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}&limit=8&rating=pg-13&lang=en`;
+    const url = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}&limit=3&rating=pg-13&lang=en`;
     const r = await fetchFn(url);
     if (!r.ok) return null;
     const hits = ((await r.json()) as { data?: { images?: Record<string, { url?: string }> }[] }).data ?? [];
     const urls = hits.map(h => h.images?.downsized_medium?.url ?? h.images?.fixed_height?.url).filter((u): u is string => !!u);
-    return urls.length ? urls[Math.floor(pick() * urls.length)] : null;
+    return urls[0] ?? null;
   };
 }
 

@@ -18,8 +18,8 @@ export const CLAUDE_BASE_ARGS = [
 ];
 export const CLAUDE_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" };
 
-export function claudeArgs(system?: string, withImages = false): string[] {
-  const args = [...CLAUDE_BASE_ARGS, ...(withImages
+export function claudeArgs(system?: string, withImages = false, model: "haiku" | "sonnet" = "haiku"): string[] {
+  const args = [...CLAUDE_BASE_ARGS.map(a => a === "haiku" ? model : a), ...(withImages
     ? ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
     : ["--output-format", "text"])];
   if (system !== undefined) args.push("--system-prompt", system);
@@ -53,7 +53,7 @@ export class ClaudeCodeCLI implements LLMProvider {
       if (opts.signal?.aborted) return reject(new Error("Claude CLI aborted"));
       const images = opts.images ?? [];
       const cwd = mkdtempSync(join(tmpdir(), "tangent-llm-"));
-      const child = this.spawnProcess("claude", claudeArgs(opts.system, images.length > 0),
+      const child = this.spawnProcess("claude", claudeArgs(opts.system, images.length > 0, opts.model),
         { stdio: "pipe", cwd, env: { ...process.env, ...CLAUDE_ENV } });
       let stdout = "";
       let stderr = "";

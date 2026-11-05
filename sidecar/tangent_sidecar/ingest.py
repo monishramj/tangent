@@ -95,7 +95,7 @@ def ingest_pdf(params):
             root = _assets_root()
             root.mkdir(parents=True, exist_ok=True)
             assets = Path(tempfile.mkdtemp(prefix="pdf-", dir=root))
-        return document_to_ir(document, assets)
+        return document_to_ir(document, assets, path)
 
 
 def _line_key(line):
@@ -122,7 +122,7 @@ def _repeated_margins(document, items):
     return {ref: lines & repeated for ref, lines in candidates.items()}
 
 
-def document_to_ir(document, assets):
+def document_to_ir(document, assets, pdf_path=None):
     from docling_core.transforms.serializer.markdown import MarkdownDocSerializer
     from docling_core.types.doc import ContentLayer
 
@@ -201,7 +201,7 @@ def document_to_ir(document, assets):
                 if anchor not in exercise["anchors"]:
                     exercise["anchors"].append(anchor)
     from .postprocess import postprocess
-    return postprocess({"sections": sections})
+    return postprocess({"sections": sections}, pdf_path)
 
 
 def list_sections(params):

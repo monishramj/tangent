@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-04): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
+> Status (2026-11-05): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -153,7 +153,7 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ### Inference providers
 - **Primary: reuse my subscriptions via Claude Code headless (`claude -p`).** Fine for batch stages that buffer ahead (outline, script, scene DSL).
-- **Model: `haiku`** (to save the Pro limit). It is set in `src-tauri/src/llm.rs` (what the app uses) and `src/llm/claudeCli.ts` (the Node-side provider); keep both in sync.
+- **Model: `haiku` by default, `sonnet` for the script stage** (`SCRIPT_OPTS` in `src/gen/script.ts`; Haiku scripts broke the speech-first rules). `CompleteOpts.model` picks the tier; `src-tauri/src/llm.rs` allowlists `haiku|sonnet` and `src/llm/claudeCli.ts` mirrors it; keep both in sync.
 - Caveats: cold-start latency (unsuitable for the instant tutor), it eats the 5-hr Pro limit, and the ToS for driving it from my own app must be re-checked **before the OSS release** defaults to it.
 - **Provider interface from day one:** `ClaudeCodeCLI` (backend #1), `Ollama` (local fallback + tutor fast path), API-key providers (Claude/Gemini/OpenAI) for other users and later.
 - Budget constraint: nothing beyond Claude Pro should cost money by default.
@@ -236,6 +236,13 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 
 - Templates phase 1: 18 more (timeline, definition, analogy, steps, procon, quote, hook, checklist, numberline, venn, matrix, distribution, pipeline, encoding, stack, queue, linkedlist, graph) in `dsl/vocabTemplates.ts` (helpers `dsl/tplkit.ts`). Computed components Stack/Queue/LinkedList/Graph (real BFS/DFS) in `dsl/components.ts`; on-screen numbers (matrix products, distribution areas `dsl/stats.ts`, pipeline stalls, encoding fits) are computed, never from the LLM. 24 shape kinds, 391 curated icons + synonyms, emoji packs. Per-beat `emphasis`/`energy`/`texture`/`accent`. Cross-scene variety via `recent` (soft: enforced on the first attempt only). Template guide ≈6.2k chars (test caps it at 7k).
 
+**2026-11-05 port (from the `tangent-review` worktree):**
+- Scene audio plays through one shared `AudioContext` (`@motion/player/bufferClock`), not one `<audio>` per scene: per-element audio-session churn deadlocked WKWebView. `<audio>` only where there's no AudioContext (jsdom). Speed works via `AudioBufferSourceNode.playbackRate`, so **pitch is no longer preserved** above/below 1×.
+- Home: checkboxes + Select all → "Make video (N sections)" joins sections into one video (`topSelected`, `sectionsText`, id = ids joined with `+`).
+- Gifs: `gif` template is gif-only (`full|center`), up to 2 per scene, never two in a row; GIPHY top-1 hit; key found even without the localStorage flag (read once at generation time).
+- Sidecar: PDF embedded outline (pypdfium2) defines the top section levels; Roman/letter headings nest; font sizes read from the PDF when there's no outline or dotted numbering.
+- Invalid-script errors now list the first violations.
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
@@ -288,6 +295,6 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 ## Decisions (Monish)
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
 - Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
-- LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage.
+- LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage; **script stage on `sonnet`** (2026-11-05) for script quality.
 - Retaking a check replaces the earlier answer; Escape closes the speed menu and the side panel together (2026-11-05).
 - Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Projects = NotebookLM-style with notes. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.

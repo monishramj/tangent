@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { ingestPdf, listSections, sectionText } from "./api";
+import { ingestPdf, listSections, sectionText, sectionsText, topSelected, multiTitle } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("r") }));
 vi.mock("@tauri-apps/api/path", () => ({ appDataDir: vi.fn().mockResolvedValue("/data"), join: vi.fn(async (...p: string[]) => p.join("/")) }));
@@ -48,4 +48,28 @@ it("sectionExercises collects from a section and its descendants", async () => {
   expect(sectionExercises(ir, "p").map(e => e.id)).toEqual(["e1", "e2"]);
   expect(sectionExercises(ir, "c")[0]).toEqual({ id: "e2", markdown: "1. e2", anchors: [{ page: 2 }] });
   expect(sectionExercises(ir, "nope")).toEqual([]);
+});
+
+const flat = [
+  { id: "a", title: "A", level: 1, anchors: [] }, { id: "a1", title: "A1", level: 2, anchors: [] },
+  { id: "a1x", title: "A1x", level: 3, anchors: [] }, { id: "b", title: "B", level: 1, anchors: [] },
+  { id: "b1", title: "B1", level: 2, anchors: [] },
+];
+
+it("topSelected orders by document order and drops descendants of a selected ancestor", () => {
+  expect(topSelected(flat, new Set(["b1", "a1x", "a"]))).toEqual(["a", "b1"]);
+  expect(topSelected(flat, new Set(["b", "a1"]))).toEqual(["a1", "b"]);
+  expect(topSelected(flat, new Set(["a1", "a1x"]))).toEqual(["a1"]);
+});
+
+it("multiTitle joins short lists and abbreviates long ones", () => {
+  expect(multiTitle(["A", "B"])).toBe("A + B");
+  expect(multiTitle(["A", "B", "C"])).toBe("A +2 more");
+});
+
+it("sectionsText: single id is untouched; several get ## titles in order", async () => {
+  vi.mocked(invoke).mockImplementation((async (_c: string, a: { params: { id: string } }) => `body ${a.params.id}`) as never);
+  const ir = { sections: [{ id: "a", title: "A", level: 1, anchors: [], children: [{ id: "a1", title: "A1", level: 2, anchors: [], children: [] }] }] };
+  expect(await sectionsText(ir, ["a"])).toBe("body a");
+  expect(await sectionsText(ir, ["a", "a1"])).toBe("## A\n\nbody a\n\n## A1\n\nbody a1");
 });

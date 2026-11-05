@@ -120,3 +120,21 @@ def test_promoted_caption_and_watermark_are_content_not_sections():
 def test_new_chapter_resets_last_numbered_section():
     out = postprocess({"sections": [node("4.1 Intro"), node("Chapter 5"), node("Overview")]})["sections"]
     assert [n["level"] for n in flat(out)] == [2, 1, 1]
+
+
+def test_roman_letter_nesting():
+    ir = {"sections": [node("A. Alone"), node("I. INTRO"), node("A. Data"), node("B. More"), node("II. APPROACH"),
+                       node("A. Again")]}
+    assert [n["level"] for n in flat(postprocess(ir)["sections"])] == [1, 1, 2, 2, 1, 2]
+
+
+def test_outline_skeleton(monkeypatch):
+    from tangent_sidecar import postprocess as pp
+    monkeypatch.setattr(pp, "pdf_outline", lambda p: [(1, "Part One", 2), (2, "Chapter 1: Start", 2),
+                                                      (2, "Chapter 2", 5)])
+    ir = {"sections": [node("chapter 1 start", pages=(2,)), node("Sub topic", pages=(3,)),
+                       node("Another", pages=(4,)), node("Chapter 2", pages=(5,)), node("Deep", pages=(6,))]}
+    out = postprocess(ir, "x.pdf")["sections"]
+    assert [(n["title"], n["level"]) for n in flat(out)] == [
+        ("Part One", 1), ("chapter 1 start", 2), ("Sub topic", 3), ("Another", 3), ("Chapter 2", 2), ("Deep", 3)]
+    assert len(out) == 1 and len(out[0]["children"]) == 2

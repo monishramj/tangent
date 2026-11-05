@@ -5,7 +5,7 @@ import { listSections } from "./api";
 import { loadIr } from "../library";
 import { fakeVideoStore, type VideoBundle } from "../storage/videos";
 
-vi.mock("./api", () => ({ listSections: vi.fn() }));
+vi.mock("./api", async (orig) => ({ ...(await orig<typeof import("./api")>()), listSections: vi.fn() }));
 vi.mock("../library", () => ({ loadIr: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 const ingestPdf = vi.mocked(loadIr);
@@ -50,7 +50,7 @@ it("ingests a chosen PDF, shows loading, then nested sections with pages; pickin
   expect(opts[0].textContent).toContain("pp. 3-5");
   expect(opts[1].textContent).toContain("p. 4");
   fireEvent.click(opts[1]);
-  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "standard" });
+  expect(onStart).toHaveBeenCalledWith(["s2"], ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "standard" });
 });
 
 it("records a recent video when a section starts", async () => {
@@ -178,7 +178,7 @@ it("starting a section that already has a saved video offers Open saved vs Regen
   expect(onStart).not.toHaveBeenCalled();
   fireEvent.click((await screen.findAllByRole("option"))[0]);
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Regenerate" }));
-  expect(onStart).toHaveBeenCalledWith("s1", ir, { pdfPath: "/x/book.pdf", title: "Heaps", detail: "standard" });
+  expect(onStart).toHaveBeenCalledWith(["s1"], ir, { pdfPath: "/x/book.pdf", title: "Heaps", detail: "standard" });
 });
 
 it("shows ingest progress while reading", async () => {
@@ -219,9 +219,33 @@ it("picks a detail level above the section list, remembers it, and passes it to 
   fireEvent.click(within(group).getByRole("radio", { name: "Complete" }));
   expect(localStorage.getItem("tangent.detail")).toBe("complete");
   fireEvent.click(await screen.findByText("Heapify"));
-  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "complete" });
+  expect(onStart).toHaveBeenCalledWith(["s2"], ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "complete" });
   unmount();
   render(<Home />);
   fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
   expect((await screen.findByRole("radio", { name: "Complete" })).getAttribute("aria-checked")).toBe("true");
+});
+
+it("checkboxes build a selection; Make video starts one joined video and skips checked descendants", async () => {
+  const onStart = vi.fn();
+  const { container } = render(<Home onStart={onStart} />);
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
+  await screen.findByRole("listbox", { name: "Sections" });
+  expect(screen.queryByRole("button", { name: /make video/i })).toBeNull();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Heapify" }));
+  expect(onStart).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Heaps" }));
+  fireEvent.click(screen.getByRole("button", { name: "Make video (1 section)" }));
+  expect(onStart).toHaveBeenCalledWith(["s1"], ir, { pdfPath: "/x/book.pdf", title: "Heaps", detail: "standard" });
+});
+
+it("Select all checks every section, then toggles to Clear selection", async () => {
+  const { container } = render(<Home onStart={vi.fn()} />);
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
+  await screen.findByRole("listbox", { name: "Sections" });
+  fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+  expect(screen.getAllByRole("checkbox").every(c => (c as HTMLInputElement).checked)).toBe(true);
+  expect(screen.getByRole("button", { name: /make video/i })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+  expect(screen.getAllByRole("checkbox").some(c => (c as HTMLInputElement).checked)).toBe(false);
 });

@@ -35,12 +35,12 @@ export type TemplateName = keyof typeof TEMPLATES;
 export const VARIANTS: Record<TemplateName, string[]> = {
   title: ["slam", "punch", "words", "stack"], stat: ["center", "side"], versus: ["split", "cards"], list: ["column", "grid", "steps"],
   character: ["left", "right", "duo"], diagram: ["flow-h", "flow-v", "cycle", "hub", "datapath", "layers"], math: ["derive", "focus"],
-  code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["center", "side"],
+  code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["full", "center"],
   callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS,
 };
 /** The variant a beat actually gets: the requested one if valid, else a rotation by beat index. */
 export const resolveVariant = (template: TemplateName, variant: string | undefined, b: number) =>
-  variant && VARIANTS[template].includes(variant) ? variant : VARIANTS[template][b % VARIANTS[template].length];
+  variant && VARIANTS[template].includes(variant) ? variant : template === "gif" ? "full" : VARIANTS[template][b % VARIANTS[template].length];
 
 const Sticker = z.object({ ...visual, ...at }).refine(x => x.icon || x.emoji, "sticker needs icon or emoji");
 export const TemplateBeat = z.object({
@@ -247,9 +247,9 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (d.caption) c.add({ id: c.id("figure_cap"), type: "text", text: d.caption, x: .5, y: .9, size: .032, opacity: .7 }, frac(.2), { style: "type" });
   },
   gif(c, d, v) {
-    const side = v === "side";
-    c.add({ id: c.id("gif"), type: "gif", query: d.query, caption: side ? undefined : d.caption, x: side ? .3 : .5, y: side ? .5 : .45, width: side ? .36 : .42, height: side ? .6 : .55 }, frac(0));
-    if (side && d.caption) c.add({ id: c.id("gif_text"), type: "KineticText", text: d.caption, variant: "stack", x: .72, y: .5, size: .08, maxW: .4 }, frac(.15));
+    // The gif alone: no caption or text beside it (any caption the model sends is ignored).
+    const box = v === "center" ? { x: .5, y: .48, width: .6, height: .7 } : { x: .5, y: .5, width: .9, height: .82 };
+    c.add({ id: c.id("gif"), type: "gif", query: d.query, ...box }, frac(0));
   },
   callout(c, d, v) {
     // The frame is pushed before the text so it sits behind it (draw order = object order).
@@ -358,7 +358,7 @@ export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.da
 - tree {id?, label?, kind, init, ops?:[{op,args,at?}]} computed tree ops (kinds/ops below).
 - chart {title?, labels:[...], values:[...], highlight?:index} bars|line.
 - figure {src, caption?, focus?:[[l,t,r,b]]} kenburns. Only with a listed figure src.
-- gif {query, caption?} center|side. Reaction gif (e.g. "mind blown", "wait what"). At most one per scene, never mid-explanation.
+- gif {query} full|center. The gif alone, no text. A real GIPHY clip that SHOWS what this beat's narration is saying: an analogy made literal (a cache -> "post it notes", a deadlock -> "traffic jam", a pipeline -> "assembly line", a race condition -> "two people grab same door"), a pop-culture or meme moment ("this is fine", "confused math lady", "galaxy brain"), or a reaction ("mind blown", "wait what"). query = 2-4 concrete words naming the exact scene to show (the thing happening, not a mood: "traffic jam" not "frustrated"); someone watching it with the narration must see the link instantly, else pick another template. full fills the frame (default).
 - callout {text, sub?} underline|box|punch. The key idea, the takeaway, "here's the catch".
 - table {headers, rows, highlightRows?}.
 ${VOCAB_GUIDE}

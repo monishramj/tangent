@@ -76,7 +76,7 @@ def test_pages_param(tmp_path, monkeypatch):
     pdf.write_bytes(b"%PDF-1.4\n")
     seen = []
     monkeypatch.setattr(ingest, "_convert_pdf", lambda path, pages=None: seen.append(pages) or "doc")
-    monkeypatch.setattr(ingest, "document_to_ir", lambda doc, assets: {"sections": []})
+    monkeypatch.setattr(ingest, "document_to_ir", lambda doc, assets, *_: {"sections": []})
     monkeypatch.setattr(ingest, "_assets_root", lambda: tmp_path)
     ingest.ingest_pdf({"path": str(pdf), "pages": [2, 3]})
     assert seen == [(2, 3)]

@@ -43,3 +43,29 @@ export function sectionExercises(ir: IR, id: string): SectionExercise[] {
   const node = find(ir.sections);
   return node ? own(node) : [];
 }
+
+/** Picked ids in document order, minus any whose ancestor is also picked (sectionText covers descendants). */
+export function topSelected(flat: SectionRef[], picked: Set<string>): string[] {
+  const out: string[] = [];
+  let covered = Infinity;
+  for (const x of flat) {
+    if (x.level > covered) continue;
+    covered = Infinity;
+    if (picked.has(x.id)) { out.push(x.id); covered = x.level; }
+  }
+  return out;
+}
+export const multiTitle = (titles: string[]) => titles.length <= 2 ? titles.join(" + ") : `${titles[0]} +${titles.length - 1} more`;
+
+const findNode = (nodes: SectionIR[], id: string): SectionIR | undefined => {
+  for (const n of nodes) { if (n.id === id) return n; const hit = findNode(n.children, id); if (hit) return hit; }
+};
+/** One id: plain sectionText. Several: each preceded by its "## title", in the given order. */
+export async function sectionsText(ir: IR, ids: string[]): Promise<string> {
+  if (ids.length === 1) return sectionText(ir, ids[0]);
+  const parts = await Promise.all(ids.map(async id => `## ${findNode(ir.sections, id)?.title ?? id}\n\n${await sectionText(ir, id)}`));
+  return parts.join("\n\n");
+}
+const uniq = <T extends { id: string }>(xs: T[]) => xs.filter((x, i) => xs.findIndex(y => y.id === x.id) === i);
+export const sectionsFigures = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionFigures(ir, id)));
+export const sectionsExercises = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionExercises(ir, id)));

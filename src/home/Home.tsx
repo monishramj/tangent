@@ -6,7 +6,7 @@ import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import SpotlightCard from "@/components/SpotlightCard";
-import { listSections, type IR, type SectionRef } from "./api";
+import { listSections, multiTitle, topSelected, type IR, type SectionRef } from "./api";
 import GiphyKey from "./GiphyKey";
 import { loadIr, type LoadProgress } from "../library";
 import { tauriJsonStore, type JsonStore } from "../storage/store";
@@ -54,7 +54,7 @@ const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
 const notPdf = "That isn't a PDF. Choose a .pdf file.";
 
 export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore }: {
-  onStart?: (sectionId: string, ir: IR, meta: StartMeta) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
+  onStart?: (sectionIds: string[], ir: IR, meta: StartMeta) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
 }) {
   const [videos, setVideos] = useState<VideoBundle[]>([]);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -67,6 +67,7 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
   const savedFor = (path: string, sectionId: string) => videos.find(v => v.source.pdfPath === path && v.source.sectionId === sectionId);
   const [state, setState] = useState<State>({ s: "idle" });
   const [recent, setRecent] = useState(readRecent);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [detail, setDetailState] = useState<DetailLevel>(readDetail);
   const setDetail = (d: DetailLevel) => { setDetailState(d); try { localStorage.setItem(DETAIL_KEY, d); } catch { /* per-viewer convenience only */ } };
   const [over, setOver] = useState(false);
@@ -110,25 +111,27 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
     });
     return () => { un.then((f) => f()); };
   }, []);
-  const start = (path: string, ir: IR, sectionId: string, title: string) => {
+  const start = (path: string, ir: IR, ids: string[], title: string) => {
+    const sectionId = ids.join("+");
+    setPicked(new Set());
     const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
     localStorage.setItem(KEY, JSON.stringify(next));
     setRecent(next);
-    const go = () => onStart(sectionId, ir, { pdfPath: path, title, detail });
+    const go = () => onStart(ids, ir, { pdfPath: path, title, detail });
     const saved = savedFor(path, sectionId);
     if (saved) setChoice({ saved, title, regenerate: go }); else go();
   };
   const reopen = async (r: Recent) => {
     const regenerate = async () => {
       setChoice(null);
-      try { onStart(r.sectionId, await ingest(r.path, r.title), { pdfPath: r.path, title: r.title, detail }); }
+      try { onStart(r.sectionId.split("+"), await ingest(r.path, r.title), { pdfPath: r.path, title: r.title, detail }); }
       catch (e) { setState({ s: "error", msg: String(e) }); }
     };
     const saved = savedFor(r.path, r.sectionId);
     if (saved) return setChoice({ saved, title: r.title, regenerate });
     try {
       const ir = await ingest(r.path, r.title);
-      onStart(r.sectionId, ir, { pdfPath: r.path, title: r.title, detail });
+      onStart(r.sectionId.split("+"), ir, { pdfPath: r.path, title: r.title, detail });
     } catch (e) {
       setState({ s: "error", msg: String(e) });
     }
@@ -162,10 +165,25 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
               </div>
               <span className="text-xs text-subtle">{DETAIL_HINT[detail]}</span>
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {(() => {
+                const all = picked.size === state.sections.length;
+                return <button type="button" className={btn} onClick={() => setPicked(all ? new Set() : new Set(state.sections.map((x) => x.id)))}>{all ? "Clear selection" : "Select all"}</button>;
+              })()}
+              {picked.size > 0 && (() => {
+                const ids = topSelected(state.sections, picked);
+                return (
+                  <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg/85`}
+                    onClick={() => start(state.path, state.ir, ids, multiTitle(ids.map((id) => state.sections.find((x) => x.id === id)!.title)))}>
+                    Make video ({ids.length} {ids.length === 1 ? "section" : "sections"})
+                  </button>
+                );
+              })()}
+            </div>
             <AnimatedList
               items={state.sections.map((x) => ({ id: x.id, title: x.title, meta: pages(x.anchors) }))}
               ariaLabel="Sections"
-              onItemSelect={(_, i) => { const x = state.sections[i]; start(state.path, state.ir, x.id, x.title); }}
+              onItemSelect={(_, i) => { const x = state.sections[i]; start(state.path, state.ir, [x.id], x.title); }}
               frame={false}
               showGradients={false}
               width="100%"
@@ -178,6 +196,13 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
                 const x = state.sections[i];
                 return (
                   <>
+                    <span className="relative mr-3 grid size-6 shrink-0 place-items-center">
+                      <input type="checkbox" aria-label={`Select ${x.title}`} checked={picked.has(x.id)}
+                        className="peer size-6 cursor-pointer appearance-none rounded-md border border-line bg-transparent transition-colors hover:border-fg/60 checked:border-fg checked:bg-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg/60"
+                        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+                        onChange={(e) => setPicked((p) => { const n = new Set(p); e.target.checked ? n.add(x.id) : n.delete(x.id); return n; })} />
+                      <svg aria-hidden viewBox="0 0 16 16" className="pointer-events-none absolute size-4 text-bg opacity-0 transition-opacity peer-checked:opacity-100" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3.5 8.5l3 3 6-7" /></svg>
+                    </span>
                     <span style={{ paddingLeft: Math.max(0, x.level - 1) * 20 }} className={`flex-1 ${x.level <= 1 ? "text-fg" : "text-muted"}`}>{x.title}</span>
                     <span className="text-xs text-subtle tabular-nums">{pages(x.anchors)}</span>
                   </>

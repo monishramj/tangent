@@ -9,6 +9,8 @@ NON_STRUCTURAL = re.compile(
 NUMBERED = re.compile(r"\s*(?:(?:chapter|section)\s+)?(\d{1,3}(?:\.\d{1,3})*)\.?(?:\s|:|$)", re.I)
 # Dotted numbers (5.2.1) are real headings; "1. Foo" is a list item Docling promoted.
 DOTTED = re.compile(r"\s*\d{1,3}(?:\.\d{1,3})+\.?(?:\s|:|$)")
+ROMAN = re.compile(r"\s*[IVX]+\.\s+\S")
+LETTER = re.compile(r"\s*[A-Z]\.\s+\S")
 JUNK = re.compile("[\ue000-\uf8ff\U000f0000-\U0010ffff\U0001f300-\U0001faff\u2600-\u27bf\ufe0f\u200d]")
 CAPTION = re.compile(r"(?:figure|fig\.?)\s*\d", re.I)
 # ponytail: tiny wordlist; point at a real dictionary if more U+FFFD ligatures need fixing.
@@ -112,7 +114,72 @@ def _clean(n):
     n["markdown"] = strip_footers(JUNK.sub("", n["markdown"]))
 
 
-def postprocess(ir):
+def _norm(t):
+    return re.sub(r"[^a-z0-9]+", " ", t.lower()).strip()
+
+
+def pdf_outline(pdf_path):
+    """[(depth, title, page)] from the PDF's embedded outline, [] if none."""
+    try:
+        import pypdfium2
+        pdf = pypdfium2.PdfDocument(str(pdf_path))
+        try:
+            return [(t.level + 1, t.title, t.page_index + 1) for t in pdf.get_toc() if t.page_index is not None]
+        finally:
+            pdf.close()
+    except Exception:
+        return []
+
+
+def _pdf_font_sizes(pdf_path, nodes):
+    """Set n["font_size"] from the heading's first glyph on its anchor page."""
+    try:
+        import pypdfium2
+        import pypdfium2.raw as raw
+        pdf = pypdfium2.PdfDocument(str(pdf_path))
+    except Exception:
+        return
+    try:
+        for n in nodes:
+            if not n["anchors"] or NUMBERED.match(n["title"]):
+                continue
+            try:
+                tp = pdf[n["anchors"][0]["page"] - 1].get_textpage()
+                hit = tp.search(n["title"]).get_next()
+                if hit:
+                    n["font_size"] = round(raw.FPDFText_GetFontSize(tp, hit[0]) * 2) / 2
+            except Exception:
+                pass
+    finally:
+        pdf.close()
+
+
+def _apply_outline(kept, outline):
+    """Outline depth defines top levels; other headings nest under the latest outline entry."""
+    pages = [a["page"] for n in kept for a in n["anchors"]]
+    lo, hi = (min(pages), max(pages)) if pages else (0, 0)
+    pos, last, out_ids = 0, None, set()
+    for depth, title, page in outline:
+        if not lo <= page <= hi:
+            continue
+        cands = [i for i in range(pos, len(kept)) if kept[i]["level"] > 0 and _norm(kept[i]["title"]) == _norm(title)]
+        i = next((i for i in cands if any(a["page"] == page for a in kept[i]["anchors"])), cands[0] if cands else None)
+        if i is None:
+            i = next((i for i in range(pos, len(kept)) if kept[i]["anchors"] and kept[i]["anchors"][0]["page"] >= page),
+                     len(kept))
+            kept.insert(i, {"id": f"outline-{len(out_ids) + 1}", "title": title, "level": depth, "markdown": "",
+                            "figures": [], "exercises": [], "anchors": [{"page": page}], "children": []})
+        kept[i]["level"] = depth
+        out_ids.add(id(kept[i]))
+        pos = i + 1
+    for n in kept:
+        if id(n) in out_ids:
+            last = n
+        elif last and n["level"] > 0:
+            n["level"] += last["level"]
+
+
+def postprocess(ir, pdf_path=None):
     flat = []
 
     def walk(nodes):
@@ -122,9 +189,13 @@ def postprocess(ir):
             n["children"] = []
             _clean(n)
     walk(ir["sections"])
+    outline = pdf_outline(pdf_path) if pdf_path else []
+    if pdf_path and not outline and not any(DOTTED.match(n["title"]) for n in flat):
+        _pdf_font_sizes(pdf_path, [n for n in flat if n["level"] > 0])
     sizes = sorted({n["font_size"] for n in flat if "font_size" in n and not NUMBERED.match(n["title"])},
                    reverse=True)
     kept, roots, stack = [], [], []
+    roman = None  # most recent "IV. FOO" heading; "A. Foo" nests under it
     numbered = None  # most recent dotted heading; unnumbered ones nest beneath it
     for n in flat:
         if n["level"] > 0 and kept and (not n["title"] or CAPTION.match(n["title"])
@@ -142,13 +213,20 @@ def postprocess(ir):
             continue
         if n["level"] > 0:
             n["level"] = _level(n, kept[-1]["level"] if kept else 0, sizes)
-            if DOTTED.match(n["title"]):
+            if ROMAN.match(n["title"]):
+                n["level"] = 1
+                roman = n
+            elif roman and LETTER.match(n["title"]):
+                n["level"] = roman["level"] + 1
+            elif DOTTED.match(n["title"]):
                 numbered = n
             elif re.match(r"chapter\b", n["title"], re.I):
                 numbered = None
             elif numbered and not re.match(r"(chapter|section)\b", n["title"], re.I):
                 n["level"] = numbered["level"] + 1
         kept.append(n)
+    if outline:
+        _apply_outline(kept, outline)
     for n in kept:
         while stack and stack[-1]["level"] >= n["level"]:
             stack.pop()

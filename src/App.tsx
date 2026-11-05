@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Home, { type StartMeta } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
-import { sectionExercises, sectionFigures, sectionText, type IR } from "./home/api";
+import { sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import { recordStream, replayStream, tauriVideoStore, type VideoBundle, type VideoStore } from "./storage/videos";
@@ -12,7 +12,7 @@ import { giphyKey, giphySearch } from "./media/giphy";
 import { devlog } from "./devlog";
 import { AUDIO_URL, scene, timeline } from "@motion/stage/demo";
 
-type GenerateArgs = { sectionId: string; ir: IR; meta: StartMeta };
+type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta };
 type Screen =
   | { s: "home" }
   | { s: "generate"; args: GenerateArgs; attempt: number }
@@ -34,7 +34,7 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
     case "generate": return <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
       onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={home} />;
     default: return <Home store={videoStore} jsonStore={store} onDemo={() => setScreen({ s: "demo" })}
-      onStart={(sectionId, ir, meta) => setScreen({ s: "generate", args: { sectionId, ir, meta }, attempt: 0 })}
+      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0 })}
       onOpenVideo={video => setScreen({ s: "watch", video })} />;
   }
 }
@@ -54,14 +54,15 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string } | { error: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    const { sectionId, ir, meta } = args;
+    const { sectionIds, ir, meta } = args;
+    const sectionId = sectionIds.join("+");
     void (async () => {
       try {
-        const markdown = stripWatermarks(await sectionText(ir, sectionId));
+        const markdown = stripWatermarks(await sectionsText(ir, sectionIds));
         if (controller.signal.aborted) return;
         const key = await giphyKey();
         const stream = startSession({
-          irSection: { markdown, figures: sectionFigures(ir, sectionId), exercises: sectionExercises(ir, sectionId) },
+          irSection: { markdown, figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
           provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });

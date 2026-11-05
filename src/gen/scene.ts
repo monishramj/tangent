@@ -41,7 +41,8 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
     const d = b.data as { src?: unknown } | undefined;
     if (b.template === "figure" && !figures.some(f => f.src === d?.src)) errs.push(err(`beats[${i}].data.src`, "figure src must be one of the listed figure assets", i));
   });
-  if (raw.beats.filter(b => b.template === "gif").length > 1) errs.push(err("beats", "at most one gif per scene"));
+  if (raw.beats.filter(b => b.template === "gif").length > 2) errs.push(err("beats", "at most two gifs per scene"));
+  raw.beats.forEach((b, i) => { if (i && b.template === "gif" && raw.beats[i - 1].template === "gif") errs.push(err(`beats[${i}].template`, "no two gif beats in a row", i)); });
   if (beats.length >= 3 && new Set(raw.beats.map(b => b.template).filter(Boolean)).size < 2) errs.push(err("beats", "use at least 2 different templates in this scene"));
   const counts = new Map<string, number>();
   for (const b of raw.beats) if (b.template) counts.set(b.template, (counts.get(b.template) ?? 0) + 1);
@@ -54,7 +55,7 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
 const TAGS: DataTag[] = ["scenes", "figures", "narration"];
 
 function prompt(beats: ScriptBeat[], plan: ScenePlan, figures: Figure[], sceneNo: number, recent: Used[]): string {
-  return `You are the motion designer for a fast, punchy explainer video in the style of Fireship's "The Code Report": black background, bold white kinetic type, quick cuts, icons, stick-figure gags, diagrams that build, the odd reaction gif. Turn the narrated beats below into ONE scene. Return JSON only (no fences): {"beats":[{"say":"<verbatim>","template":"...","variant":"...","data":{...}}]}
+  return `You are the motion designer for a fast, punchy explainer video in the style of Fireship's "The Code Report": black background, bold white kinetic type, quick cuts, icons, stick-figure gags, diagrams that build, reaction and analogy gifs from GIPHY cut between diagrams. Turn the narrated beats below into ONE scene. Return JSON only (no fences): {"beats":[{"say":"<verbatim>","template":"...","variant":"...","data":{...}}]}
 
 ${TEMPLATE_GUIDE}
 Tree kinds and ops: ${JSON.stringify(Object.fromEntries(Object.entries(TREE_OPS).map(([kind, ops]) => [kind, Object.keys(ops)])))}.
@@ -63,6 +64,7 @@ Rules:
 - Exactly ${beats.length} beats, one per narrated beat, "say" copied verbatim from the <narration> block.
 - Pick the template that SHOWS the beat's meaning (a comparison -> versus, a number -> stat, a process or architecture -> diagram, an algorithm on data -> array/tree with real ops, a takeaway -> callout, a question or confusion -> character). Never put the narration on screen.
 - Variety: never repeat the same template+variant on consecutive beats, and no template on more than half the beats; mix variants, icons, emoji and stickers. Build on a diagram/array with keep:true + actions when the narration keeps talking about it.${recent.length ? `\n- Recently used (avoid repeating; the last two are not allowed): ${recent.map(u => `${u.template}/${u.variant}`).join(", ")}.` : ""}
+- Gifs, like The Code Report: cut to a gif whenever a beat is an analogy, a relatable situation, a joke, a surprise or a common mistake. A gif that literally shows the situation beats another box diagram, but only if it clearly matches what that beat says; a vague or generic gif is worse than none. Break up runs of diagrams/lists/text with one; aim for 1 gif per scene (2 in long ones), never two in a row, never in the middle of a step-by-step derivation or trace.
 - Computed visuals (array/tree/stack/queue/linkedlist/graph) use ops, never hand-traced states; matrix products and distribution areas are computed for you, never write them yourself.
 - Only use figure assets listed in the <figures> block, with exactly their src.
 

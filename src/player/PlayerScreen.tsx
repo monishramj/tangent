@@ -16,6 +16,7 @@ import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
 import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
+import { bufferClock } from "@motion/player/bufferClock";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
 import Captions, { captionCues } from "./Captions";
@@ -114,7 +115,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [queue] = useState(() => new SceneQueue<StreamedScene>({
-    createAudio: path => new Audio(audioSrc(path)),
+    // Web Audio, not <audio>: per-element audio-session churn deadlocks WKWebView. <audio> only where there's no AudioContext (jsdom).
+    createAudio: path => typeof AudioContext === "undefined" ? new Audio(audioSrc(path)) : bufferClock(audioSrc(path)),
     render: (data, t) => {
       localTime.current = t;
       setCurrent(prev => {

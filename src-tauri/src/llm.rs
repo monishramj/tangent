@@ -13,11 +13,13 @@ pub const CLAUDE_ENV: [(&str, &str); 2] = [("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1
 /// (binary, args); the prompt goes on stdin. `out_file` is where codex writes its final message.
 /// Prompts carry untrusted textbook/student text, so the agent runs with no tools, no MCP servers, no
 /// user/project settings (hooks), no slash commands, no saved session, and (see `complete`) an empty temp cwd.
-pub fn build_args(provider: &str, system: Option<&str>, out_file: &Path, with_images: bool) -> Result<(&'static str, Vec<String>), String> {
+pub fn build_args(provider: &str, system: Option<&str>, out_file: &Path, with_images: bool, model: Option<&str>) -> Result<(&'static str, Vec<String>), String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     match provider {
         "claude" => {
-            let mut a = s(&["-p", "--model", "haiku",
+            // Allowlisted: the webview picks the tier per stage (script = sonnet), default haiku.
+            let model = match model.unwrap_or("haiku") { m @ ("haiku" | "sonnet") => m, m => return Err(format!("unknown model {m}")) };
+            let mut a = s(&["-p", "--model", model,
                 "--tools", "", "--disallowedTools", CLAUDE_DENIED_TOOLS,
                 "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence"]);
@@ -96,17 +98,17 @@ pub fn resolve(bin: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter().map(|d| d.join(bin)).find(|p| p.is_file())
 }
 
-pub fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String]) -> Result<String, String> {
+pub fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], model: Option<&str>) -> Result<String, String> {
     let images: &[String] = if provider == "claude" { images } else { &[] };
     let cwd = scratch_dir()?;
-    let r = run(provider, prompt, system, timeout_ms, images, &cwd);
+    let r = run(provider, prompt, system, timeout_ms, images, &cwd, model);
     let _ = std::fs::remove_dir_all(&cwd);
     r
 }
 
-fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], cwd: &Path) -> Result<String, String> {
+fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], cwd: &Path, model: Option<&str>) -> Result<String, String> {
     let out_file = cwd.join("last-message.txt");
-    let (bin, args) = build_args(provider, system, &out_file, !images.is_empty())?;
+    let (bin, args) = build_args(provider, system, &out_file, !images.is_empty(), model)?;
     let home = std::env::var("HOME").unwrap_or_default();
     let dirs = search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let exe = resolve(bin, &dirs).ok_or_else(|| format!("{bin} not found in PATH, ~/.local/bin or /opt/homebrew/bin"))?;
@@ -144,9 +146,9 @@ fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u6
 }
 
 #[tauri::command]
-pub async fn llm_complete(provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>) -> Result<String, String> {
+pub async fn llm_complete(provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>) -> Result<String, String> {
     let images = images.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || complete(&provider, &prompt, system.as_deref(), timeout_ms, &images))
+    tauri::async_runtime::spawn_blocking(move || complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -157,7 +159,7 @@ mod tests {
 
     #[test]
     fn claude_args_locked_down() {
-        let (b, a) = build_args("claude", Some("be brief"), Path::new("/x"), false).unwrap();
+        let (b, a) = build_args("claude", Some("be brief"), Path::new("/x"), false, None).unwrap();
         assert_eq!(b, "claude");
         let after = |flag: &str| a.iter().position(|x| x == flag).map(|i| a[i + 1].as_str());
         assert_eq!(a[0], "-p");
@@ -174,13 +176,20 @@ mod tests {
         assert!(!a.iter().any(|x| x == "--mcp-config" || x == "--dangerously-skip-permissions" || x == "--add-dir"));
         assert_eq!(after("--output-format"), Some("text"));
         assert_eq!(after("--system-prompt"), Some("be brief"));
-        assert!(!build_args("claude", None, Path::new("/x"), false).unwrap().1.contains(&"--system-prompt".to_string()));
+        assert!(!build_args("claude", None, Path::new("/x"), false, None).unwrap().1.contains(&"--system-prompt".to_string()));
         assert!(CLAUDE_ENV.contains(&("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")));
     }
 
     #[test]
+    fn claude_model_is_allowlisted() {
+        let (_, a) = build_args("claude", None, Path::new("/x"), false, Some("sonnet")).unwrap();
+        assert_eq!(a[a.iter().position(|x| x == "--model").unwrap() + 1], "sonnet");
+        assert!(build_args("claude", None, Path::new("/x"), false, Some("--evil")).is_err());
+    }
+
+    #[test]
     fn claude_images_use_stream_json() {
-        let (_, a) = build_args("claude", None, Path::new("/x"), true).unwrap();
+        let (_, a) = build_args("claude", None, Path::new("/x"), true, None).unwrap();
         let after = |flag: &str| a.iter().position(|x| x == flag).map(|i| a[i + 1].as_str());
         assert_eq!(after("--input-format"), Some("stream-json"));
         assert_eq!(after("--output-format"), Some("stream-json"));
@@ -208,7 +217,7 @@ mod tests {
 
     #[test]
     fn codex_args_read_only_last_message() {
-        let (b, a) = build_args("codex", None, Path::new("/tmp/o.txt"), false).unwrap();
+        let (b, a) = build_args("codex", None, Path::new("/tmp/o.txt"), false, None).unwrap();
         assert_eq!(b, "codex");
         assert_eq!(a[0], "exec");
         let i = a.iter().position(|x| x == "--sandbox").unwrap();
@@ -216,7 +225,7 @@ mod tests {
         let j = a.iter().position(|x| x == "--output-last-message").unwrap();
         assert_eq!(a[j + 1], "/tmp/o.txt");
         assert_eq!(a.last().unwrap(), "-");
-        assert!(build_args("nope", None, Path::new("/x"), false).is_err());
+        assert!(build_args("nope", None, Path::new("/x"), false, None).is_err());
     }
 
     #[test]

@@ -55,6 +55,8 @@ describe("generateGroupScene", () => {
     expect(msgs).toContain("vary it");
     expect(msgs).toContain("at least 2 different templates");
     const fig = { objects: [], beats: [{ say: beats[0].say, template: "figure" as const, data: { src: "x.png" } }] };
+    const gif = (say: string) => ({ say, template: "gif" as const, data: { query: "traffic jam" } });
+    expect(checkTemplateScene({ objects: [], beats: [gif(beats[0].say), gif(beats[1].say)] }, beats.slice(0, 2)).map(e => e.message)).toContain("no two gif beats in a row");
     expect(checkTemplateScene(fig, beats.slice(0, 1), [{ id: "f", caption: "", src: "y.png" }])[0].message).toContain("figure src");
   });
 });

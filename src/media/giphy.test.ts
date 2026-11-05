@@ -9,7 +9,7 @@ import type { Scene } from "@motion/dsl/schema";
 it("searches GIPHY and fills gif srcs", async () => {
   const fetchFn = vi.fn(async () => new Response(JSON.stringify({ data: [{ images: { downsized_medium: { url: "https://g/1.gif" } } }] })));
   const scene = { scene: "s", beats: [], objects: [{ id: "g", type: "gif", query: "mind blown" }] } as unknown as Scene;
-  await resolveGifs(scene, giphySearch("KEY", fetchFn as unknown as typeof fetch, () => 0));
+  await resolveGifs(scene, giphySearch("KEY", fetchFn as unknown as typeof fetch));
   expect((scene.objects[0] as { src?: string }).src).toBe("https://g/1.gif");
   expect(String((fetchFn.mock.calls[0] as unknown[])[0])).toContain("q=mind%20blown");
 });
@@ -22,10 +22,11 @@ it("skips banned queries and survives failures", async () => {
   expect((scene.objects[0] as { src?: string }).src).toBeUndefined();
 });
 
-it("never touches the keychain when the flag is absent", async () => {
+it("without the flag, finds a key saved before the flag existed and sets the flag", async () => {
   expect(hasGiphyKey()).toBe(false);
-  expect(await giphyKey()).toBeNull();
-  expect(invoke).not.toHaveBeenCalled();
+  vi.mocked(invoke).mockResolvedValue("OLD");
+  expect(await giphyKey()).toBe("OLD");
+  expect(hasGiphyKey()).toBe(true);
 });
 
 it("with the flag, reads the keychain once per session", async () => {

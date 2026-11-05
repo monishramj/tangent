@@ -101,13 +101,16 @@ function parse(response: string): { beats?: Beat[]; error?: string } {
   }
 }
 
+// Sonnet writes the script: Haiku's scripts didn't hold the speech-first rules. Slower, so a longer timeout.
+export const SCRIPT_OPTS = { model: "sonnet", timeoutMs: 300_000 } as const;
+
 export async function generateScript({ sectionMarkdown, provider, detail = "standard" }: { sectionMarkdown: string; provider: LLMProvider; detail?: DetailLevel }): Promise<ScriptResult> {
   const base = scriptPrompt(stripWatermarks(sectionMarkdown), detail);
   let prompt = base;
   let beats: Beat[] | null = null;
   let violations: Violation[] = [];
   for (let attempts = 1; attempts <= 2; attempts++) {
-    const { beats: b, error } = parse(await provider.complete(prompt));
+    const { beats: b, error } = parse(await provider.complete(prompt, SCRIPT_OPTS));
     beats = b ?? null;
     violations = b ? checkScript(b) : [{ beat: -1, rule: "format", message: error ?? "Invalid output" }];
     if (violations.length === 0) return { beats, attempts, violations };
