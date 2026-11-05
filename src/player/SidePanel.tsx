@@ -29,11 +29,11 @@ export default function SidePanel(p: Props) {
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : [])];
   return (
-    // Always floats over the video (never docks), so opening it never resizes or moves the video, and the frosted glass has
-    // something behind it to blur. The dark tint keeps text readable over bright scenes.
-    <div className="slide-in absolute inset-y-3 right-3 z-30">
-    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="100%" borderRadius={16}>
-    <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl bg-black/45">
+    // Docked beside the video on wide windows (its width grows open, so the video eases smaller instead of jumping);
+    // floats over the video below lg. backgroundOpacity gives the frost a visible tint even with only black behind it.
+    <div className="panel-open flex shrink-0 justify-end overflow-clip py-3 pr-3 max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:pl-3">
+    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">
           {tabs.map(([t, label]) => <button key={t} role="tab" type="button" aria-selected={p.tab === t} onClick={() => p.onTab(t)}

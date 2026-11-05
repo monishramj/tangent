@@ -348,10 +348,12 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const fmtSpeed = (r: number) => `${r}×`;
 
   return (
-    <main onPointerMove={poke} onPointerDown={poke} className={`relative h-screen overflow-hidden bg-bg ${chrome ? "" : "cursor-none"}`}>
-      {/* The video is a 16:9 box letterboxed in the window and never moves; header, controls and the side panel float over it,
-          pinned to the window edges. */}
-      <div className="grid size-full place-items-center [container-type:size]">
+    // overflow-clip, not hidden: a hidden box can still be scrolled by focus(), and the Ask box autofocusing while the panel
+    // slid in scrolled the whole player sideways (the jagged jump on open).
+    <main onPointerMove={poke} onPointerDown={poke} className={`relative flex h-screen overflow-clip bg-bg ${chrome ? "" : "cursor-none"}`}>
+      {/* Video column: the 16:9 box letterboxed in it; header and controls pinned to the column's top/bottom (the window's),
+          not the video's. The side panel docks beside the column at lg+, floats over it below. */}
+      <div className="relative grid min-w-0 flex-1 place-items-center [container-type:size]">
         <div data-testid="frame" data-chrome={chrome ? "shown" : "hidden"}
           className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
           <div data-testid="video" onClick={canPlay && !activeCp ? toggle : undefined}
@@ -376,9 +378,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           </div>
 
           {cc && <Captions cues={activeCp ? [] : cues} time={time} lift={chrome} />}
-
         </div>
-      </div>
 
       <header data-hidden={!chrome || undefined} {...chromeHover}
         className="chrome scrim-top pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-1 px-2 pt-2 pb-8 sm:px-3">
@@ -387,7 +387,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <p className="truncate text-xs text-fg/60">{kicker}</p>
           <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
         </div>
-        <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "hidden" : ""}`}>
+        <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "max-lg:hidden" : ""}`}>
           {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
             <Icon icon={CheckListIcon} size={22} />
             <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
@@ -458,6 +458,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
           </div>
         </div>
+      </div>
       </div>
 
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}

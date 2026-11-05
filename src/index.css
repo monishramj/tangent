@@ -39,6 +39,10 @@ body {
 .slide-in {
   animation: slide-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/* Side panel: docked (lg+) it grows from zero width so the video column shrinks smoothly; floating, it slides in. */
+@keyframes panel-grow { from { width: 0; padding-right: 0; } }
+.panel-open { width: calc(min(400px, 100vw - 1.5rem) + 0.75rem); animation: panel-grow 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (max-width: 1023.98px) { .panel-open { width: auto; animation: slide-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1); } }
 
 /* invisible native range on top of the transform-drawn bar; thumb is a thin hit strip */
 .scrubber { appearance: none; background: transparent; cursor: pointer; }
