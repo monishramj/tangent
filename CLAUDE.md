@@ -249,6 +249,10 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **Old `main` work was mostly superseded** (branch replaced main on 2026-11-05; old work kept in `backup/main-uncommitted-2026-11-04`). Ported: Docling on MPS (`TANGENT_DEVICE` overrides) and section cleanup (captions/help text/watermark titles are not sections, page spans rebuilt after reparenting). Not ported: real Docling progress events, so PDF progress is still an estimate.
 - GlassSurface's SVG refraction needs backdrop-filter `url()`, which WKWebView lacks, so the side panel and paused play button fall back to a plain blur.
 
+**Recently fixed (2026-11-05), don't regress:**
+- Below lg the floating side panel (z-30) sat under the player's top-bar icons; the top-bar icon cluster is now hidden there while a panel tab is open (panel has the same tabs + close).
+- A small flag at the end of the seek bar shows once generation is done (`done`), so the end of the bar is the real end of the video.
+
 **Recently fixed (2026-11-04), don't regress:**
 - **Scrubbing froze the whole app.** Calling play/pause/seek on every range input event deadlocked WebKit's media stack (webview blocked in `audio.play()` on a sync IPC to the GPU process, which was stuck in an AVFoundation lock). The scrubber pauses on pointerdown, only seeks during the drag, and plays once on pointerup (tested).
 - **Canvas didn't resize when the side panel opened.** Pixi `resizeTo` only listens to window resize; `Stage` adds a `ResizeObserver` that calls `app.resize()`.

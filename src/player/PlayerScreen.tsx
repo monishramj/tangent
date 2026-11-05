@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, Flag02Icon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
@@ -380,7 +380,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
               <p className="truncate text-xs text-fg/60">{kicker}</p>
               <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
             </div>
-            <div className="pointer-events-auto flex items-center gap-0.5">
+            <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "max-lg:hidden" : ""}`}>
               {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
                 <Icon icon={CheckListIcon} size={22} />
                 <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
@@ -423,6 +423,9 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
                     s === "right" ? "border-black bg-fg" : s === "wrong" ? "border-fg bg-black" : s === "skipped" ? "border-fg/50 bg-black" : "border-fg bg-black"}`}
                   style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
               })}
+              {/* Generation finished: the bar's end is the video's real end, nothing more is coming. */}
+              {done && duration > 0 && <span role="img" aria-label="Fully generated" title="Fully generated, nothing left to load"
+                className="pointer-events-auto absolute top-1/2 left-full ml-0.5 -translate-y-1/2 text-fg/70"><Icon icon={Flag02Icon} size={12} /></span>}
             </div>
             <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
               <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (Space)" : "Play (Space)"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
