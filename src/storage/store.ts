@@ -1,11 +1,10 @@
-// Projects (one per class), cached IRs and Q&A threads, all as small JSON documents in the app data dir.
+// Small JSON documents in the app data dir: cached IRs, Q&A threads, checkpoint results.
 // Rust side: store_read / store_write / store_delete over <appData>/store/<name>.json.
 import { invoke } from "@tauri-apps/api/core";
 import type { IR } from "../home/api";
 
-export type Source = { id: string; name: string; pdfPath: string; addedAt: number };
-export type Note = { id: string; text: string; createdAt: number; from?: { videoId: string; videoTitle: string; t: number } };
-export type Project = { id: string; name: string; emoji: string; createdAt: number; sources: Source[]; notes: Note[] };
+/** A PDF the user opened. `id` is derived from the path, so the same file reuses its cached IR and figures. */
+export type Source = { id: string; name: string; pdfPath: string };
 
 export type Message = { role: "user" | "tutor"; text: string; at: number };
 /** One question thread, pinned to a moment in a video. */
@@ -35,17 +34,12 @@ export function memoryJsonStore(seed: Record<string, unknown> = {}): JsonStore &
 
 export const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
-/** All app persistence goes through these helpers; components take a JsonStore so tests use memoryJsonStore. */
-export const projects = (s: JsonStore) => ({
-  list: async () => (await s.read<Project[]>("projects")) ?? [],
-  async save(p: Project) {
-    const all = await this.list();
-    const i = all.findIndex(x => x.id === p.id);
-    if (i >= 0) all[i] = p; else all.unshift(p);
-    await s.write("projects", all);
-  },
-  async remove(id: string) { await s.write("projects", (await this.list()).filter(p => p.id !== id)); },
-});
+/** Stable, filename-safe id for a PDF path (FNV-1a), so a re-opened file hits its IR cache. */
+export function sourceFor(pdfPath: string): Source {
+  let h = 2166136261;
+  for (let i = 0; i < pdfPath.length; i++) h = Math.imul(h ^ pdfPath.charCodeAt(i), 16777619) >>> 0;
+  return { id: `src${h.toString(36)}`, name: pdfPath.split(/[\\/]/).pop() ?? pdfPath, pdfPath };
+}
 
 /** Ingest is slow (Docling); an IR is parsed once per source and reused. */
 export const irCache = (s: JsonStore) => ({

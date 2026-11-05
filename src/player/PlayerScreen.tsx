@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
@@ -8,22 +8,31 @@ import type { LLMProvider } from "@/llm/provider";
 import { providers } from "@/llm/registry";
 import type { PipelineEvent, Progress } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
-import { tauriJsonStore, threads as threadStore, newId, type JsonStore, type Thread } from "@/storage/projects";
+import { tauriJsonStore, threads as threadStore, newId, type JsonStore, type Thread } from "@/storage/store";
 import type { Annotation } from "@motion/annotations";
+import { applyEventsAt } from "@motion/stage/scene";
+import { describeScene, visibleObjects } from "@motion/stage/describe";
 import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
-import { narrationLines, transcriptUntil } from "@/tutor/narration";
+import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
+import Captions, { captionCues } from "./Captions";
+import Checks, { type CheckStatus } from "./Checks";
+import CheckpointCard, { results, type CheckpointResult } from "./CheckpointCard";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-const iconBtn = "grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent";
+const iconBtn = "grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent aria-pressed:text-fg";
 const pillBtn = "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm text-muted transition-colors hover:bg-fg/10 hover:text-fg aria-pressed:bg-fg/15 aria-pressed:text-fg";
 // Absolute filesystem paths (sidecar WAVs, saved bundles) go through the asset protocol; URLs pass through.
 const audioSrc = (p: string) => p.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(p) : p;
+const CC_KEY = "tangent.cc";
+const readCc = () => { try { return localStorage.getItem(CC_KEY) !== "off"; } catch { return true; } };
+const statusOf = (r?: CheckpointResult): CheckStatus => !r ? "upcoming" : r.skipped ? "skipped" : r.correct ? "right" : "wrong";
+const CAPTION_H = "4.5rem"; // must match the Captions strip height
 
 export type PlayerProps = {
   stream: AsyncIterable<PipelineEvent>;
@@ -36,12 +45,11 @@ export type PlayerProps = {
   progress?: Progress;
   onRetry?: () => void;
   onBack?: () => void;
-  onPinNote?: (text: string, t: number) => void;
   autoPlay?: boolean;
   initialError?: string;
 };
 
-export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, onPinNote, autoPlay = false, initialError }: PlayerProps) {
+export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError }: PlayerProps) {
   const [scenes, setScenes] = useState<StreamedScene[]>([]);
   const [current, setCurrent] = useState<StreamedScene | null>(null);
   const [time, setTime] = useState(0);
@@ -53,12 +61,15 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const [tab, setTab] = useState<Tab | null>(null);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [activeCp, setActiveCp] = useState<Checkpoint | null>(null);
+  const [cpResults, setCpResults] = useState<Record<string, CheckpointResult>>({});
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
+  const [cc, setCc] = useState(readCc);
   const localTime = useRef(0);
   const drawRef = useRef<((t: number) => void) | null>(null);
   const annotateRef = useRef<((a: Annotation[]) => void) | null>(null);
+  const snapshotRef = useRef<(() => Promise<string | null>) | null>(null);
   const shownCps = useRef(new Set<string>());
   const sceneIds = useRef<string[]>([]);
   const cpsRef = useRef<Checkpoint[]>([]);
@@ -70,7 +81,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     if (!cp) return false;
     shownCps.current.add(cp.id);
     queue.pause();
-    setActiveCp(cp); setTab("check");
+    setActiveCp(cp);
     return true;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -82,7 +93,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       setCurrent(prev => {
         if (prev?.sceneId === data.sceneId) return prev;
         const prevIndex = prev ? sceneIds.current.indexOf(prev.sceneId) : -1;
-        if (prev && prevIndex >= 0) queueMicrotask(() => showCheckpointAfter(prevIndex));
+        // Crossing forward out of a scene = the end of that scene: its checkpoint, if any.
+        if (prev && prevIndex >= 0 && prevIndex < sceneIds.current.indexOf(data.sceneId)) queueMicrotask(() => showCheckpointAfter(prevIndex));
         devlog(`render scene ${data.sceneId}`);
         return data;
       });
@@ -113,7 +125,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           if (next.done) break;
           const ev = next.value;
           if (ev.type === "scene") { queue.enqueue(ev); setScenes(s => [...s, ev]); played = true; }
-          else if (ev.type === "checkpoints") { cpsRef.current = ev.items; setCheckpoints(ev.items); }
+          else if (ev.type === "checkpoints") { const items = [...ev.items].sort((a, b) => a.afterScene - b.afterScene); cpsRef.current = items; setCheckpoints(items); }
           else if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); // later failures are skipped, not overlaid
         }
       } catch (e) { if (live) setError(String(e)); }
@@ -127,18 +139,50 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     if (done && !playing && !buffering && duration > 0 && time >= duration - 0.15) showCheckpointAfter(sceneIds.current.length - 1);
   }, [done, playing, buffering, time, duration, showCheckpointAfter]);
 
-  useEffect(() => { if (videoId) threadStore(store).list(videoId).then(setThreads, () => {}); }, [videoId, store]);
+  useEffect(() => {
+    if (!videoId) return;
+    threadStore(store).list(videoId).then(setThreads, () => {});
+    results(store).get(videoId).then(setCpResults, () => {});
+  }, [videoId, store]);
   const saveThreads = (next: Thread[]) => { setThreads(next); if (videoId) void threadStore(store).save(videoId, next).catch(() => {}); };
+  const saveResult = (id: string, r: CheckpointResult) => {
+    setCpResults(p => ({ ...p, [id]: r }));
+    if (videoId) void results(store).put(videoId, id, r).catch(() => {});
+  };
 
   const lines = useMemo(() => narrationLines(scenes), [scenes]);
+  // Scene start times on the queue's clock (which holds a short gap between scenes); `duration` changes whenever a scene is enqueued.
+  const offsets = useMemo(() => queue.sceneBeats.map(b => b.offset), [queue, scenes, duration]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cues = useMemo(() => captionCues(scenes, offsets), [scenes, offsets]);
+  // Global end time of each arrived scene's timeline: where its checkpoints sit on the seek bar.
+  const sceneEnds = useMemo(() => scenes.map((s, i) => (offsets[i] ?? 0) + s.timeline.totalSec), [scenes, offsets]);
+  const cpTime = (cp: Checkpoint) => sceneEnds[cp.afterScene] as number | undefined;
+  const status = useMemo(() => Object.fromEntries(checkpoints.map(c => [c.id, statusOf(cpResults[c.id])])), [checkpoints, cpResults]);
+
   const seek = (s: number) => { const t = Math.min(duration, Math.max(0, s)); queue.seek(t); setTime(t); };
   const pause = () => { queue.pause(); setPlaying(false); };
   const play = () => {
     annotateRef.current?.([]);
+    if (activeCp) setActiveCp(null);
     if (duration > 0 && queue.time >= duration - 0.05 && !buffering) queue.seek(0);
     queue.play(); setPlaying(true);
   };
-  const resume = (t: number) => { annotateRef.current?.([]); queue.seek(resumeTime(queue.beatStarts, t)); setTime(queue.time); queue.play(); setPlaying(true); };
+  const resume = (t: number) => { annotateRef.current?.([]); setActiveCp(null); queue.seek(resumeTime(queue.beatStarts, t)); setTime(queue.time); queue.play(); setPlaying(true); };
+
+  /** Open a checkpoint on demand (strip / marker): park on the last frame of its scene, paused. */
+  const openCp = (cp: Checkpoint) => {
+    const at = cpTime(cp);
+    if (at === undefined) return;
+    pause();
+    shownCps.current.add(cp.id);
+    seek(Math.max(0, at - 0.05));
+    setActiveCp(cp);
+  };
+  /** Continue after a checkpoint: resume, unless it was the end of the video (play would restart it). */
+  const continueCp = () => {
+    setActiveCp(null);
+    if (!(done && duration > 0 && queue.time >= duration - 0.2)) { queue.play(); setPlaying(true); }
+  };
 
   const send = async (question: string, threadId: string | null) => {
     pause();
@@ -150,28 +194,39 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     let next = [thread, ...threads.filter(x => x.id !== thread!.id)];
     saveThreads(next); setActiveThread(thread.id); setThinking(true);
     try {
-      const live = queue.current?.scene;
-      const context = buildTutorContext({ objects: live?.objects.map(o => ({ id: o.id, type: o.type })) ?? [], transcript: transcriptUntil(lines, t), section, priorQuestions: threads.map(x => x.title) });
-      const r = await ask({ question, context, provider, history: base.messages });
+      // What the student sees and hears right now: the live scene graph, its description, the line being said, and a frame.
+      const live = queue.current;
+      const state = live ? applyEventsAt(live.scene, live.timeline, localTime.current) : null;
+      const context = buildTutorContext({
+        objects: live && state ? visibleObjects(live.scene, state) : [],
+        transcript: transcriptUntil(lines, t), section, priorQuestions: threads.map(x => x.title),
+        sceneDescription: live && state ? describeScene(live.scene, state) : undefined,
+        nowSaying: nowSayingAt(lines, t),
+      });
+      const image = (await snapshotRef.current?.().catch(() => null)) ?? undefined;
+      const r = await ask({ question, context, provider, history: base.messages, image });
       annotateRef.current?.(r.annotations);
       thread = { ...thread, messages: [...thread.messages, { role: "tutor", text: r.answer, at: Date.now() }] };
-    } catch {
+    } catch (e) {
+      devlog(`tutor failed ${String(e)}`);
       thread = { ...thread, messages: [...thread.messages, { role: "tutor", text: "I couldn't answer that just now. Try asking again.", at: Date.now() }] };
     }
     next = [thread, ...next.filter(x => x.id !== thread!.id)];
     saveThreads(next); setThinking(false);
   };
 
-  // Hover preview on the seek bar: time under the cursor, its scene, or the question marker it is near. Never seeks.
+  // Hover preview on the seek bar: time under the cursor, its scene, or the marker it is near. Never seeks.
   const hoverMove = (e: React.PointerEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (e.pointerType === "touch" || !duration || !r.width) return;
     const x = Math.min(r.width, Math.max(0, e.clientX - r.left)), t = x / r.width * duration;
+    const nearCp = checkpoints.find(c => { const at = cpTime(c); return at !== undefined && Math.abs(at / duration * r.width - x) < 8; });
     const near = threads.find(th => Math.abs(th.t / duration * r.width - x) < 8);
     const scene = queue.sceneBeats.reduce((k, s, i) => s.offset <= t ? i : k, 0) + 1;
-    setHover({ x, t, label: near ? near.title : `Scene ${scene}` });
+    setHover({ x, t, label: nearCp ? `Checkpoint · ${nearCp.prompt}` : near ? near.title : `Scene ${scene}` });
   };
   const openTab = (t: Tab) => { if (t === "ask") pause(); setTab(p => p === t ? null : t); };
+  const toggleCc = () => setCc(v => { try { localStorage.setItem(CC_KEY, v ? "off" : "on"); } catch { /* fine */ } return !v; });
   const fullscreen = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   const waiting = !current && !error;
   const beats = queue.sceneBeats;
@@ -179,15 +234,17 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const p = duration ? time / duration * 100 : 0;
   const toggle = playing ? pause : play;
   const canPlay = !!current && !error;
-  const keys = useRef({ toggle, seek, time });
-  keys.current = { toggle, seek, time };
+  const keys = useRef({ toggle, seek, time, toggleCc, blocked: false });
+  keys.current = { toggle, seek, time, toggleCc, blocked: !!activeCp };
 
-  // Space / K play-pause, arrows ±10 s. Typing in the panel never triggers them.
+  // Space / K play-pause, arrows ±10 s, C captions. Typing never triggers them; an open checkpoint holds playback.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       const k = keys.current;
+      if (e.key === "c") { e.preventDefault(); k.toggleCc(); return; }
+      if (k.blocked) return;
       if ((e.key === " " && el.tagName !== "BUTTON") || e.key === "k") { e.preventDefault(); k.toggle(); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); k.seek(k.time - 10); }
       else if (e.key === "ArrowRight") { e.preventDefault(); k.seek(k.time + 10); }
@@ -195,6 +252,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const cpIndex = activeCp ? checkpoints.findIndex(c => c.id === activeCp.id) : -1;
 
   return (
     <main className="relative flex h-screen bg-bg">
@@ -212,30 +271,36 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <button type="button" aria-label="Toggle fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} /></button>
         </header>
 
-        {/* The video is a 16:9 box, letterboxed in whatever space is left. Controls live outside it. */}
+        {/* The video is a 16:9 box letterboxed in the space left; captions sit in their own strip right under it. */}
         <div className="grid min-h-0 flex-1 place-items-center px-3 sm:px-4 [container-type:size]">
-          <div data-testid="video" onClick={canPlay ? toggle : undefined}
-            className={`relative aspect-video w-[min(100cqw,calc(100cqh*16/9))] overflow-hidden rounded-xl border border-line bg-bg ${canPlay ? "cursor-pointer" : ""}`}>
-            {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} />}
-            {waiting && <Loading progress={progress} />}
-            {buffering && current && <Loading progress={progress} compact />}
-            {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
-              <div><p role="alert" className="text-muted">{error}</p>
-                {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
-            </div>}
-            {canPlay && !playing && !buffering && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <GlassSurface width={72} height={72} borderRadius={36}>
-                <button type="button" aria-label="Play video" onClick={e => { e.stopPropagation(); play(); }}
-                  className="grid size-full place-items-center rounded-full text-fg transition-transform duration-150 ease-out hover:scale-105 active:scale-95">
-                  <Icon icon={PlayIcon} size={30} className="translate-x-0.5 fill-current" /></button>
-              </GlassSurface>
-            </div>}
+          <div style={{ width: `min(100cqw, calc((100cqh - ${cc ? CAPTION_H : "0px"}) * 16 / 9))` }}>
+            <div data-testid="video" onClick={canPlay && !activeCp ? toggle : undefined}
+              className={`relative aspect-video w-full overflow-hidden rounded-xl border border-line bg-bg ${canPlay && !activeCp ? "cursor-pointer" : ""}`}>
+              {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
+              {waiting && <Loading progress={progress} />}
+              {buffering && current && !activeCp && <Loading progress={progress} compact />}
+              {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
+                <div><p role="alert" className="text-muted">{error}</p>
+                  {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
+              </div>}
+              {canPlay && !playing && !buffering && !activeCp && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <GlassSurface width={72} height={72} borderRadius={36}>
+                  <button type="button" aria-label="Play video" onClick={e => { e.stopPropagation(); play(); }}
+                    className="grid size-full place-items-center rounded-full text-fg transition-transform duration-150 ease-out hover:scale-105 active:scale-95">
+                    <Icon icon={PlayIcon} size={30} className="translate-x-0.5 fill-current" /></button>
+                </GlassSurface>
+              </div>}
+              {activeCp && <CheckpointCard key={activeCp.id} checkpoint={activeCp} index={cpIndex} total={checkpoints.length} provider={provider}
+                onResult={r => saveResult(activeCp.id, r)} onContinue={continueCp}
+                onAskAbout={q => { setActiveCp(null); setTab("ask"); setActiveThread(null); void send(q, null); }} />}
+            </div>
+            {cc && <Captions cues={activeCp ? [] : cues} time={time} />}
           </div>
         </div>
 
         <footer className="px-3 pt-1 pb-3 sm:px-4">
           <div className="group relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
-            {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
+            {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-[20rem] truncate whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
               style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)} · {hover.label}</span>}
             <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/20 transition-transform duration-150 ease-out group-hover:scale-y-150">
               <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
@@ -251,6 +316,16 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
               onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
               className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-bg bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
+            {/* Checkpoints as diamonds at the end of their scene: hollow = upcoming, filled = right. */}
+            {duration > 0 && checkpoints.map((cp, i) => {
+              const at = cpTime(cp);
+              if (at === undefined) return null;
+              const s = status[cp.id];
+              return <button key={cp.id} type="button" aria-label={`Checkpoint ${i + 1} at ${clock(at)}`} title={cp.prompt} onClick={() => openCp(cp)}
+                className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 transition-transform hover:scale-125 ${
+                  s === "right" ? "border-bg bg-fg" : s === "wrong" ? "border-fg bg-bg" : s === "skipped" ? "border-fg/50 bg-bg" : "border-fg bg-bg"}`}
+                style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
+            })}
           </div>
           <div className="flex items-center gap-1 text-sm text-muted tabular-nums">
             <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
@@ -258,20 +333,21 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             <button type="button" aria-label="Back 10 seconds" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
             <button type="button" aria-label="Forward 10 seconds" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
             <span className="ml-1">{clock(time)} <span className="text-subtle">/ {clock(duration)}</span></span>
-            {beats.length > 1 && <div className="ml-auto flex items-center gap-1">
-              <button type="button" aria-label="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
-              <span className="whitespace-nowrap">Scene {sceneIdx + 1} <span className="text-subtle">of {beats.length}</span></span>
-              <button type="button" aria-label="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
-            </div>}
+            <div className="ml-auto flex items-center gap-1">
+              {beats.length > 1 && <>
+                <button type="button" aria-label="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
+                <span className="whitespace-nowrap">Scene {sceneIdx + 1} <span className="text-subtle">of {beats.length}</span></span>
+                <button type="button" aria-label="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
+              </>}
+              <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={`${iconBtn} aria-pressed:bg-fg/15`}><Icon icon={ClosedCaptionIcon} /></button>
+            </div>
           </div>
+          <Checks checkpoints={checkpoints} status={status} active={activeCp?.id} onOpen={openCp} isReady={cp => cpTime(cp) !== undefined} />
         </footer>
       </div>
 
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}
-        onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume} onPinNote={onPinNote}
-        checkpoint={activeCp} checkpoints={checkpoints} provider={provider} store={store} videoId={videoId}
-        onCheckpointDone={() => { setActiveCp(null); setTab(null); play(); }}
-        onAskAbout={q => { setActiveCp(null); setTab("ask"); setActiveThread(null); void send(q, null); }} />}
+        onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume} />}
     </main>
   );
 }

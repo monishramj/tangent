@@ -1,7 +1,7 @@
 // Pure: (scene, compiled timeline, t) -> per-object render state. No clocks, no Pixi; seeking is just a different t.
 import { parseTarget, type Scene } from "../dsl/schema";
 import type { Timeline, TimelineEvent } from "../dsl/compile";
-import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus } from "./motion";
+import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01 } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`
 export type ObjState = {
@@ -27,17 +27,19 @@ export type ObjState = {
   valHl?: Record<string, number>; // Tree: highlight by node key
   pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
   pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
+  born?: number; // start time of the create event (transitions tell incoming objects from outgoing ones)
+  exitFrom?: number; // opacity just before a transition's clear faded it out
+  dx?: number; // transition offset (stage widths) already added to x; connectors with fixed endpoints add it too
 };
 export type SceneState = {
   objects: Map<string, ObjState>;
   transition: { type: string; p: number } | null;
   reaction: string | null;
-  camera?: { x: number; y: number; zoom: number; shake: number };
+  camera?: { x: number; y: number; zoom: number; shake: number; shakeY?: number; stretch?: number }; // stretch: whip x-scale
 };
 
 export const HL_FADE = 0.4; // highlight pulse holds until its event ends, then fades over this
-export const CUT_SEC = 0.06; // a cut is a brief black dip
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+export const CUT_SEC = 0.06; // a cut is an instant swap; the state keeps a short window so the player can see it
 export const easeOut = (p: number) => 1 - (1 - p) ** 3;
 const lerp = (a: number, b: number, k: number) => (k >= 1 ? b : a + (b - a) * k);
 const num = (x: unknown, d: number) => (typeof x === "number" ? x : d);
@@ -57,7 +59,10 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     objects.set(o.id, s);
   }
   const kind = new Map(scene.objects.map((o) => [o.id, o]));
-  const st: SceneState = { objects, transition: null, reaction: null, camera: { x: .5, y: .5, zoom: 1, shake: 0 } };
+  const st: SceneState = { objects, transition: null, reaction: null, camera: { x: .5, y: .5, zoom: 1, shake: 0, shakeY: 0 } };
+  // The transition running at t (if any) and the objects its clear fades out: those stay on screen and leave with it.
+  const tr = tl.events.find((e) => e.verb === "transition" && e.start <= t && t < e.end && e.args.type !== "cut");
+  const exiting = new Set(tr ? tl.events.filter((e) => e.verb === "fade" && e.target && num(e.args.to, 1) === 0 && e.start >= tr.start - 1e-6 && e.start < tr.end).map((e) => e.target!) : []);
 
   for (const e of tl.events) { // sorted by start; per-target events don't overlap, so "before" values are well defined
     if (e.start > t) break;
@@ -67,7 +72,10 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
       camera.x = lerp(camera.x, num(e.args.x, camera.x), k);
       camera.y = lerp(camera.y, num(e.args.y, camera.y), k);
       camera.zoom = lerp(camera.zoom, num(e.args.zoom, camera.zoom), k);
-      camera.shake = p === 1 ? 0 : num(e.args.shake, 0) * Math.sin((t - e.start) * 73) * Math.sin(Math.PI * p);
+      // shake: two incommensurate frequencies per axis with a fast decay reads as an impact, not a vibrating sine
+      const amp = p === 1 ? 0 : num(e.args.shake, 0) * (1 - p) ** 2, u = t - e.start;
+      camera.shake = amp && amp * (Math.sin(u * 61) + .5 * Math.sin(u * 97 + 1));
+      camera.shakeY = amp && amp * .7 * (Math.sin(u * 53 + 2) + .5 * Math.sin(u * 89));
       continue;
     }
     if (e.verb === "reaction") { if (t < e.end) st.reaction = String(e.args.intent); continue; }
@@ -86,18 +94,18 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     else if ("val" in tg) {
       const k = String(tg.val);
       if (o.valHl && (e.verb === "highlight" || e.verb === "indicate")) o.valHl[k] = Math.max(o.valHl[k] ?? 0, pulse);
-    } else applyObject(o, e, p, pulse, kind.get(o.id)!, objects, t);
+    } else {
+      if (e.verb === "fade" && exiting.has(o.id) && o.exitFrom === undefined) o.exitFrom = o.opacity;
+      applyObject(o, e, p, pulse, kind.get(o.id)!, objects, t);
+    }
   }
+  if (tr) applyTransition(st, String(tr.args.type), progress(t, tr.start, tr.end), tr.start, exiting);
   for (const o of objects.values()) {
     const def = kind.get(o.id)!;
     if (o.visible && def.type === "figure") o.focus = focusAt(def.focus, progress(o.age ?? 0, 0, def.duration ?? 8));
     if (o.visible && def.type === "code" && !o.range && def.highlight?.length) {
       const i = Math.min(def.highlight.length - 1, Math.floor(progress(o.age ?? 0, 0, def.duration ?? 8) * def.highlight.length));
       o.range = def.highlight[i];
-    }
-    if (o.hl > 0) {
-      o.y += Math.sin(t * 3) * .004 * o.hl;
-      o.scale *= 1 + .018 * Math.sin(t * 4) * o.hl;
     }
   }
   return st;
@@ -109,18 +117,19 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
   switch (e.verb) {
     case "create": {
       const style = (e.args.style ?? defaultStyle(def)) as Style;
-      o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start;
-      o.reveal = (style === "type" || style === "stagger") && !easing ? p : clamp01(k);
+      o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start; o.born = e.start;
+      // type/stagger reveal linearly (the renderer staggers words/children with its own curve); draw traces at an even pace
+      o.reveal = (style === "type" || style === "stagger") && !easing ? p : style === "draw" && !easing ? ease(p, "inOutSine") : clamp01(k);
       o.visible = true; o.opacity = clamp01(p * 3);
       const variant = def.type === "KineticText" && e.args.style === undefined && def.style === undefined ? def.variant : undefined;
-      if (variant === "slam") o.scale = 1 + .35 * (1 - easeOut(p)); // layout fits the title at 1x; a bigger slam overlaps the body
-      else if (variant === "punch") { o.scale = 1 + .25 * (1 - ease(p, "outBack")); o.x += Math.sin(p * 70) * .01 * (1 - p); }
-      else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer pops each word at its share of the reveal
-      else if (style === "pop") o.scale = ease(p, easing ?? "outBack");
+      if (variant === "slam") { o.scale = 1 + .6 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // big -> 1x, no bounce
+      else if (variant === "punch") o.scale = 1 + .5 * (1 - ease(p, "outBack")); // hits, dips just under 1x, settles
+      else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer reveals each word at its share
+      else if (style === "pop") o.scale = .6 + .4 * ease(p, easing ?? "outBack");
       else if (style === "slide") {
-        const edge = e.args.edge ?? "left";
-        if (edge === "left" || edge === "right") o.x += (edge === "left" ? -1.2 : 1.2) * (1 - k);
-        else o.y += (edge === "top" ? -1.2 : 1.2) * (1 - k);
+        const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(p, easing ?? "outExpo"));
+        if (edge === "left" || edge === "right") o.x += edge === "left" ? -d : d;
+        else o.y += edge === "top" ? -d : d;
       }
       break;
     }
@@ -148,14 +157,18 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       }
       break;
     }
-    case "highlight":
+    case "highlight": {
       o.hl = Math.max(o.hl, pulse);
+      const part = typeof e.args.row === "number" || typeof e.args.col === "number" || Array.isArray(e.args.range);
       if (pulse > 0) {
         if (typeof e.args.row === "number") o.row = e.args.row;
         if (typeof e.args.col === "number") o.col = e.args.col;
         if (Array.isArray(e.args.range)) o.range = e.args.range as [number, number];
       }
+      // one scale punch when the highlight lands (whole-object highlights only), then hold: no looping wobble
+      if (!part) o.scale *= 1 + MOTION.punch * Math.sin(Math.PI * ease((t - e.start) / MOTION.punchSec));
       break;
+    }
     case "pulse": if (p < 1) o.pulse = p; break;
     case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; break;
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
@@ -174,7 +187,24 @@ function applySlot(o: ObjState, i: number, e: TimelineEvent, p: number, pulse: n
     const to = typeof e.args.to === "string" ? parseTarget(e.args.to) : null;
     const j = to && "slot" in to ? Number(to.slot) : -1;
     if (!o.slots![j]) return;
-    if (p < 1) { s.to = j; s.p = easeOut(p); }
+    if (p < 1) { s.to = j; s.p = ease(p, "inOutCubic"); }
     else o.slots![j].value = (e.args.value ?? s.value) as Slot["value"]; // paired swap events land values simultaneously
+  }
+}
+
+/** whip/push: the cleared frame leaves while the new one arrives. Offsets are stage widths, added to x (and kept in dx). */
+function applyTransition(st: SceneState, type: string, p: number, start: number, exiting: Set<string>) {
+  const whip = type !== "push", e = ease(p, whip ? "inOutCubic" : "outQuart");
+  const out = -e, inc = 1 - e;
+  if (whip) st.camera!.stretch = 1 + .5 * Math.sin(Math.PI * p) ** 2; // a horizontal smear that peaks with the speed
+  for (const o of st.objects.values()) {
+    if (exiting.has(o.id)) {
+      if (o.exitFrom !== undefined) o.opacity = o.exitFrom;
+      if (whip) o.opacity *= 1 - .7 * e;
+      o.x += out; o.dx = out;
+    } else if (o.visible && o.born !== undefined && o.born >= start - 1e-6) {
+      if (whip) o.opacity *= .3 + .7 * e;
+      o.x += inc; o.dx = inc;
+    }
   }
 }

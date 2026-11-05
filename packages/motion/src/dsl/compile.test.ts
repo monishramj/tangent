@@ -30,8 +30,8 @@ function checkInvariants(tl: Timeline, sc: Scene, au: (BeatAudio | undefined)[],
     for (let i = 1; i < evs.length; i++) expect(evs[i].start).toBeGreaterThanOrEqual(evs[i - 1].end - 1e-9); // monotonic, no overlap
   const speech = au.reduce((s, a) => s + (a?.duration ?? 0), 0);
   const reactions = tl.events.filter((e) => e.verb === "reaction").reduce((s, e) => s + e.end - e.start, 0);
-  const silence = tl.insertedSilences.reduce((s, x) => s + x.sec, 0);
-  expect(tl.totalSec).toBeCloseTo(speech + reactions + silence + pause * (sc.beats.length - 1), 9);
+  expect(tl.insertedSilences).toEqual([]); // never pads silence: the WAV is played as-is
+  expect(tl.totalSec).toBeCloseTo(speech + reactions + pause * (sc.beats.length - 1), 9);
 }
 
 describe("resolveAnchor", () => {
@@ -92,67 +92,83 @@ describe("compile: heapify golden (real Kokoro alignment)", () => {
   });
 });
 
-describe("compile: gaps and inserted silence", () => {
-  it("default capped by the gap to the next anchor when it still fits the minimum", () => {
-    // "two" -> "three" = 0.2s gap < move default 0.5, >= MIN: squash to the gap, no silence.
+describe("compile: fitting motion without inserting silence", () => {
+  const starts = (tl: Timeline, target: string) => tl.events.filter((e) => e.target === target).map((e) => e.start);
+  const len = (tl: Timeline, target: string) => { const e = tl.events.find((e) => e.target === target)!; return e.end - e.start; };
+
+  it("motion on another object may run past the next anchor; both start on their words", () => {
+    // "two" -> "three" = 0.2s < create 0.4, but they touch different objects: keep the full 0.4.
     const sc = oneBeat("one two three four", [
       { at: "two", do: "create", target: "a" },
       { at: "three", do: "create", target: "b" },
     ]);
     const au = [fakeAudio("one two three four")];
     const tl = compile(sc, au, 0);
-    const a = tl.events.find((e) => e.target === "a")!;
-    expect(a.end - a.start).toBeCloseTo(0.2, 9);
-    expect(tl.insertedSilences).toEqual([]);
+    expect(starts(tl, "a")).toEqual([au[0].words[1].start]);
+    expect(starts(tl, "b")).toEqual([au[0].words[2].start]);
+    expect(len(tl, "a")).toBeCloseTo(DURATION.create, 9);
     checkInvariants(tl, sc, au, 0);
   });
 
-  const squeezed = (say: string, first: string, second: string) => {
+  it("the next anchor on the same object caps the motion (no overlap)", () => {
+    const sc = oneBeat("one two three four", [
+      { at: "two", do: "move", target: "a" },
+      { at: "three", do: "fade", target: "a" },
+    ]);
+    const au = [fakeAudio("one two three four")];
+    const tl = compile(sc, au, 0);
+    expect(len(tl, "a")).toBeCloseTo(0.2, 9);
+    checkInvariants(tl, sc, au, 0);
+  });
+
+  it("sub-objects count as the same object: h.slot[0] caps h", () => {
+    const sc = Scene.parse({ scene: "t", objects: [{ id: "h", type: "Array", init: [1, 2] }],
+      beats: [{ say: "one two three four", actions: [{ at: "two", do: "move", target: "h" }, { at: "three", do: "highlight", target: "h.slot[0]" }] }] });
+    const tl = compile(sc, [fakeAudio("one two three four")], 0);
+    expect(len(tl, "h")).toBeCloseTo(0.2, 9);
+  });
+
+  it("too little room even on its own object: compress to MIN_SEC, keep every word time, add no silence", () => {
+    const say = "Go now. Then stop here";
     const sc = oneBeat(say, [
-      { at: first, do: "create", target: "a" },
-      { at: second, do: "create", target: "b" },
+      { at: "now", do: "move", target: "a" },
+      { at: "Then", do: "fade", target: "a" },
     ]);
     const au = [fakeAudio(say)];
-    au[0].words[au[0].words.findIndex((w) => w.word.startsWith(first))].start += 0.12; // gap 0.08 < MIN
-    return { sc, au, tl: compile(sc, au, 0) };
-  };
-
-  it("gap below minimum -> silence at the sentence boundary inside the gap, later times shift", () => {
-    const { sc, au, tl } = squeezed("Go now. Then stop here", "now", "Then");
-    const need = MIN_SEC - 0.08;
-    expect(tl.insertedSilences).toHaveLength(1);
-    const s = tl.insertedSilences[0];
-    expect(s).toMatchObject({ beat: 0, afterWord: 1 }); // after "now."
-    expect(s.sec).toBeCloseTo(need, 9);
-    expect(s.at).toBeCloseTo((au[0].words[1].end + au[0].words[2].start) / 2, 9);
-    const a = tl.events.find((e) => e.target === "a")!;
-    const b = tl.events.find((e) => e.target === "b")!;
-    expect(a.end - a.start).toBeCloseTo(MIN_SEC, 9); // not squashed below MIN
-    expect(b.start).toBeCloseTo(au[0].words[2].start + need, 9);
-    expect(b.start).toBeGreaterThanOrEqual(a.end - 1e-9);
-    checkInvariants(tl, sc, au, 0);
+    au[0].words[1].start += 0.12; // "now" -> "Then" gap 0.08 < MIN
+    const tl = compile(sc, au, 0);
+    const [move, fade] = tl.events.filter((e) => e.target === "a");
+    expect(move.start).toBe(au[0].words[1].start);
+    expect(move.end - move.start).toBeCloseTo(MIN_SEC, 9);
+    expect(fade.start).toBe(au[0].words[2].start); // exactly on its word, not shifted
+    expect(tl.totalSec).toBeCloseTo(au[0].duration, 9);
+    expect(tl.insertedSilences).toEqual([]);
   });
 
-  it("no sentence boundary in the gap -> pause right before the next anchor word", () => {
-    const { sc, au, tl } = squeezed("go now then stop here", "now", "then");
-    expect(tl.insertedSilences).toMatchObject([{ afterWord: 1 }]);
-    checkInvariants(tl, sc, au, 0);
-  });
-
-  it("last anchor too close to beat end -> silence at beat end, next beat shifts", () => {
+  it("the last anchor uses the beat's trailing pause; motion never shifts the next beat", () => {
     const say = "one two three";
     const sc = Scene.parse({
       scene: "t",
       objects: [{ id: "a", type: "text", text: "A" }],
       beats: [{ say, actions: [{ at: "three", do: "move", target: "a" }] }, { say, actions: [] }],
     });
-    const au = [fakeAudio(say), fakeAudio(say)]; // "three" start 0.5, beat end 0.75 -> gap 0.25 >= MIN: fits
-    au[0] = { ...au[0], duration: 0.6 }; // gap 0.1 < MIN
-    const tl = compile(sc, au, 0.3);
-    expect(tl.insertedSilences).toMatchObject([{ beat: 0, afterWord: 2, at: 0.6 }]);
-    expect(tl.insertedSilences[0].sec).toBeCloseTo(MIN_SEC - 0.1, 9);
-    expect(tl.events.find((e) => e.verb === "say" && e.beat === 1)!.start).toBeCloseTo(0.6 + MIN_SEC - 0.1 + 0.3, 9);
+    const au = [fakeAudio(say), fakeAudio(say)];
+    au[0] = { ...au[0], duration: 1.2 }; // "three" at 0.5, trailing pause up to 1.2: the full 0.5 move fits
+    let tl = compile(sc, au, 0);
+    expect(len(tl, "a")).toBeCloseTo(DURATION.move, 9);
+    au[0] = { ...au[0], duration: 0.6 }; // only 0.1 left in the beat: compress to MIN, spilling into beat 1
+    tl = compile(sc, au, 0.3);
+    expect(len(tl, "a")).toBeCloseTo(MIN_SEC, 9);
+    expect(tl.events.find((e) => e.verb === "say" && e.beat === 1)!.start).toBeCloseTo(0.6 + 0.3, 9);
     checkInvariants(tl, sc, au, 0.3);
+  });
+
+  it("motion at the very end of the scene is cut at the scene's end", () => {
+    const sc = oneBeat("one two", [{ at: "two", do: "move", target: "a" }]);
+    const au = [{ ...fakeAudio("one two"), duration: 0.35 }]; // "two" at 0.3
+    const tl = compile(sc, au, 0);
+    expect(tl.events.find((e) => e.target === "a")!.end).toBeCloseTo(0.35, 9);
+    checkInvariants(tl, sc, au, 0);
   });
 
   it("actions sharing one anchor share the gap", () => {

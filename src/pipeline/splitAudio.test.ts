@@ -16,3 +16,20 @@ it("splits words per beat, keeps sentence boundaries, and sums durations to the 
 it("rejects an alignment that does not match the beats", () => {
   expect(() => splitBeatAudio(["One two.", "Three."], { sec: 3, words: [w("One", 0, 1), w("two.", 1, 2)] })).toThrow(/does not match/);
 });
+
+it("cuts clips at segment starts so each clip keeps its trailing pause, assigning words by time", () => {
+  const clips = splitBeatAudio(["One two.", "Three 4 five."], {
+    sec: 4, segments: [{ start: 0, end: 1.2 }, { start: 1.65, end: 4 }],
+    words: [w("One", 0.2, 0.6), w("two.", 0.7, 1), w("Three", 1.9, 2.4), w("five.", 3, 3.5)],
+  });
+  expect(clips.map(c => c.words.map(x => x.word))).toEqual([["One", "two."], ["Three", "five."]]);
+  expect(clips[0].duration).toBeCloseTo(1.65); // includes the 0.45 s gap after beat 0
+  expect(clips[1].words[0].start).toBeCloseTo(0.25);
+  expect(clips[0].duration + clips[1].duration).toBeCloseTo(4);
+});
+
+it("rejects segments that do not match the beats or leave a beat without words", () => {
+  const words = [w("One", 0.2, 0.6), w("two.", 0.7, 1)];
+  expect(() => splitBeatAudio(["One.", "Two."], { sec: 2, words, segments: [{ start: 0, end: 2 }] })).toThrow(/does not match/);
+  expect(() => splitBeatAudio(["One two.", "Three."], { sec: 3, words, segments: [{ start: 0, end: 1 }, { start: 1.5, end: 3 }] })).toThrow(/does not match/);
+});

@@ -37,8 +37,8 @@ def models(monkeypatch):
         return lambda wav: (torch.zeros((1, 50, 2)), None)
 
     def align(emission, tokens):
-        assert tokens == ["hello", "world"]
-        return [[SimpleNamespace(start=1, end=10)], [SimpleNamespace(start=12, end=30)]]
+        calls.setdefault("tokens", []).append(tokens)
+        return [[SimpleNamespace(start=1 + 12 * i, end=10 + 12 * i + (8 if i else 0))] for i in range(len(tokens))]
 
     import torchaudio
     monkeypatch.setitem(sys.modules, "kokoro", SimpleNamespace(KPipeline=Pipeline))
@@ -63,13 +63,36 @@ def test_rpc_wav_alignment_and_warm_models(models, tmp_path):
         assert result == {"id": i, "result": {
             "wav_path": str(path), "sec": 1.0,
             "words": [{"word": "Hello,", "start": 0.02, "end": 0.2},
-                      {"word": "world!", "start": 0.24, "end": 0.6}],
+                      {"word": "world!", "start": 0.26, "end": 0.6}],
+            "segments": [{"start": 0.0, "end": 1.0}],
         }}
         with wave.open(str(path)) as wav:
             assert (wav.getframerate(), wav.getnframes(), wav.getnchannels()) == (24000, 24000, 1)
     assert models["tts_load"] == models["align_load"] == 1
     assert models["voices"] == ["af_heart", "af_bella"]
     assert models["texts"] == ["Hello, !!! world!"] * 2
+    assert models["tokens"] == [["hello", "world"]] * 2
+
+
+def test_segments_get_gaps_and_offset_alignment(models, tmp_path):
+    path = tmp_path / "beats.wav"
+    result = handle({"id": 1, "method": "tts_align", "params": {
+        "segments": ["Hello world.", "Again, 42 times."], "out_path": str(path), "gap_sec": 0.5}})["result"]
+    # Each fake segment is 1 s of audio; 0.5 s of silence between them, none after the last.
+    assert result["sec"] == 2.5
+    assert result["segments"] == [{"start": 0.0, "end": 1.0}, {"start": 1.5, "end": 2.5}]
+    assert [w["word"] for w in result["words"]] == ["Hello", "world.", "Again,", "times."]
+    assert [w["start"] for w in result["words"]] == [0.02, 0.26, 1.52, 1.76]
+    assert models["texts"] == ["Hello world.", "Again, 42 times."]
+    assert models["tokens"] == [["hello", "world"], ["again", "times"]]
+    with wave.open(str(path)) as wav:
+        assert wav.getnframes() == 60000
+
+
+def test_default_gap(models, tmp_path):
+    result = handle({"id": 1, "method": "tts_align", "params": {
+        "segments": ["Hello world.", "Hello world."], "out_path": str(tmp_path / "x.wav")}})["result"]
+    assert result["segments"][1]["start"] == 1.45
 
 
 @pytest.mark.parametrize("params", [
@@ -78,6 +101,12 @@ def test_rpc_wav_alignment_and_warm_models(models, tmp_path):
     {"text": "hello", "out_path": ""}, {"text": "hello", "out_path": 42},
     {"text": "hello", "out_path": "x.wav", "voice": None},
     {"text": "hello", "out_path": "x.wav", "voice": ""}, None,
+    {"segments": [], "out_path": "x.wav"}, {"segments": "hello", "out_path": "x.wav"},
+    {"segments": ["hello", ""], "out_path": "x.wav"}, {"segments": ["hello", "123"], "out_path": "x.wav"},
+    {"segments": ["hello"], "out_path": "x.wav", "gap_sec": -1},
+    {"segments": ["hello"], "out_path": "x.wav", "gap_sec": "0.4"},
+    {"segments": ["hello"], "out_path": "x.wav", "gap_sec": True},
+    {"segments": ["hello"], "out_path": "x.wav", "gap_sec": 99},
 ])
 def test_invalid_params_do_not_load_models(monkeypatch, params):
     from tangent_sidecar import tts

@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
-import { ClaudeCodeCLI, type Spawn } from "../llm/claudeCli";
+import { CLAUDE_BASE_ARGS, ClaudeCodeCLI, parseStreamResult, type Spawn } from "../llm/claudeCli";
 import { validateScene } from "@motion/dsl/validate";
 import { checkTemplateScene, generateGroupScene } from "./scene";
 
@@ -62,12 +62,39 @@ describe("ClaudeCodeCLI (injected spawn only)", () => {
     const { child, spawn, provider } = fakeProcess();
     const prompt = "source $(do-not-execute)";
     const result = provider.complete(prompt, { system: "JSON only" });
-    expect(spawn).toHaveBeenCalledWith("claude", ["-p", "--output-format", "text", "--model", "haiku", "--system-prompt", "JSON only"], { stdio: "pipe" });
+    const [cmd, args, options] = spawn.mock.calls[0] as unknown as [string, string[], { stdio: string; cwd: string; env: Record<string, string> }];
+    expect(cmd).toBe("claude");
+    expect(args).toEqual([...CLAUDE_BASE_ARGS, "--output-format", "text", "--system-prompt", "JSON only"]);
+    const after = (f: string) => args[args.indexOf(f) + 1];
+    expect(after("--model")).toBe("haiku");
+    expect(after("--tools")).toBe("");
+    expect(after("--setting-sources")).toBe("");
+    expect(after("--disallowedTools")).toContain("Bash");
+    for (const f of ["--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]) expect(args).toContain(f);
+    expect(options.stdio).toBe("pipe");
+    expect(options.cwd).toMatch(/tangent-llm-/);
+    expect(options.cwd).not.toBe(process.cwd());
+    expect(options.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe("1");
     expect(child.stdin.read().toString()).toBe(prompt);
     child.stdout.write("hello");
     child.stdout.write(" world");
     child.emit("close", 0);
     await expect(result).resolves.toBe("hello world");
+  });
+
+  it("sends images as one stream-json message and returns the result event text", async () => {
+    const { child, spawn, provider } = fakeProcess();
+    const result = provider.complete("what is on screen?", { images: ["QUJD"] });
+    const args = (spawn.mock.calls[0] as unknown as [string, string[]])[1];
+    expect(args.slice(args.indexOf("--input-format"), args.indexOf("--input-format") + 2)).toEqual(["--input-format", "stream-json"]);
+    expect(args).toContain("--verbose");
+    const msg = JSON.parse(child.stdin.read().toString());
+    expect(msg.message.content[0]).toEqual({ type: "image", source: { type: "base64", media_type: "image/png", data: "QUJD" } });
+    expect(msg.message.content[1]).toEqual({ type: "text", text: "what is on screen?" });
+    child.stdout.write('{"type":"system"}\n{"type":"result","subtype":"success","is_error":false,"result":"An ALU."}\n');
+    child.emit("close", 0);
+    await expect(result).resolves.toBe("An ALU.");
+    expect(() => parseStreamResult('{"type":"result","subtype":"error_during_execution","is_error":true}')).toThrow();
   });
 
   it("rejects nonzero exits, spawn failures and stdin errors", async () => {

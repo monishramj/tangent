@@ -1,6 +1,6 @@
 // Builders for icon / emoji / counter / person (Pixi) and gif (HTML overlay). Each returns {node, draw}; draw may return
 // the drawn half-extents (px, unscaled) so the renderer can trim arrows and size tutor annotations.
-import { Container, Graphics, Text } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, Text, TextStyle } from "pixi.js";
 import type { SceneObject } from "../dsl/schema";
 import type { ObjState } from "./scene";
 import { FONT, strokePath } from "./visuals";
@@ -50,15 +50,38 @@ export function buildEmoji(o: O<"emoji">, fg: string, cell: () => Cell) {
 }
 
 export function buildCounter(o: O<"counter">, fg: string, cell: () => Cell) {
-  const node = new Container(), t = txt(node, "", fg, true), label = txt(node, o.label ?? "", fg);
-  const widest = Math.max(formatCount(o.from, o.decimals, o.prefix, o.suffix).length, formatCount(o.to, o.decimals, o.prefix, o.suffix).length);
+  // One retained Text per character on fixed digit slots: rolling digits never shift the number sideways.
+  // The string is right-aligned to the final value's width, so new leading digits grow to the left.
+  const node = new Container(), label = txt(node, o.label ?? "", fg), chars: Text[] = [];
+  const final = formatCount(o.to, o.decimals, o.prefix, o.suffix), start = formatCount(o.from, o.decimals, o.prefix, o.suffix);
+  const widest = Math.max(final.length, start.length);
+  let fs0 = 0, adv = new Map<string, number>();
+  const width = (s: string) => [...s].reduce((a, ch) => a + adv.get(/\d/.test(ch) ? "0" : ch)!, 0);
   return { node, draw(s: ObjState, _w: number, h: number): Ext {
     const c = cell(), fs = Math.min((o.size ?? .2) * h, c?.cw ? c.cw * .9 / (widest * .62) : Infinity, c?.ch ? c.ch * .7 : Infinity);
     const text = formatCount(counterValue(o.from, o.to, s.reveal ?? 1), o.decimals, o.prefix, o.suffix);
-    if (t.text !== text) t.text = text;
-    t.style.fontSize = fs; t.style.letterSpacing = -fs * .03;
+    if (fs !== fs0) { // measure once per size: the widest digit is every digit's slot
+      fs0 = fs;
+      const style = new TextStyle({ fontFamily: FONT, fontWeight: "bold", fontSize: fs });
+      adv = new Map([...new Set(final + start + text + "0123456789")].map(ch => [ch, CanvasTextMetrics.measureText(ch, style).width]));
+      adv.set("0", Math.max(...[..."0123456789"].map(d => adv.get(d)!)));
+      for (const [ch, v] of adv) adv.set(ch, v - fs * .04); // tight display tracking
+      chars.forEach(t => { t.style.fontSize = fs; });
+    }
+    for (const ch of text) if (!adv.has(ch)) adv.set(ch, fs * .6);
+    while (chars.length < text.length) chars.push(txt(node, "", fg, true));
+    const W = Math.max(width(final), width(start));
+    let x = W / 2 - width(text);
+    chars.forEach((t, i) => {
+      t.visible = i < text.length;
+      if (!t.visible) return;
+      const ch = text[i], a = adv.get(/\d/.test(ch) ? "0" : ch)!;
+      if (t.text !== ch) t.text = ch;
+      if (t.style.fontSize !== fs) t.style.fontSize = fs;
+      t.position.set(x + a / 2, 0); x += a;
+    });
     caption(label, o.label ?? "", Math.max(10, h * .035), fs * .75, 1);
-    return [widest * fs * .31, fs * .6];
+    return [W / 2, fs * .6];
   } };
 }
 

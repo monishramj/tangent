@@ -29,6 +29,12 @@ describe("templates", () => {
     expect(validateScene(scene)).toEqual([]);
   });
 
+  it("callout box sits behind its text (object order is draw order)", () => {
+    const { scene } = expandTemplates({ beats: [{ say, template: "callout", variant: "box", data: { text: "Key idea" } }] });
+    const ids = scene!.objects.map(o => o.id);
+    expect(ids.indexOf("callout_box")).toBeLessThan(ids.indexOf("callout"));
+  });
+
   it("clears the previous frame unless keep, and keep allows actions on old ids", () => {
     const { scene } = expandTemplates({ beats: [
       { say: "Look at this heap.", template: "array", data: { values: [3, 9, 7] } },

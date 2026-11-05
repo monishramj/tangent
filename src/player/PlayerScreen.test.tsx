@@ -4,16 +4,23 @@ import PlayerScreen, { clock } from "./PlayerScreen";
 import type { PipelineEvent } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
-import { memoryJsonStore, type Thread } from "@/storage/projects";
+import { memoryJsonStore, type Thread } from "@/storage/store";
 import { scene, timeline } from "@motion/stage/demo";
 import { narrationLines } from "@/tutor/narration";
+import { DEFAULT_GAP_SEC } from "@motion/player/queue";
+import { captionCues } from "./Captions";
 
 const stage = vi.fn();
+const snap = vi.hoisted(() => ({ image: "FRAMEPNG" as string | null }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(null), convertFileSrc: (p: string) => p }));
-vi.mock("@/Stage", () => ({ default: (props: unknown) => { stage(props); return null; } }));
+vi.mock("@/Stage", () => ({ default: (props: { snapshotRef?: { current: unknown } }) => {
+  stage(props);
+  if (props.snapshotRef) props.snapshotRef.current = async () => snap.image;
+  return null;
+} }));
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); stage.mockClear(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); stage.mockClear(); localStorage.clear(); snap.image = "FRAMEPNG"; });
 
 type FakeAudio = EventTarget & { currentTime: number; readyState: number; play: ReturnType<typeof vi.fn>; pause: ReturnType<typeof vi.fn> };
 const sceneEvent = (id = "s1"): Extract<PipelineEvent, { type: "scene" }> => ({ type: "scene", sceneId: id, scene, timeline, wavPath: `${id}.wav`, generationMs: 1 });
@@ -41,7 +48,7 @@ function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJ
   const store = opts.store ?? memoryJsonStore();
   const complete = vi.fn().mockResolvedValue(JSON.stringify({ answer: "Because the bigger child keeps the heap valid.", annotations: [] }));
   const provider = opts.provider ?? { complete };
-  const props = { stream, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn(), onPinNote: vi.fn() };
+  const props = { stream, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
   const view = render(<PlayerScreen {...props} />);
   return { ...props, complete, audios, push, end, view };
 }
@@ -135,9 +142,8 @@ it("a follow-up in the same thread sends the history", async () => {
   await ask("And then?", "Reply in thread");
   await waitFor(() => expect(s.complete).toHaveBeenCalledTimes(2));
   const second = s.complete.mock.calls[1][0] as string;
-  expect(second).toContain("This thread so far");
   expect(second).toContain("Student: First?");
-  expect(s.complete.mock.calls[0][0]).not.toContain("This thread so far");
+  expect(s.complete.mock.calls[0][0]).toContain("(this is the first question)");
   await waitFor(() => expect((s.store.data.get("threads-vid1") as Thread[])[0].messages).toHaveLength(4));
 });
 
@@ -149,14 +155,12 @@ it("a failing provider yields a graceful tutor message", async () => {
   await screen.findByText(/couldn't answer that just now/);
 });
 
-it("thread list after 'All questions', a scrubber marker, Pin to notes, and Resume", async () => {
+it("thread list after 'All questions', a scrubber marker, and Resume", async () => {
   const s = setup();
   await startWithScene(s);
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
   await ask("Why?");
   await screen.findByText(/keeps the heap valid/);
-  fireEvent.click(screen.getByRole("button", { name: /Pin to notes/ }));
-  expect(s.onPinNote).toHaveBeenCalledWith("Q: Why?\nA: Because the bigger child keeps the heap valid.", 0);
   fireEvent.click(screen.getByRole("button", { name: "All questions" }));
   expect(within(screen.getByRole("list", { name: "Questions" })).getByText("Why?")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Question at 0:00: Why?" })).toBeTruthy();
@@ -193,17 +197,20 @@ async function reachEnd(s: ReturnType<typeof setup>) {
   await act(async () => { s.audios[0].currentTime = timeline.totalSec; s.audios[0].dispatchEvent(new Event("ended")); });
 }
 
-it("checkpoint opens at the end of the scene; the right answer is graded and stored", async () => {
+it("checkpoint pauses at the end of its scene and opens inside the video; the right answer is graded and stored", async () => {
   const s = setup();
   await settle();
   await reachEnd(s);
   const card = await screen.findByRole("region", { name: "Checkpoint" });
+  expect(screen.getByTestId("video").contains(card)).toBe(true);
+  expect(screen.queryByRole("dialog", { name: "Side panel" })).toBeNull();
   expect(within(card).getByText("Which child swaps?")).toBeTruthy();
-  expect(screen.getByRole("tab", { name: "Check" }).getAttribute("aria-selected")).toBe("true");
+  expect(within(card).getByText(/Checkpoint 1/)).toBeTruthy();
   await act(async () => { fireEvent.click(within(card).getByRole("radio", { name: "The bigger" })); });
   await screen.findByText("Nailed it.");
   expect(screen.queryByRole("button", { name: "Ask about it" })).toBeNull();
   await waitFor(() => expect(s.store.data.get("checks-vid1")).toEqual({ cp1: expect.objectContaining({ response: "The bigger", correct: true }) }));
+  expect(screen.getByRole("button", { name: "Checkpoint 1: Which child swaps? (right)" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
 });
@@ -218,9 +225,10 @@ it("a wrong answer offers 'Ask about it', which opens a thread", async () => {
   await waitFor(() => expect((s.store.data.get("checks-vid1") as Record<string, { correct: boolean }>).cp1.correct).toBe(false));
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask about it" })); });
   await screen.findByText(/I got this checkpoint wrong/);
+  expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
   expect(screen.getByRole("tab", { name: "Ask" }).getAttribute("aria-selected")).toBe("true");
   expect(s.complete).toHaveBeenCalledTimes(1);
-  expect(s.complete.mock.calls[0][0]).toContain("Why is the answer \"The bigger\"");
+  expect(s.complete.mock.calls[0][0]).toContain("Why is the answer");
   await waitFor(() => expect((s.store.data.get("threads-vid1") as Thread[])).toHaveLength(1));
 });
 
@@ -263,5 +271,101 @@ it("Next scene seeks to the next scene's offset", async () => {
   await startWithScene(s); await s.push(sceneEvent("s2"));
   expect((screen.getByRole("button", { name: "Previous scene" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Next scene" }));
-  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec, 1);
+  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec + DEFAULT_GAP_SEC, 1);
+});
+
+// --- checkpoints mid-video, the Checks strip, captions, and what the tutor sees ---
+
+const mid: Checkpoint = { ...mcq, id: "cp1", afterScene: 0, prompt: "Mid question?" };
+const last: Checkpoint = { ...mcq, id: "cp2", afterScene: 1, kind: "short", prompt: "Last question?", choices: undefined, answer: "A sentence." };
+
+it("a mid-video checkpoint pauses when its scene ends, and Continue resumes the next scene", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: "checkpoints", items: [last, mid] });
+  await s.push(sceneEvent("s1")); await s.push(sceneEvent("s2"));
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  await act(async () => { s.audios[0].currentTime = timeline.totalSec; s.audios[0].dispatchEvent(new Event("ended")); });
+  const card = await screen.findByRole("region", { name: "Checkpoint" });
+  expect(within(card).getByText("Mid question?")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Play" })).toBeTruthy(); // paused
+  s.audios[1].play.mockClear();
+  await act(async () => { fireEvent.click(within(card).getByRole("radio", { name: "The bigger" })); });
+  fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+  expect(s.audios[1].play).toHaveBeenCalled();
+  expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
+});
+
+it("checkpoints get seek-bar markers and an ordered Checks strip; a chip opens its card paused", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: "checkpoints", items: [last, mid] });
+  await s.push(sceneEvent("s1"));
+  expect(screen.getByRole("button", { name: `Checkpoint 1 at ${clock(timeline.totalSec)}` })).toBeTruthy();
+  const strip = within(screen.getByRole("navigation", { name: "Checks" }));
+  const chips = strip.getAllByRole("button");
+  expect(chips.map(c => c.getAttribute("aria-label"))).toEqual(["Checkpoint 1: Mid question? (upcoming)", "Checkpoint 2: Last question? (upcoming)"]);
+  expect((chips[1] as HTMLButtonElement).disabled).toBe(true); // its scene hasn't arrived yet
+  fireEvent.click(chips[0]);
+  const card = screen.getByRole("region", { name: "Checkpoint" });
+  expect(within(card).getByText("Mid question?")).toBeTruthy();
+  expect(s.audios[0].currentTime).toBeCloseTo(timeline.totalSec - 0.05, 2);
+  fireEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
+  expect(strip.getByRole("button", { name: "Checkpoint 1: Mid question? (skipped)" })).toBeTruthy();
+  await waitFor(() => expect((s.store.data.get("checks-vid1") as Record<string, { skipped?: boolean }>).cp1.skipped).toBe(true));
+});
+
+it("saved checkpoint results show in the strip", async () => {
+  const s = setup({ store: memoryJsonStore({ "checks-vid1": { cp1: { response: "x", correct: false, at: 1 }, cp2: { response: "y", correct: true, at: 2 } } }) });
+  await settle();
+  await s.push({ type: "checkpoints", items: [mid, last] });
+  await screen.findByRole("button", { name: "Checkpoint 1: Mid question? (wrong)" });
+  expect(screen.getByRole("button", { name: "Checkpoint 2: Last question? (right)" })).toBeTruthy();
+});
+
+it("captions sit below the video, show the current beat with the current word marked, and CC toggles and persists", async () => {
+  const s = setup();
+  await startWithScene(s);
+  const cues = captionCues([{ scene, timeline }]);
+  const region = screen.getByRole("region", { name: "Captions" });
+  expect(screen.getByTestId("video").contains(region)).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  const t = (cues[1].start + cues[1].end) / 2;
+  await act(async () => { s.audios[0].currentTime = t; s.audios[0].dispatchEvent(new Event("timeupdate")); });
+  fireEvent.click(screen.getByRole("button", { name: "Pause" })); // re-renders at the paused time
+  const text = region.textContent!.replace(/\s+/g, " ").trim();
+  expect(cues[1].text.replace(/\s+/g, " ")).toContain(text);
+  expect(region.querySelectorAll("[data-current]").length).toBe(1);
+  const cc = screen.getByRole("button", { name: "Captions" });
+  expect(cc.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(cc);
+  expect(screen.queryByRole("region", { name: "Captions" })).toBeNull();
+  expect(localStorage.getItem("tangent.cc")).toBe("off");
+  cleanup();
+  setup();
+  expect(screen.getByRole("button", { name: "Captions" }).getAttribute("aria-pressed")).toBe("false");
+});
+
+it("Ask sends the frame, what's on screen, and the line being said", async () => {
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  await ask("What is that?");
+  await screen.findByText(/keeps the heap valid/);
+  const [prompt, opts] = s.complete.mock.calls[0];
+  expect(opts).toEqual({ images: ["FRAMEPNG"] });
+  expect(prompt).toContain("<screen>");
+  expect(prompt).toContain("<now_saying>");
+  expect(prompt).toContain(narrationLines([{ scene, timeline }])[0].say.split(" ")[0]);
+});
+
+it("without a frame the question still goes through, text only", async () => {
+  snap.image = null;
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  await ask("Hm?");
+  await screen.findByText(/keeps the heap valid/);
+  expect(s.complete.mock.calls[0][1]).toBeUndefined();
 });

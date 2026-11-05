@@ -5,12 +5,12 @@ import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
 import { fromLevel } from "../dsl/trees/shared";
 import type { Annotation } from "../annotations";
 import { annotationShapes, type Pt } from "./annotate";
-import { DEFAULT_POS, easeOut, type ObjState, type SceneState } from "./scene";
+import { DEFAULT_POS, type ObjState, type SceneState } from "./scene";
 import { layoutScene, type Placed } from "./layout";
-import { buildVisual, fitText, strokePath } from "./visuals";
+import { buildVisual, fitText } from "./visuals";
 import { buildCounter, buildEmoji, buildGif, buildIcon, buildPerson } from "./extras";
-import { LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, shapeOutline, trimPath, wordPlacements } from "./geometry";
-import { ease, pathPoint, staggerProgress, type Point } from "./motion";
+import { LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
+import { ease, pathPoint, staggerProgress, strokeW, window01, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -79,31 +79,37 @@ export class SceneRenderer {
         t.anchor.set(edge === "left" ? 0 : edge === "right" ? 1 : 0.5, 0.5);
         c.addChild(t);
         this.root.addChild(c);
+        // Words are retained Text pieces laid out once per (text, size): reveals animate alpha/position/scale only, never re-wrap.
         let words: { t: Text; x: number; y: number }[] = [], key = "";
+        const base = plain ? plain.opacity ?? 0.72 : 1;
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
           const p = this.lay.get(o.id);
           const full = p?.text ?? o.text;
           const fs = p?.fontSize ?? (kinetic ? 120 : 30);
-          t.visible = !(split && s.style !== "type");
-          if (split && s.style !== "type") { // words pop in one by one over the reveal; stack slides each word up on its own line
-            if (key !== `${full}|${fs}`) {
-              key = `${full}|${fs}`;
-              words.forEach((x) => x.t.destroy());
-              words = wordPlacements(full, fs, (x) => this.measure(x, fs, true)).map((x) => {
-                const wt = this.text(x.word, fs, "bold"); wt.anchor.set(0.5); c.addChild(wt); return { t: wt, x: x.x, y: x.y };
-              });
-            }
-            words.forEach((x, i) => {
-              const k = staggerProgress(s.reveal ?? 1, i, words.length, variant === "stack" ? 0.2 : 0.12);
-              x.t.alpha = k; x.t.position.set(x.x, x.y + (variant === "stack" ? (1 - ease(k)) * fs * 0.7 : 0));
-              x.t.scale.set(variant === "stack" ? 1 : 0.7 + 0.3 * ease(k, "outBack"));
+          const perWord = split || s.style === "type"; // once split into words, stay split: no hand-off jump when the reveal ends
+          if (t.style.fontSize !== fs) { t.style.fontSize = fs; t.style.lineHeight = fs * 1.15; t.style.letterSpacing = bold ? -fs * 0.03 : 0; }
+          if (t.text !== full) t.text = full;
+          t.visible = !perWord;
+          words.forEach((x) => (x.t.visible = perWord));
+          if (!perWord) return;
+          if (key !== `${full}|${fs}`) {
+            key = `${full}|${fs}`;
+            words.forEach((x) => x.t.destroy());
+            const m = (x: string) => plain?.mono ? CanvasTextMetrics.measureText(x, new TextStyle({ fontSize: fs, fontFamily: MONO })).width : this.measure(x, fs, bold);
+            const align = (plain?.align ?? "center") as "left" | "center" | "right";
+            words = wordPlacements(full, fs, m, 1.15, align, !!edge, m("a a") - m("aa")).map((x) => {
+              const wt = this.text(x.word, fs, bold ? "bold" : "normal", plain?.mono); wt.anchor.set(0.5); c.addChild(wt); return { t: wt, x: x.x, y: x.y };
             });
-            return;
           }
-          const shown = s.style === "type" ? full.slice(0, Math.floor(full.length * (s.reveal ?? 1))) : full;
-          if (t.text !== shown) t.text = shown;
-          if (p?.fontSize && t.style.fontSize !== p.fontSize) { t.style.fontSize = p.fontSize; t.style.letterSpacing = bold ? -p.fontSize * 0.03 : 0; }
+          // type: a quick left-to-right cascade with a small rise; words: each word lands with a slight scale; stack: words rise in
+          const [gap, rise, grow] = variant === "stack" ? [0.2, 0.6, 0] : variant === "words" ? [0.12, 0.25, 0.15] : [0.08, 0.3, 0];
+          words.forEach((x, i) => {
+            const k = staggerProgress(s.reveal ?? 1, i, words.length, gap), e = ease(k, "outExpo");
+            x.t.alpha = Math.min(1, k * 2) * base;
+            x.t.position.set(x.x, x.y + (1 - e) * fs * rise);
+            x.t.scale.set(1 - grow * (1 - e));
+          });
         } };
       }
       case "flow": case "table": case "code": case "figure": case "bits": case "stack": case "chart": {
@@ -125,7 +131,7 @@ export class SceneRenderer {
       case "shape": {
         const g = new Graphics(), label = this.text(o.label ?? "", 30), sub = this.text(o.sublabel ?? "", 30);
         label.anchor.set(.5); sub.anchor.set(.5); c.addChild(g, label, sub); this.root.addChild(c);
-        let bw = 0, bh = 0, out = shapeOutline(o.shape, 1, 1);
+        let bw = 0, bh = 0, out = smoothOutline(o.shape, 1, 1, o.tail);
         const lines = (t: Text) => t.text.split("\n").length * Number(t.style.lineHeight);
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
@@ -135,9 +141,9 @@ export class SceneRenderer {
           const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
-            out = shapeOutline(o.shape, bw, bh);
+            out = smoothOutline(o.shape, bw, bh, o.tail, h * .025);
             const [fw, fh, dx, dy] = LABEL_BOX[o.shape] ?? LABEL_BOX.rect, cy = bh * dy;
-            fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .04);
+            fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .045);
             sub.visible = !!o.sublabel;
             if (o.sublabel) {
               fitText(sub, o.sublabel, bw * fw, bh * fh * .36, Number(label.style.fontSize) * .6);
@@ -145,13 +151,16 @@ export class SceneRenderer {
             } else label.y = cy;
             label.x = sub.x = bw * dx;
           }
-          const full = (s.reveal ?? 1) >= 1 || s.style !== "draw";
+          // Outline traces first (both ways from the top, meeting at the bottom), then the fill and label fade in.
+          const r = s.style === "draw" ? s.reveal ?? 1 : 1, fillA = s.style === "draw" ? window01(r, .7, 1) : 1, sw = strokeW(h);
+          const stroke = { width: sw, color: this.fg, alpha: .75 + .25 * s.hl, cap: "round", join: "round" } as const;
           g.clear();
-          if (full) g.poly(out.fill.flat()).fill({ color: this.bg }).poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .9 } : { color: this.fg, alpha: .06 + .14 * s.hl });
-          strokePath(g, out.pts, s.style === "draw" ? s.reveal ?? 1 : 1, this.fg, 3, .6 + .4*s.hl);
+          if (fillA > 0) g.poly(out.fill.flat()).fill({ color: this.bg, alpha: fillA }).poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .92 * fillA } : { color: this.fg, alpha: (.07 + .15 * s.hl) * fillA });
+          if (r >= 1 && out.sym) g.poly(out.pts.slice(0, -1).flat(), true).stroke(stroke);
+          else if (r > 0) { const part = out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, r); if (part.length > 1) g.poly(part.flat(), false).stroke(stroke); }
           this.ext.set(o.id, [bw / 2 * s.scale, bh / 2 * s.scale]);
           label.style.fill = sub.style.fill = o.filled ? this.bg : this.fg;
-          label.alpha = s.reveal ?? 1; sub.alpha = label.alpha * .65;
+          label.alpha = s.style === "draw" ? window01(r, .35, .9) : 1; sub.alpha = label.alpha * .65;
         } };
       }
       case "arrow":
@@ -161,7 +170,7 @@ export class SceneRenderer {
         return { node: c, draw: (s, w, h, all) => {
           c.visible = s.visible; c.alpha = s.opacity;
           const pt = (p: string | [number, number]): [number, number] | null => {
-            if (Array.isArray(p)) return [p[0] * w, p[1] * h];
+            if (Array.isArray(p)) return [(p[0] + (s.dx ?? 0)) * w, p[1] * h]; // fixed endpoints ride along with a transition
             const t = all.get(p);
             return t?.visible ? [t.x * w, t.y * h] : null;
           };
@@ -178,13 +187,17 @@ export class SceneRenderer {
           if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
           const path = trimPath(full, ta, tb);
           if (path.length < 2) return;
-          const p = s.style === "draw" ? s.reveal ?? 1 : 1, part = partialPath(path, p);
-          for (const d of o.dashed ? dashPolylines(part, 12, 8) : [part]) { g.moveTo(d[0][0], d[0][1]); for (const q of d.slice(1)) g.lineTo(q[0], q[1]); }
-          g.stroke({ width: 3, color: this.fg });
-          if (o.type === "arrow" && p > 0 && part.length > 1) {
-            const [x1, y1] = part[part.length - 2], [x2, y2] = part[part.length - 1], a = Math.atan2(y2 - y1, x2 - x1), k = 0.025 * h;
-            g.moveTo(x2 - k * Math.cos(a - 0.45), y2 - k * Math.sin(a - 0.45)).lineTo(x2, y2).lineTo(x2 - k * Math.cos(a + 0.45), y2 - k * Math.sin(a + 0.45));
-            g.stroke({ width: 3, color: this.fg });
+          const p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = strokeW(h), head = o.type === "arrow" ? sw * 3.2 : 0;
+          // the shaft stops short of the tip so the filled head stays sharp; the head rides the drawing front
+          const part = partialPath(path, p), tip = part[part.length - 1], dir = part.length > 1 ? pathDir(part, true) : [1, 0];
+          const shaft = head && p > 0 ? trimPath(part, 0, Math.min(head * .8, pathLength(part))) : part;
+          if (shaft.length > 1) {
+            for (const d of o.dashed ? dashPolylines(shaft, sw * 4, sw * 2.6) : [shaft]) g.poly(d.flat(), false);
+            g.stroke({ width: sw, color: this.fg, alpha: .85, cap: "round", join: "round" });
+          }
+          if (head && p > 0 && part.length > 1) {
+            const k = head * Math.min(1, p * 4), [ux, uy] = dir, [x2, y2] = tip;
+            g.poly([x2, y2, x2 - ux * k * 1.5 - uy * k * .75, y2 - uy * k * 1.5 + ux * k * .75, x2 - ux * k * 1.5 + uy * k * .75, y2 - uy * k * 1.5 - ux * k * .75]).fill({ color: this.fg, alpha: .85 });
           }
           if (o.label && p >= .5) { // label beside the midpoint, on a bg backing so it stays readable over other marks
             const fs = .028 * h, [mx, my] = pathPoint(path, .5), [x0, y0] = pathPoint(path, .49), [x1, y1] = pathPoint(path, .51);
@@ -196,7 +209,7 @@ export class SceneRenderer {
           }
           if (s.pulse !== undefined) { // signal dot travelling from -> to
             const [x, y] = pathPoint(path, s.pulse);
-            g.circle(x, y, .024 * h).fill({ color: this.fg, alpha: .18 }).circle(x, y, .012 * h).fill({ color: this.fg });
+            g.circle(x, y, sw * 4).fill({ color: this.fg, alpha: .15 }).circle(x, y, sw * 1.8).fill({ color: this.fg });
           }
         } };
       }
@@ -226,11 +239,12 @@ export class SceneRenderer {
             g.alpha = enter; t.alpha = enter;
             const slot = s.slots![i];
             const x = x0 + (slot.to === undefined ? i : i + (slot.to - i) * slot.p) * step;
-            const lift = (slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35) + (1-ease(enter))*size*.3 - Math.sin((s.age ?? 0)*3)*size*.025*slot.hl; // hop so swaps read
-            g.clear().roundRect(-size / 2, -size / 2, size, size, size * 0.12)
-              .fill({ color: this.fg, alpha: slot.hl })
-              .stroke({ width: 2, color: this.fg, alpha: 0.6 });
-            if (slot.ring) g.circle(0, 0, size*(.6+.25*slot.ring)).stroke({ color: this.fg, width: 2, alpha: 1-slot.ring });
+            const lift = (slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35) + (1 - ease(enter, "outExpo")) * size * .25; // hop so swaps read
+            g.clear().roundRect(-size / 2, -size / 2, size, size, size * 0.16)
+              .fill({ color: this.bg }).roundRect(-size / 2, -size / 2, size, size, size * 0.16)
+              .fill({ color: this.fg, alpha: .07 + .85 * slot.hl })
+              .stroke({ width: strokeW(h), color: this.fg, alpha: 0.75, join: "round" });
+            if (slot.ring) g.circle(0, 0, size*(.6+.25*slot.ring)).stroke({ color: this.fg, width: strokeW(h), alpha: 1-slot.ring });
             g.position.set(x, lift);
             const value = String(slot.value);
             if (t.label !== `${size}:${value}`) { fitText(t, value, size*.84, size*.8, size*.45); t.label = `${size}:${value}`; }
@@ -271,12 +285,13 @@ export class SceneRenderer {
             if (!p) return;
             const [x1, y1] = at(byNode.get(p)!), [x2, y2] = at(i);
             const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
-            g.moveTo(x1, y1).lineTo(x1+(x2-x1)*reveal, y1+(y2-y1)*reveal).stroke({ width: 2, color: this.fg, alpha: 0.5 });
+            if (reveal > 0) g.moveTo(x1, y1).lineTo(x1+(x2-x1)*ease(reveal), y1+(y2-y1)*ease(reveal)).stroke({ width: strokeW(h), color: this.fg, alpha: 0.5, cap: "round" });
           });
           nodes.forEach(({ n }, i) => {
             const hl = s.valHl?.[n.keys[0]] ?? 0, [x, y] = at(i);
             const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
-            g.circle(x, y, r * ease(reveal)).fill({ color: this.bg }).circle(x, y, r * ease(reveal)).fill({ color: this.fg, alpha: hl }).stroke({ width: 2, color: this.fg, alpha: 0.7 });
+            const rr = r * (.6 + .4 * ease(reveal, "outBack"));
+            if (reveal > 0) g.circle(x, y, rr).fill({ color: this.bg }).circle(x, y, rr).fill({ color: this.fg, alpha: .07 + .85 * hl }).stroke({ width: strokeW(h), color: this.fg, alpha: 0.75 * Math.min(1, reveal * 3) });
             labels[i].position.set(x, y);
             labels[i].alpha = reveal;
             if (labels[i].label !== String(r)) { fitText(labels[i], n.keys.join(","), r*1.4, r*1.4, r*.9); labels[i].label = String(r); }
@@ -339,19 +354,18 @@ export class SceneRenderer {
     this.reaction.text = st.reaction ?? "";
     this.reaction.style.fontSize = 0.1 * h;
     this.reaction.position.set(w / 2, h / 2);
-    // transitions act on the whole layer: cut = black dip, whip/push = slide in from the right
-    const tr = st.transition;
-    this.root.alpha = tr?.type === "cut" ? 0 : 1;
-    const slide = tr && tr.type !== "cut" ? (1 - easeOut(tr.p)) * w * (tr.type === "push" ? 1 : 1.5) : 0;
-    const camera = st.camera ?? { x: .5, y: .5, zoom: 1, shake: 0 };
-    const tx = w/2 - camera.x*w*camera.zoom + camera.shake*w + slide;
-    const ty = h/2 - camera.y*h*camera.zoom + camera.shake*h;
-    this.root.scale.set(camera.zoom); this.root.position.set(tx, ty);
+    // whip/push move objects in the state (outgoing frame leaves, new one arrives); a cut is an instant swap.
+    // Here only the camera applies, plus the whip's horizontal smear (scale about the screen centre).
+    const camera = { x: .5, y: .5, zoom: 1, shake: 0, ...st.camera };
+    const sx = camera.zoom * (camera.stretch ?? 1);
+    const tx = w/2 + (camera.stretch ?? 1) * (-camera.x*w*camera.zoom + camera.shake*w);
+    const ty = h/2 - camera.y*h*camera.zoom + (camera.shakeY ?? camera.shake)*h;
+    this.root.scale.set(sx, camera.zoom); this.root.position.set(tx, ty); this.root.alpha = 1;
     this.mathLayer.style.transformOrigin = "0 0";
-    this.mathLayer.style.transform = `matrix(${camera.zoom},0,0,${camera.zoom},${tx},${ty})`;
+    this.mathLayer.style.transform = `matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
     this.mathLayer.style.opacity = String(this.root.alpha);
     for (const [key] of this.pts) if (!st.objects.get(key.split(".")[0])?.visible) this.pts.delete(key);
-    for (const pt of this.pts.values()) { pt.x = pt.x*camera.zoom+tx; pt.y = pt.y*camera.zoom+ty; pt.r *= camera.zoom; }
+    for (const pt of this.pts.values()) { pt.x = pt.x*sx+tx; pt.y = pt.y*camera.zoom+ty; pt.r *= camera.zoom; }
     this.paintAnnotations(w, h);
     this.app.render();
   }

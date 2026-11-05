@@ -41,7 +41,7 @@ describe("seekable rich animation state", () => {
   it("defaults outlines to draw, supports type and slide direction", () => {
     expect(obj(.5, [event("create")]).style).toBe("draw");
     expect(obj(.5, [event("create", { style: "type" })]).reveal).toBe(.5);
-    expect(obj(0, [event("create", { style: "slide", edge: "right" })]).x).toBeGreaterThan(1);
+    expect(obj(0, [event("create", { style: "slide", edge: "right" })]).x).toBeCloseTo(.56); // short travel, not across the stage
   });
   it("moves on paths, transforms scale/rotation/color, and eases camera", () => {
     const events = [event("create"), event("move", { path: [[.5, .5], [.8, .2]], arc: .1 }, 1, 2), event("transform", { scale: 2, rotate: 1, color: "#000000" }, 2, 3), event("camera", { x: .7, y: .4, zoom: 2, shake: .01 }, 3, 4)];
@@ -51,11 +51,14 @@ describe("seekable rich animation state", () => {
     expect(state(3.5, events).camera!.zoom).toBeGreaterThan(1);
     const a = state(2.5, events); state(4, events); state(.1, events); expect(state(2.5, events)).toEqual(a);
   });
-  it("indicate produces a transient ring; highlights float deterministically", () => {
+  it("indicate produces a transient ring; a highlight punches once, then holds still", () => {
     const events = [event("create"), event("indicate", {}, 1, 2)];
     expect(obj(1.5, events).ring).toBeGreaterThan(0);
     expect(obj(3, events).ring).toBe(0);
-    expect(obj(1.5, events).y).not.toBe(obj(1.6, events).y);
+    const hl = [event("create"), event("highlight", {}, 1, 2)];
+    expect(obj(1.15, hl).scale).toBeGreaterThan(1);
+    expect(obj(1.6, hl)).toMatchObject({ scale: 1, y: .5, hl: 1 });
+    expect(obj(1.9, hl)).toMatchObject({ scale: 1, y: .5, x: .5 });
   });
 });
 

@@ -155,12 +155,12 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       const active = o.type === "table" ? cell.r === 0 || (hr !== undefined && cell.r === hr+1) || hc === cell.col
         : o.type === "code" && range ? cell.r >= range[0] && cell.r <= range[1] : false;
       if (o.type === "code") { // one editor-like panel: left-aligned lines, indentation kept, highlight bars only
-        if (i === 0) ink.roundRect(-bw/2, -bh/2, bw, bh, 10).fill({ color: fg, alpha: .04 }).stroke({ color: fg, width: 1, alpha: .25 });
-        if (active) ink.rect(-bw/2, y-rh/2, bw, rh).fill({ color: fg, alpha: .16 });
+        if (i === 0) ink.roundRect(-bw/2, -bh/2, bw, bh, Math.min(16, h * .02)).fill({ color: fg, alpha: .05 }).stroke({ color: fg, width: 1, alpha: .25 });
+        if (active) ink.roundRect(-bw/2 + 4, y-rh/2, bw - 8, rh, 4).fill({ color: fg, alpha: .14 });
         cell.t.anchor.set(0, .5);
-        cell.t.position.set(-bw/2 + Math.min(24, bw * .04), y);
+        cell.t.position.set(-bw/2 + Math.min(28, bw * .045), y);
         if (resize) {
-          let size = Math.min(h * .032, rh * .7);
+          let size = Math.min(h * .042, rh * .6);
           const style = new TextStyle({ fontFamily: MONO, fontSize: size });
           while (size > 8 && CanvasTextMetrics.measureText(cell.text, style).width > bw * .92) style.fontSize = size *= .92;
           cell.t.style.fontSize = size; cell.t.style.whiteSpace = "pre"; cell.fitted = cell.text;

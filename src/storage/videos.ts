@@ -6,7 +6,7 @@ import type { Checkpoint } from "../gen/checkpoints";
 
 export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number };
 export type VideoBundle = {
-  id: string; title: string; createdAt: number; complete: boolean; projectId?: string;
+  id: string; title: string; createdAt: number; complete: boolean;
   source: { pdfPath: string; sectionId: string; sectionTitle: string };
   scenes: StoredScene[];
   checkpoints?: Checkpoint[];
@@ -47,8 +47,8 @@ type SceneEvent = Extract<PipelineEvent, { type: "scene" }>;
  * Tee a pipeline stream into the store: save after every scene (so a partial watch survives),
  * mark complete only if the stream ends cleanly with no scene errors. Save failures never break playback.
  */
-export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"]; projectId?: string }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
-  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, projectId: meta.projectId, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
+export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"] }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
+  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
   let chain: Promise<unknown> = Promise.resolve();
   const persist = () => { const snap = structuredClone(bundle); chain = chain.then(() => store.save(snap)).catch(onError); return chain; };
   return (async function* () {

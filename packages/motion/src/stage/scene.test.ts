@@ -121,3 +121,24 @@ describe("pulse, pose and kinetic variants", () => {
     expect(st(.5).get("w")!.reveal).toBeCloseTo(.5);
   });
 });
+
+describe("whip/push carry the cleared frame out", () => {
+  const sc = Scene.parse({ scene: "t", objects: [{ id: "old", type: "text", text: "old" }, { id: "new", type: "text", text: "new" }], beats: [] });
+  const ev = (verb: string, start: number, end: number, target?: string, args = {}) => ({ start, end, verb: verb as "create", target, args, beat: 0 });
+  const tl = (type: string) => ({ totalSec: 5, insertedSilences: [], events: [
+    ev("create", 0, .4, "old"), ev("transition", 1, 1.3, undefined, { type }), ev("fade", 1, 1.01, "old", { to: 0 }), ev("create", 1, 1.4, "new"),
+  ] });
+  const o = (type: string, t: number, id: string) => applyEventsAt(sc, tl(type), t).objects.get(id)!;
+  it.each(["whip", "push"])("%s: old stays visible and leaves left while new arrives from the right; seek-stable", (type) => {
+    expect(o(type, 1.15, "old").opacity).toBeGreaterThan(0);
+    expect(o(type, 1.15, "old").x).toBeLessThan(.5);
+    expect(o(type, 1.15, "new").x).toBeGreaterThan(.5);
+    expect(o(type, 1.35, "old").opacity).toBe(0);
+    expect(o(type, 1.35, "new").x).toBeCloseTo(.5);
+    expect(o(type, 1.15, "old")).toEqual(o(type, 1.15, "old"));
+  });
+  it("cut swaps instantly", () => {
+    expect(o("cut", 1.02, "old").opacity).toBe(0);
+    expect(o("cut", 1.02, "new").x).toBeCloseTo(.5);
+  });
+});

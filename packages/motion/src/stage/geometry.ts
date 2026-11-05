@@ -99,12 +99,66 @@ export function formatCount(v: number, decimals = 0, prefix = "", suffix = ""): 
 }
 export const counterValue = (from: number, to: number, reveal: number) => from + (to - from) * Math.min(1, Math.max(0, reveal));
 
-/** Word centres (px, block centred on 0,0) for per-word animation; `text` is already wrapped with \n. */
-export function wordPlacements(text: string, size: number, measure: (s: string) => number, lineH = 1.15) {
-  const lines = text.split("\n").map(l => l.split(/\s+/).filter(Boolean)), space = size * .3;
+/** Word centres (px) for per-word animation; `text` is already wrapped with \n. Lines are centred on 0,0, or with
+ * align left/right start/end at x = 0 when `edge` (explicitly placed text), else align inside a centred block. */
+export function wordPlacements(text: string, size: number, measure: (s: string) => number, lineH = 1.15, align: "left" | "center" | "right" = "center", edge = false, space = size * .3) {
+  const lines = text.split("\n").map(l => l.split(/\s+/).filter(Boolean));
+  const widths = lines.map(words => words.map(measure));
+  const lw = widths.map(ws => ws.reduce((a, b) => a + b, 0) + space * Math.max(0, ws.length - 1)), W = Math.max(0, ...lw);
   return lines.flatMap((words, li) => {
-    const ws = words.map(measure), total = ws.reduce((a, b) => a + b, 0) + space * Math.max(0, words.length - 1);
-    let x = -total / 2;
+    const ws = widths[li];
+    let x = align === "left" ? (edge ? 0 : -W / 2) : align === "right" ? (edge ? -lw[li] : W / 2 - lw[li]) : -lw[li] / 2;
     return words.map((word, i) => { const cx = x + ws[i] / 2; x += ws[i] + space; return { word, x: cx, y: (li - (lines.length - 1) / 2) * size * lineH }; });
   });
+}
+
+/** Round every corner of a closed polygon with a quadratic fillet (radius r, at most 45% of either adjacent edge). */
+export function roundPoly(p: Point[], r: number, n = 6): Point[] {
+  return p.flatMap((b, i) => {
+    const a = p[(i + p.length - 1) % p.length], c = p[(i + 1) % p.length];
+    const la = Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, lc = Math.hypot(c[0] - b[0], c[1] - b[1]) || 1, k = Math.min(r, la * .45, lc * .45);
+    const p0: Point = [b[0] + (a[0] - b[0]) / la * k, b[1] + (a[1] - b[1]) / la * k], p2: Point = [b[0] + (c[0] - b[0]) / lc * k, b[1] + (c[1] - b[1]) / lc * k];
+    return Array.from({ length: n + 1 }, (_, j) => { const t = j / n, u = 1 - t; return [u * u * p0[0] + 2 * u * t * b[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * b[1] + t * t * p2[1]] as Point; });
+  });
+}
+
+/** Rotate a closed polygon (no repeated end point) to start where it crosses x = 0 at the top; returns it closed. */
+export function startAtTop(p: Point[]): Point[] {
+  let best = -1, at: Point = p[0], y0 = Infinity;
+  p.forEach((a, i) => {
+    const b = p[(i + 1) % p.length];
+    if ((a[0] <= 0) === (b[0] <= 0) && a[0] !== 0) return;
+    const k = a[0] === b[0] ? 0 : -a[0] / (b[0] - a[0]), y = a[1] + (b[1] - a[1]) * k;
+    if (y < y0) { y0 = y; best = i; at = [0, y]; }
+  });
+  if (best < 0) return [...p, p[0]];
+  const rest = [...p.slice(best + 1), ...p.slice(0, best + 1)];
+  return [at, ...rest, at];
+}
+
+/** Display outline: rounded corners, starting top-centre so it can be traced symmetrically; optional speech-bubble tail. */
+export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity): Outline & { sym: boolean } {
+  const base = shapeOutline(kind, w, h);
+  if (kind === "cylinder") return { ...base, sym: false };
+  let poly = base.fill;
+  if (tail) { // insert a pointer into the longest bottom edge (rect, pill)
+    const b = h / 2, tw = Math.min(w * .07, h * .22), x0 = (tail === "left" ? -1 : 1) * w * .22;
+    let i = -1, best = 0;
+    poly.forEach((a, j) => { const c = poly[(j + 1) % poly.length]; const l = Math.abs(a[0] - c[0]); if (Math.abs(a[1] - b) < 1e-6 && Math.abs(c[1] - b) < 1e-6 && l > best) { best = l; i = j; } });
+    if (i >= 0) {
+      const dir = Math.sign(poly[(i + 1) % poly.length][0] - poly[i][0]) || -1; // edge direction along x
+      const tip: Point = [x0 + (tail === "left" ? -1 : 1) * tw * 1.6, b + h * .32];
+      poly = [...poly.slice(0, i + 1), [x0 - dir * tw, b], tip, [x0 + dir * tw, b], ...poly.slice(i + 1)];
+    }
+  }
+  const r = kind === "circle" ? 0 : Math.min(maxR, Math.min(w, h) * (kind === "rect" ? .16 : .1));
+  const fill = r ? roundPoly(poly, r) : poly;
+  return { pts: startAtTop(fill), fill, sym: true };
+}
+
+/** The visible part of a closed outline traced from its start in both directions at once (one polyline, meets at p = 1). */
+export function symmetricTrace(closed: Point[], p: number): Point[] {
+  if (p >= 1) return closed;
+  const fwd = partialPath(closed, p / 2), back = partialPath([...closed].reverse(), p / 2);
+  return [...fwd.reverse(), ...back.slice(1)];
 }

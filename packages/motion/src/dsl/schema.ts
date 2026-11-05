@@ -6,7 +6,7 @@ import { TREE_OPS } from "./treeOps";
 const id = z.string().regex(/^[A-Za-z_][\w-]*$/);
 const num2 = z.tuple([z.number(), z.number()]);
 export const CreateStyle = z.enum(["draw", "pop", "type", "slide", "stagger"]);
-export const Easing = z.enum(["outCubic", "outBack", "inOutQuad"]);
+export const Easing = z.enum(["outCubic", "outBack", "inOutQuad", "outQuart", "outExpo", "inOutCubic", "inOutExpo", "inExpo", "inOutSine"]);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const animation = { style: CreateStyle.optional(), easing: Easing.optional(), gap: z.number().min(0).max(.9).optional() };
 const index = z.number().int().nonnegative();
@@ -62,7 +62,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), opacity: unit.optional() }),
   obj("KineticText", { text: z.string(), variant: z.string().optional(), size, maxW: unit.optional() }), // variant: slam | punch | words | stack
   obj("Math", { tex: z.string(), size }), // KaTeX
-  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional() }),
+  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape
   obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
   obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
   obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure

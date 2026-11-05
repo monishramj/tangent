@@ -1,148 +1,265 @@
-import { memo, useEffect, useState } from "react";
-import Glass from "@/components/Glass";
-import { newId, projects, tauriJsonStore, type JsonStore, type Project } from "../storage/projects";
+import { useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { File02Icon, PlayIcon, Upload04Icon } from "@hugeicons/core-free-icons";
+import AnimatedList from "@/components/AnimatedList";
+import Icon from "@/components/Icon";
+import ShinyText from "@/components/ShinyText";
+import SpotlightCard from "@/components/SpotlightCard";
+import { listSections, type IR, type SectionRef } from "./api";
+import GiphyKey from "./GiphyKey";
+import { loadIr, type LoadProgress } from "../library";
+import { tauriJsonStore, type JsonStore } from "../storage/store";
 import { tauriVideoStore, videoDuration, type VideoBundle, type VideoStore } from "../storage/videos";
 
-export const EMOJIS = ["📘", "🧮", "💻", "🧠", "📊", "⚙️", "🧪", "🎨", "🔬", "📐"];
-export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-const updated = (p: Project) => Math.max(p.createdAt, ...p.sources.map(s => s.addedAt), ...p.notes.map(n => n.createdAt));
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-const btn = "flex min-h-11 items-center justify-center rounded-lg border border-line px-4 text-fg hover:bg-fg/10";
-const input = "min-h-11 rounded-lg border border-line bg-transparent px-3 text-fg placeholder:text-subtle";
+export type StartMeta = { pdfPath: string; title: string };
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export type HomeProps = {
-  store?: JsonStore; videoStore?: VideoStore;
-  onOpenProject: (p: Project) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void;
+const KEY = "tangent.recent";
+type Recent = { path: string; sectionId: string; title: string };
+type State =
+  | { s: "idle" }
+  | { s: "loading"; name: string; progress?: LoadProgress }
+  | { s: "error"; msg: string }
+  | { s: "pick"; path: string; ir: IR; sections: SectionRef[] };
+
+const readRecent = (): Recent[] => {
+  try { return JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch { return []; }
 };
+const pages = (a: { page: number }[]) => {
+  if (!a.length) return "";
+  const [lo, hi] = [Math.min(...a.map((x) => x.page)), Math.max(...a.map((x) => x.page))];
+  return lo === hi ? `p. ${lo}` : `pp. ${lo}-${hi}`;
+};
+const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const btn = "flex h-11 items-center gap-2 rounded-lg border border-line px-4 text-fg hover:bg-fg/10";
 
-function EmojiPicker({ value, onChange }: { value: string; onChange: (e: string) => void }) {
-  return (
-    <div role="radiogroup" aria-label="Emoji" className="flex flex-wrap gap-1">
-      {EMOJIS.map(e => (
-        <button key={e} type="button" role="radio" aria-checked={value === e} aria-label={`Emoji ${e}`} onClick={() => onChange(e)}
-          className={`flex size-11 items-center justify-center rounded-lg text-xl ${value === e ? "bg-fg/20 ring-1 ring-fg" : "hover:bg-fg/10"}`}>{e}</button>
-      ))}
-    </div>
-  );
-}
+// Tauri webviews give no File.path, so there the dialog plugin / drag-drop event supply absolute paths;
+// the file input and DOM drop remain the browser/jsdom fallback.
+const isTauri = () => "__TAURI_INTERNALS__" in window;
+const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
+const notPdf = "That isn't a PDF. Choose a .pdf file.";
 
-function Home({ store = tauriJsonStore, videoStore = tauriVideoStore, onOpenProject, onDemo, onOpenVideo }: HomeProps) {
-  const [list, setList] = useState<Project[] | null>(null);
+export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore }: {
+  onStart?: (sectionId: string, ir: IR, meta: StartMeta) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
+}) {
   const [videos, setVideos] = useState<VideoBundle[]>([]);
-  const [draft, setDraft] = useState<{ name: string; emoji: string } | null>(null);
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-  const [menu, setMenu] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const db = projects(store);
-
-  useEffect(() => {
-    let live = true;
-    db.list().then(l => live && setList(l), e => live && (setList([]), setError(`Couldn't load projects: ${e}`)));
-    videoStore.list().then(v => live && setVideos(v), () => {});
-    return () => { live = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, videoStore]);
-
-  const create = async () => {
-    if (!draft?.name.trim()) return;
-    const p: Project = { id: newId("p"), name: draft.name.trim(), emoji: draft.emoji, createdAt: Date.now(), sources: [], notes: [] };
-    try { await db.save(p); setList(l => [p, ...(l ?? [])]); setDraft(null); } catch (e) { setError(`Couldn't create project: ${e}`); }
-  };
-  const rename = async (p: Project) => {
-    const name = renaming?.name.trim();
-    setRenaming(null);
-    if (!name || name === p.name) return;
-    const next = { ...p, name };
-    try { await db.save(next); setList(l => l!.map(x => x.id === p.id ? next : x)); } catch (e) { setError(`Couldn't rename: ${e}`); }
-  };
+  const [choice, setChoice] = useState<{ saved: VideoBundle; title: string; regenerate: () => void } | null>(null);
+  useEffect(() => { let live = true; store.list().then(v => live && setVideos(v), () => {}); return () => { live = false; }; }, [store]);
   const remove = async (id: string) => {
     setConfirm(null);
-    try { await db.remove(id); setList(l => l!.filter(x => x.id !== id)); } catch (e) { setError(`Couldn't delete: ${e}`); }
+    try { await store.remove(id); setVideos(v => v.filter(x => x.id !== id)); } catch (e) { setState({ s: "error", msg: `Couldn't delete: ${e}` }); }
+  };
+  const savedFor = (path: string, sectionId: string) => videos.find(v => v.source.pdfPath === path && v.source.sectionId === sectionId);
+  const [state, setState] = useState<State>({ s: "idle" });
+  const [recent, setRecent] = useState(readRecent);
+  const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  // Parsed once per file: the IR is cached in the app store and figures land in app data (see library.ts).
+  const ingest = (path: string, name: string) => {
+    setState({ s: "loading", name });
+    return loadIr(path, progress => setState(s => s.s === "loading" ? { ...s, progress } : s), jsonStore);
+  };
+  const load = async (path: string, name = path) => {
+    try {
+      const ir = await ingest(path, name);
+      setState({ s: "pick", path, ir, sections: await listSections(ir) });
+    } catch (e) {
+      setState({ s: "error", msg: String(e) });
+    }
+  };
+  const take = (f?: File) => {
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name)) return setState({ s: "error", msg: notPdf });
+    load(pathOf(f), f.name);
+  };
+  const takePath = (p: string) => load(p, p.split(/[\\/]/).pop());
+  const choose = async () => {
+    if (!isTauri()) return input.current?.click();
+    const p = await open({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (typeof p === "string") takePath(p);
+  };
+  const dropped = useRef(takePath);
+  dropped.current = takePath;
+  useEffect(() => {
+    if (!isTauri()) return;
+    const un = getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") return setOver(true);
+      setOver(false);
+      if (p.type !== "drop" || !p.paths.length) return;
+      const pdf = p.paths.find((x) => /\.pdf$/i.test(x));
+      pdf ? dropped.current(pdf) : setState({ s: "error", msg: notPdf });
+    });
+    return () => { un.then((f) => f()); };
+  }, []);
+  const start = (path: string, ir: IR, sectionId: string, title: string) => {
+    const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
+    localStorage.setItem(KEY, JSON.stringify(next));
+    setRecent(next);
+    const go = () => onStart(sectionId, ir, { pdfPath: path, title });
+    const saved = savedFor(path, sectionId);
+    if (saved) setChoice({ saved, title, regenerate: go }); else go();
+  };
+  const reopen = async (r: Recent) => {
+    const regenerate = async () => {
+      setChoice(null);
+      try { onStart(r.sectionId, await ingest(r.path, r.title), { pdfPath: r.path, title: r.title }); }
+      catch (e) { setState({ s: "error", msg: String(e) }); }
+    };
+    const saved = savedFor(r.path, r.sectionId);
+    if (saved) return setChoice({ saved, title: r.title, regenerate });
+    try {
+      const ir = await ingest(r.path, r.title);
+      onStart(r.sectionId, ir, { pdfPath: r.path, title: r.title });
+    } catch (e) {
+      setState({ s: "error", msg: String(e) });
+    }
   };
 
-  const unsorted = list && list.length === 0 && onOpenVideo ? videos.filter(v => v.projectId === undefined) : [];
-
   return (
-    <main className="h-screen overflow-y-auto bg-bg px-6 py-12">
-      <div className="mx-auto flex max-w-5xl flex-col gap-10">
-        <header>
-          <h1 className="text-5xl font-bold tracking-tight">Tangent</h1>
-          <p className="mt-2 text-base text-muted">Turn your textbooks into videos you can interrupt.</p>
+    <main className="h-screen overflow-y-auto bg-bg px-8 py-12">
+      <div className="mx-auto flex max-w-2xl flex-col gap-10">
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-5xl font-semibold tracking-tight">Tangent</h1>
+            <p className="mt-2 text-base text-muted">Drop in a chapter. Pick a section. Watch, and interrupt whenever you like.</p>
+          </div>
+          <GiphyKey />
         </header>
-        {error && <p role="alert" className="text-fg">{error}</p>}
 
-        <section aria-label="Projects" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(list ?? []).map(p => {
-            const nv = videos.filter(v => v.projectId === p.id).length;
-            return (
-              <Glass key={p.id} className="relative flex min-h-36 flex-col rounded-2xl p-4">
-                {renaming?.id === p.id ? (
-                  <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); rename(p); }}>
-                    <input aria-label="Project name" autoFocus className={input} value={renaming.name} onChange={e => setRenaming({ id: p.id, name: e.target.value })} onKeyDown={e => e.key === "Escape" && setRenaming(null)} />
-                    <div className="flex gap-2"><button type="submit" className={btn}>Save</button><button type="button" className={btn} onClick={() => setRenaming(null)}>Cancel</button></div>
-                  </form>
-                ) : confirm === p.id ? (
-                  <div className="flex flex-col gap-2">
-                    <p>Delete “{p.name}”? Its videos stay saved.</p>
-                    <div className="flex gap-2"><button type="button" className={btn} onClick={() => remove(p.id)}>Confirm delete</button><button type="button" className={btn} onClick={() => setConfirm(null)}>Keep</button></div>
-                  </div>
-                ) : (
+        {state.s === "pick" ? (
+          <section aria-label="Choose a section" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Pick a section</h2>
+              <button type="button" className={btn} onClick={() => setState({ s: "idle" })}>Choose another PDF</button>
+            </div>
+            <AnimatedList
+              items={state.sections.map((x) => ({ id: x.id, title: x.title, meta: pages(x.anchors) }))}
+              ariaLabel="Sections"
+              onItemSelect={(_, i) => { const x = state.sections[i]; start(state.path, state.ir, x.id, x.title); }}
+              frame={false}
+              showGradients={false}
+              width="100%"
+              maxHeight="none"
+              gap={4}
+              radius={8}
+              itemClassName="min-h-11"
+              style={{ "--al-tile": "transparent", "--al-tile-edge": "transparent", "--al-tile-highlight": "transparent", "--al-tile-shadow": "none", "--al-ink": "var(--fg)", "--al-muted": "var(--fg-muted)", "--al-ring": "rgba(255,255,255,0.5)", "--al-ring-fill": "rgba(255,255,255,0.04)", "--al-hover": "none", "--al-active": "none" } as React.CSSProperties}
+              renderItem={(_, i) => {
+                const x = state.sections[i];
+                return (
                   <>
-                    <button type="button" aria-label={`Open ${p.name}`} onClick={() => onOpenProject(p)} className="flex flex-1 flex-col items-start gap-1 rounded-lg text-left">
-                      <span className="text-3xl" aria-hidden="true">{p.emoji}</span>
-                      <span className="mt-2 text-xl font-semibold tracking-tight">{p.name}</span>
-                      <span className="text-sm text-muted">{plural(p.sources.length, "source")} · {plural(nv, "video")}</span>
-                      <span className="text-xs text-subtle">Updated {new Date(updated(p)).toLocaleDateString()}</span>
-                    </button>
-                    <button type="button" aria-label={`Options for ${p.name}`} aria-expanded={menu === p.id} onClick={() => setMenu(menu === p.id ? null : p.id)} className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-lg hover:bg-fg/10">⋯</button>
-                    {menu === p.id && (
-                      <div className="absolute right-2 top-12 z-10 flex flex-col rounded-lg border border-line bg-surface p-1">
-                        <button type="button" className={btn + " border-0"} onClick={() => { setMenu(null); setRenaming({ id: p.id, name: p.name }); }}>Rename</button>
-                        <button type="button" className={btn + " border-0"} onClick={() => { setMenu(null); setConfirm(p.id); }}>Delete</button>
-                      </div>
-                    )}
+                    <span style={{ paddingLeft: Math.max(0, x.level - 1) * 20 }} className={`flex-1 ${x.level <= 1 ? "text-fg" : "text-muted"}`}>{x.title}</span>
+                    <span className="text-xs text-subtle tabular-nums">{pages(x.anchors)}</span>
                   </>
-                )}
-              </Glass>
-            );
-          })}
+                );
+              }}
+            />
+          </section>
+        ) : (
+          // React Bits SpotlightCard: a soft white light follows the pointer (and keyboard focus) across the drop zone.
+          <SpotlightCard
+            data-testid="dropzone"
+            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files[0]); }}
+            spotlightColor="#ffffff" intensity={0.08} spotlightSize={320} borderGlow={0.5}
+            style={{ "--spotlight-card-surface": over ? "rgba(255,255,255,0.05)" : "transparent", "--spotlight-card-border": over ? "rgba(255,255,255,0.7)" : "var(--line)", "--spotlight-card-shadow": "none" } as React.CSSProperties}
+            className="flex flex-col items-center gap-4 !rounded-2xl !px-6 !py-14 text-center transition-[background-color] duration-200"
+          >
+            {state.s === "loading" ? (
+              <div role="status" className="flex w-full max-w-sm flex-col items-center gap-3 text-base text-muted">
+                <ShinyText text={`Reading ${state.name}...`} color={css("--fg-subtle")} shineColor={css("--fg")} />
+                {state.progress && <>
+                  <div aria-hidden className="h-1 w-full overflow-hidden rounded-full bg-fg/10">
+                    <div className="h-full origin-left rounded-full bg-fg transition-transform duration-500 ease-out" style={{ transform: `scaleX(${state.progress.fraction})` }} />
+                  </div>
+                  <span className="text-xs text-subtle tabular-nums">{state.progress.label}</span>
+                </>}
+              </div>
+            ) : state.s === "error" ? (
+              <>
+                <p role="alert" className="text-base text-fg">Couldn't read that PDF: {state.msg}</p>
+                <button type="button" className={btn} onClick={() => setState({ s: "idle" })}>Try again</button>
+              </>
+            ) : (
+              <>
+                <Icon icon={Upload04Icon} size={32} className="text-subtle" />
+                <p className="text-base text-muted">Drop a PDF here</p>
+                <button type="button" className={btn} onClick={choose}>
+                  <Icon icon={File02Icon} size={20} />
+                  Choose PDF
+                </button>
+              </>
+            )}
+            <input ref={input} type="file" accept="application/pdf,.pdf" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { take(e.target.files?.[0]); e.target.value = ""; }} />
+          </SpotlightCard>
+        )}
 
-          {draft ? (
-            <Glass className="rounded-2xl p-4">
-              <form className="flex flex-col gap-3" onSubmit={e => { e.preventDefault(); create(); }}>
-                <input aria-label="Project name" autoFocus className={input} placeholder="e.g. CS 251" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} onKeyDown={e => e.key === "Escape" && setDraft(null)} />
-                <EmojiPicker value={draft.emoji} onChange={emoji => setDraft({ ...draft, emoji })} />
-                <div className="flex gap-2"><button type="submit" className={btn} disabled={!draft.name.trim()}>Create</button><button type="button" className={btn} onClick={() => setDraft(null)}>Cancel</button></div>
-              </form>
-            </Glass>
+        {choice && (
+          <section role="dialog" aria-label="Saved video found" className="flex flex-col gap-3 rounded-2xl border border-line p-4">
+            <p className="text-base text-fg">You already have a video for “{choice.title}”.</p>
+            <div className="flex gap-2">
+              <button type="button" className={btn} onClick={() => { onOpenVideo(choice.saved); setChoice(null); }}>Open saved</button>
+              <button type="button" className={btn} onClick={() => { const r = choice.regenerate; setChoice(null); r(); }}>Regenerate</button>
+              <button type="button" className={btn} onClick={() => setChoice(null)}>Cancel</button>
+            </div>
+          </section>
+        )}
+
+        <section aria-labelledby="videos" className="flex flex-col gap-3">
+          <h2 id="videos" className="text-lg font-semibold">Your videos</h2>
+          {videos.length === 0 ? (
+            <p className="text-sm text-subtle">No saved videos yet.</p>
           ) : (
-            <button type="button" aria-label="New project" onClick={() => setDraft({ name: "", emoji: EMOJIS[0] })} className="flex min-h-36 flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-line text-muted hover:bg-fg/5 hover:text-fg">
-              <span className="text-3xl" aria-hidden="true">+</span>
-              <span>New project</span>
-            </button>
+            <ul aria-label="Your videos" className="flex flex-col gap-1">
+              {videos.map((v) => (
+                <li key={v.id} className="flex items-center gap-2">
+                  <button type="button" onClick={() => onOpenVideo(v)} className="flex min-h-11 flex-1 flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
+                    <span className="text-fg">{v.title}</span>
+                    <span className="text-xs text-subtle">
+                      {clock(videoDuration(v))} · {new Date(v.createdAt).toLocaleDateString()} · {v.complete ? "Complete" : "Partial"}
+                    </span>
+                  </button>
+                  {confirm === v.id ? (
+                    <>
+                      <button type="button" className={btn} onClick={() => remove(v.id)}>Confirm delete</button>
+                      <button type="button" className={btn} onClick={() => setConfirm(null)}>Keep</button>
+                    </>
+                  ) : (
+                    <button type="button" aria-label={`Delete ${v.title}`} className={btn} onClick={() => setConfirm(v.id)}>Delete</button>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 
-        {unsorted.length > 0 && (
-          <section aria-label="Unsorted videos" className="flex flex-col gap-3">
-            <h2 className="text-lg font-semibold">Unsorted videos</h2>
-            <ul className="flex flex-wrap gap-2">
-              {unsorted.map(v => (
-                <li key={v.id}>
-                  <button type="button" onClick={() => onOpenVideo!(v)} className="flex min-h-11 flex-col items-start rounded-lg border border-line px-3 py-2 text-left hover:bg-fg/10">
-                    <span>{v.title}</span>
-                    <span className="text-xs text-subtle">{clock(videoDuration(v))} · {new Date(v.createdAt).toLocaleDateString()}</span>
+        <section aria-labelledby="recent" className="flex flex-col gap-3">
+          <h2 id="recent" className="text-lg font-semibold">Recent videos</h2>
+          {recent.length === 0 ? (
+            <p className="text-sm text-subtle">No recent videos yet.</p>
+          ) : (
+            <ul aria-label="Recent videos" className="flex flex-col gap-1">
+              {recent.map((r) => (
+                <li key={r.path + r.sectionId}>
+                  <button type="button" onClick={() => reopen(r)} className="flex min-h-11 w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
+                    <span className="text-fg">{r.title}</span>
+                    <span className="text-xs text-subtle">{r.path.split("/").pop()}</span>
                   </button>
                 </li>
               ))}
             </ul>
-          </section>
-        )}
-
-        {onDemo && <button type="button" onClick={onDemo} className="self-start text-sm text-subtle underline hover:text-fg min-h-11">Heapify demo</button>}
+          )}
+          <button type="button" onClick={onDemo} className={`${btn} self-start`}>
+            <Icon icon={PlayIcon} size={20} className="fill-current" />
+            Heapify demo
+          </button>
+        </section>
       </div>
     </main>
   );
 }
-export default memo(Home);

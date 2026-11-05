@@ -11,14 +11,14 @@ const script = JSON.stringify([{ say, visualIntent: "Show an array" }]);
 const scene = JSON.stringify({ beats: [{ say, template: "callout", variant: "box", data: { text: "Arrays grow" } }] });
 // Route by prompt content, not call order: the checkpoint side call runs concurrently with scenes.
 const route = (prompt: string) => prompt.includes("Rewrite the textbook section") ? script : prompt.startsWith("Write checkpoint questions") ? "[]" : scene;
-const audio = { wavPath: "/fake.wav", sec: 2, words: [{ word: "Arrays", start: 0, end: 1 }, { word: "grow.", start: 1, end: 2 }] };
+const audio = { wavPath: "/fake.wav", sec: 2, words: [{ word: "Arrays", start: 0, end: 1 }, { word: "grow.", start: 1, end: 2 }], segments: [{ start: 0, end: 2 }] };
 beforeEach(() => { vi.mocked(invoke).mockReset(); });
 
 it("runs a section with real defaults through fake IPC and returns playable scenes and status", async () => {
   vi.mocked(invoke).mockImplementation(async (command, args) => {
     const a = args as { prompt: string; params: { out_path: string } };
     if (command === "llm_complete") return route(a.prompt);
-    return { wav_path: a.params.out_path, sec: audio.sec, words: audio.words };
+    return { wav_path: a.params.out_path, sec: audio.sec, words: audio.words, segments: audio.segments };
   });
   const session = startSession({ irSection: { markdown: "Source arrays." } });
   expect(session.status()).toBe("idle");
@@ -36,7 +36,7 @@ it("accepts provider and TTS overrides without IPC", async () => {
   const ttsAlign = vi.fn().mockResolvedValue(audio);
   const session = startSession({ irSection: { markdown: "Arrays" }, provider: { complete }, ttsAlign });
   expect((await session.next()).value).toMatchObject({ type: "scene", wavPath: audio.wavPath });
-  expect(ttsAlign).toHaveBeenCalledWith(say, expect.objectContaining({ sceneId: "scene-1", signal: expect.any(AbortSignal) }));
+  expect(ttsAlign).toHaveBeenCalledWith([say], expect.objectContaining({ sceneId: "scene-1", signal: expect.any(AbortSignal) }));
   await session.return();
   expect(invoke).not.toHaveBeenCalled();
 });

@@ -221,12 +221,19 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - `npm run dev` → `/?showcase=<template>&variant=<v>` renders one template with fake timings (dev only) for visual checks.
 - Projects/threads/IR cache/checkpoint results are JSON docs via Rust `store_read/store_write/store_delete` (`<appData>/store`). Figures are written to `<appData>/figures/<sourceId>` (asset scope allows it; this was why figures were always "unavailable"). GIPHY key via `get_secret/set_secret` (Keychain, Settings screen).
 
+**2026-11-05 batch (in progress; motion polish still landing):**
+- LLM CLI locked down: `claude -p` runs with `--tools ""`, disallowed tools, `--strict-mcp-config`, `--setting-sources ""`, no slash commands/session persistence, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, in a fresh empty temp cwd. All untrusted text goes into neutralized `<tag>` data blocks (`src/gen/sanitize.ts`); model output is sanitized + length-capped.
+- Tutor sees the frame (Stage snapshot → `images` via stream-json), an on-screen description (`@motion/stage/describe`), the line being narrated, retrieved section passages and thread history.
+- Narration: `mathToSpeech` rewritten (markdown, lists, ranges, symbols, numbers → words). Beats synthesized per segment with 0.45 s gaps; SceneQueue holds 0.6 s between scenes; the compiler never inserts silence (fixes A/V drift).
+- Player: captions strip under the video, checkpoints pause the video and render inside the frame, persistent Checks strip, seek-bar markers. Home is main's barebones page again; projects/settings removed (in git history).
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
 - The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
-- **Mid-scene silence drifts A/V.** The compiler inserts silence, but the single scene WAV isn't padded, so visuals lag the audio after an insert. Fix: pad the WAV at insert points, or forbid mid-scene inserts.
+- Beat/scene gaps (0.45 s / 0.6 s) are untuned; listen on a real chapter.
+- Checkpoints re-show each session even if answered; Play while a card is open doesn't record a skip.
 - **Objects accumulate only in raw-DSL beats.** Template beats clear the previous frame (unless `keep:true`); escape-hatch objects still rely on the model to fade them.
 - **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.

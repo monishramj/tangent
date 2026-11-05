@@ -4,7 +4,7 @@ import { clamp01, type Point } from "./motion";
 
 //            lean tilt  arm1 up,fore  arm2 up,fore  leg1 thigh,shin  leg2 thigh,shin
 export type Joints = [number, number, number, number, number, number, number, number, number, number];
-const J = (lean: number, tilt: number, a1: [number, number], a2: [number, number], l1: [number, number] = [4, -4], l2: [number, number] = [-4, 4]): Joints =>
+const J = (lean: number, tilt: number, a1: [number, number], a2: [number, number], l1: [number, number] = [11, -4], l2: [number, number] = [-11, 4]): Joints =>
   [lean, tilt, ...a1, ...a2, ...l1, ...l2];
 export const POSE_JOINTS: Record<string, Joints> = {
   stand: J(0, 0, [10, 6], [-10, -6]),

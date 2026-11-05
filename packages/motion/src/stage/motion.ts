@@ -1,15 +1,36 @@
 import type { SceneObject } from "../dsl/schema";
-export type Ease = "outCubic" | "outBack" | "inOutQuad";
+export type Ease = "outCubic" | "outBack" | "inOutQuad" | "outQuart" | "outExpo" | "inOutCubic" | "inOutExpo" | "inExpo" | "inOutSine";
 export type Style = "draw" | "pop" | "type" | "slide" | "stagger";
 export const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
 export const progress = (t: number, start: number, end: number) => end <= start ? Number(t >= start) : clamp01((t - start) / (end - start));
+// Penner curves (pure; no ticker: every value is a function of the audio clock). outBack overshoots: use it only for punches.
+const EASES: Record<Ease, (p: number) => number> = {
+  outCubic: p => 1 - (1 - p) ** 3,
+  outQuart: p => 1 - (1 - p) ** 4,
+  outExpo: p => 1 - 2 ** (-10 * p),
+  inExpo: p => 2 ** (10 * p - 10),
+  outBack: p => 1 + 2.70158 * (p - 1) ** 3 + 1.70158 * (p - 1) ** 2,
+  inOutQuad: p => p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2,
+  inOutCubic: p => p < .5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2,
+  inOutExpo: p => p < .5 ? 2 ** (20 * p - 10) / 2 : (2 - 2 ** (-20 * p + 10)) / 2,
+  inOutSine: p => -(Math.cos(Math.PI * p) - 1) / 2,
+};
 export function ease(p: number, name: Ease = "outCubic") {
   p = clamp01(p);
   if (p === 0 || p === 1) return p;
-  if (name === "outBack") return 1 + 2.70158 * (p - 1) ** 3 + 1.70158 * (p - 1) ** 2;
-  if (name === "inOutQuad") return p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
-  return 1 - (1 - p) ** 3;
+  return (EASES[name] ?? EASES.outCubic)(p);
 }
+/** Motion tokens (seconds / stage fractions) shared by the state and the renderer, so every entrance feels the same. */
+export const MOTION = {
+  rise: .025, // text/word entrances rise this much (fraction of stage height) while fading in
+  slide: .06, // "slide" entrances travel this far (fraction of stage width), not across the whole stage
+  punchSec: .35, // highlight punch: a single scale bump, then hold (no looping wobble)
+  punch: .06,
+};
+/** Stroke width (px) for a stage of height h: one scale for shapes, connectors, components and charts. */
+export const strokeW = (h: number, k = 1) => Math.max(1.5, h * .0036 * k);
+/** 0..1 sub-window of a progress value: window(p, .6, 1) is 0 until p = .6, then ramps to 1 at p = 1. */
+export const window01 = (p: number, a: number, b: number) => clamp01((p - a) / (b - a));
 export const defaultStyle = (o: SceneObject): Style => {
   if (o.style) return o.style;
   if (["shape", "arrow", "line"].includes(o.type)) return "draw";

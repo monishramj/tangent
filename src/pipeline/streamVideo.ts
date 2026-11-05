@@ -3,7 +3,7 @@ import { generateGroupScene } from "../gen/scene";
 import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
 import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/checkpoints";
 import { resolveGifs, type GifSearch } from "../media/giphy";
-import { splitBeatAudio } from "./splitAudio";
+import { splitBeatAudio, type Segment } from "./splitAudio";
 import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "@motion/dsl/ops";
 import { resolveAnchor, type Timeline, type Word } from "@motion/dsl/compile";
@@ -24,8 +24,12 @@ type Options = {
   onStatus?: (status: GenerationStatus) => void;
   sectionMarkdown: string;
   provider: LLMProvider;
-  ttsAlign: (text: string, options?: { signal?: AbortSignal; sceneId: string }) => Promise<{
-    wavPath: string; sec: number; words: Word[];
+  /**
+   * Synthesize one scene WAV from its spoken beats (one segment each, separated by a short silence)
+   * and return word times plus each segment's {start, end}, all on that WAV's clock.
+   */
+  ttsAlign: (segments: string[], options?: { signal?: AbortSignal; sceneId: string }) => Promise<{
+    wavPath: string; sec: number; words: Word[]; segments: Segment[];
   }>;
   concurrency?: number;
   /** Scenes allowed to be in flight or ready beyond the one being played. */
@@ -81,9 +85,10 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         onStatus?.("generating narration");
         progress("narration", index);
         const spoken = beats.map(beat => mathToSpeech(beat.say));
-        // One wav per scene; beat boundaries stay as sentence boundaries in the joined text.
+        // One wav per scene, one segment per beat: the sidecar puts a pause after each beat and reports
+        // where each beat starts, so clips are cut on real boundaries.
         // Audio survives a failed scene attempt; only the DSL is retried.
-        audio ??= await Promise.race([ttsAlign(spoken.join(" "), { sceneId, signal: controller.signal }), aborted]);
+        audio ??= await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
         checkAbort();
         if (!audio.wavPath?.trim() || !Number.isFinite(audio.sec) || audio.sec <= 0 || !audio.words.length)
           { audio = undefined; throw new Error("Invalid alignment audio"); }
@@ -93,6 +98,13 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
             || word.start < end || word.end < word.start || word.end > audio.sec)
             { audio = undefined; throw new Error("Invalid alignment word timestamps"); }
           end = word.end;
+        }
+        if (audio.segments?.length !== spoken.length) { audio = undefined; throw new Error("Invalid alignment segments"); }
+        end = 0;
+        for (const seg of audio.segments) {
+          if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.start < end || seg.end < seg.start || seg.end > audio.sec + 1e-6)
+            { audio = undefined; throw new Error("Invalid alignment segments"); }
+          end = seg.end;
         }
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
@@ -120,7 +132,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
             return { ...action, at: words[idx].word };
           });
         });
-        // pause 0: beats are contiguous slices of the single wav.
+        // pause 0: beats are contiguous slices of the single wav (each clip already ends with its pause).
         const timeline = compileOps(scene, clips, 0);
         ready_++; progress("ready", index);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };

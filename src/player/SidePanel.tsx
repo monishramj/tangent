@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, PinIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import ShinyText from "@/components/ShinyText";
-import type { LLMProvider } from "@/llm/provider";
-import type { Checkpoint } from "@/gen/checkpoints";
-import type { JsonStore, Thread } from "@/storage/projects";
+import type { Thread } from "@/storage/store";
 import type { Line } from "@/tutor/narration";
-import CheckpointCard from "./CheckpointCard";
 
-export type Tab = "ask" | "transcript" | "check";
+export type Tab = "ask" | "transcript";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const chip = "inline-flex min-h-10 items-center rounded-full border border-line px-3 text-xs text-subtle tabular-nums transition-colors hover:bg-fg/10 hover:text-fg";
 
@@ -17,9 +14,7 @@ type Props = {
   tab: Tab; onTab: (t: Tab) => void; onClose: () => void; time: number;
   lines: Line[]; threads: Thread[]; activeThread: string | null; onSelectThread: (id: string | null) => void;
   onSend: (q: string, threadId: string | null) => void; thinking: boolean;
-  onSeek: (t: number) => void; onResume: (t: number) => void; onPinNote?: (text: string, t: number) => void;
-  checkpoint: Checkpoint | null; checkpoints: Checkpoint[]; provider: LLMProvider; store: JsonStore; videoId?: string;
-  onCheckpointDone: () => void; onAskAbout: (q: string) => void;
+  onSeek: (t: number) => void; onResume: (t: number) => void;
 };
 
 // Docked beside the video (never over it). Tinted glass, chat-style threads pinned to video moments.
@@ -29,7 +24,7 @@ export default function SidePanel(p: Props) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checkpoint ? [["check", "Check"] as [Tab, string]] : [])];
+  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"]];
   return (
     // Docked beside the video on wide windows; floats over it below lg so the video doesn't shrink to a sliver.
     <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="calc(100% - 1.5rem)" borderRadius={16}
@@ -44,15 +39,12 @@ export default function SidePanel(p: Props) {
       </header>
       {p.tab === "ask" && <Ask {...p} />}
       {p.tab === "transcript" && <Transcript {...p} />}
-      {p.tab === "check" && p.checkpoint && <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <CheckpointCard key={p.checkpoint.id} checkpoint={p.checkpoint} provider={p.provider} store={p.store} videoId={p.videoId} onDone={p.onCheckpointDone} onAskAbout={p.onAskAbout} />
-      </div>}
     </div>
     </GlassSurface>
   );
 }
 
-function Ask({ threads, activeThread, onSelectThread, onSend, thinking, time, onSeek, onResume, onPinNote }: Props) {
+function Ask({ threads, activeThread, onSelectThread, onSend, thinking, time, onSeek, onResume }: Props) {
   const thread = threads.find(t => t.id === activeThread);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView?.({ block: "end" }); }, [thread?.messages.length, thinking]);
@@ -68,12 +60,9 @@ function Ask({ threads, activeThread, onSelectThread, onSend, thinking, time, on
               <button type="button" className={chip} onClick={() => onSeek(thread.t)}>▶ {clock(thread.t)}</button>
             </div>
             {thread.messages.map((m, i) => (
-              <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+              <div key={i} className={`fade-up flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                 <p className={`max-w-[88%] rounded-2xl px-3 py-2 text-[15px] leading-snug ${m.role === "user" ? "bg-fg text-bg" : "border border-line bg-fg/5 text-fg"}`}>{m.text}</p>
-                {m.role === "tutor" && <div className="flex gap-1">
-                  {onPinNote && <button type="button" onClick={() => onPinNote(`Q: ${thread.messages[i - 1]?.text ?? thread.title}\nA: ${m.text}`, thread.t)} className={`${chip} flex items-center gap-1`}><Icon icon={PinIcon} size={12} />Pin to notes</button>}
-                  {i === thread.messages.length - 1 && <button type="button" onClick={() => onResume(thread.t)} className={`${chip} flex items-center gap-1`}><Icon icon={PlayIcon} size={12} className="fill-current" />Resume</button>}
-                </div>}
+                {m.role === "tutor" && i === thread.messages.length - 1 && <button type="button" onClick={() => onResume(thread.t)} className={`${chip} flex items-center gap-1`}><Icon icon={PlayIcon} size={12} className="fill-current" />Resume</button>}
               </div>
             ))}
             {thinking && <p role="status" aria-label="Thinking" className="text-sm"><ShinyText text="Thinking…" color="rgba(255,255,255,.5)" shineColor="#fff" /></p>}
@@ -88,7 +77,7 @@ function Ask({ threads, activeThread, onSelectThread, onSend, thinking, time, on
               </button>
             </li>)}
           </ul>
-        ) : <p className="pt-6 text-center text-sm text-subtle">Paused at {clock(time)}. Ask anything about this moment.<br />Your questions stay here as threads you can come back to.</p>}
+        ) : <p className="pt-6 text-center text-sm text-subtle">Paused at {clock(time)}. Ask about what's on screen or what was just said.<br />Your questions stay here as threads you can come back to.</p>}
       </div>
       <form className="flex items-end gap-2 border-t border-line p-3" onSubmit={e => { e.preventDefault(); submit(); }}>
         {thread && <button type="button" aria-label="New question" onClick={() => onSelectThread(null)} className="grid size-11 shrink-0 place-items-center rounded-full border border-line text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={PlusSignIcon} size={18} /></button>}

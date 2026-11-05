@@ -121,10 +121,11 @@ function visualAt(c: C, base: string, v: { icon?: string; emoji?: string }, x: n
 // Each expander gets parsed data and a variant; it adds objects + actions through the context.
 const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v: string) => void } = {
   title(c, d, v) {
-    if (d.kicker) c.add({ id: c.id("kicker"), type: "text", text: d.kicker.toUpperCase(), x: .5, y: .27, size: .04, opacity: .6 }, frac(0), { style: "type" });
-    const id = c.add({ id: c.id("title"), type: "KineticText", text: d.text, variant: v, x: .5, y: .46, size: d.text.length > 18 ? .11 : .15, maxW: .86 }, frac(.05));
+    const size = d.text.length > 18 ? .12 : d.text.length > 10 ? .16 : .2, y = d.icon || d.emoji ? .45 : .5;
+    if (d.kicker) c.add({ id: c.id("kicker"), type: "text", text: d.kicker.toUpperCase(), x: .5, y: y - size * .5 - .07, size: .038, opacity: .55 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id("title"), type: "KineticText", text: d.text, variant: v, x: .5, y, size, maxW: .84 }, frac(.05));
     if (v === "punch") c.act({ at: frac(.05), do: "camera", shake: .02, duration: .4 });
-    visualAt(c, "title_v", d, .5, .72, .14, frac(.45));
+    visualAt(c, "title_v", d, .5, y + size * .5 + .13, .13, frac(.45));
     void id;
   },
   stat(c, d, v) {
@@ -134,13 +135,13 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     c.add({ id: c.id("stat_label"), type: "text", text: d.label, x: side ? .66 : .5, y: side ? .64 : .7, size: .05, maxW: side ? .5 : .8 }, frac(.4), { style: "type" });
   },
   versus(c, d, v) {
-    const sides = [[d.left, .26, "left", .05], [d.right, .74, "right", .5]] as const;
+    const sides = [[d.left, .25, "left", .05], [d.right, .75, "right", .5]] as const;
     for (const [side, x, edge, f] of sides) {
       const when = frac(f), slide = v === "cards" ? { style: "slide", edge } : { style: "pop" };
-      if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .4, height: .72 }, when, { style: "draw" });
-      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .25, size: .055, maxW: .36 }, when, slide);
-      visualAt(c, `${edge}_v`, side, x, .45, .16, when);
-      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .63 + i * .075, size: .033, maxW: .34, opacity: .75 }, frac(f + .12 + i * .08), { style: "type" }));
+      if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .36, height: .7 }, when, { style: "draw", duration: .6 });
+      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .27, size: .055, maxW: .32, opacity: 1 }, when, slide);
+      visualAt(c, `${edge}_v`, side, x, .46, .15, when);
+      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .63 + i * .07, size: .033, maxW: .3, opacity: .75 }, frac(f + .12 + i * .08), { style: "type" }));
     }
     c.add({ id: c.id("vs"), type: "KineticText", text: "VS", variant: "punch", x: .5, y: .5, size: .08 }, frac(.38));
   },
@@ -152,51 +153,53 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
       if (v === "grid") {
         const cols = n <= 3 ? n : Math.ceil(n / 2), row = Math.floor(i / cols), col = i % cols, inRow = Math.min(cols, n - row * cols);
         const x = .5 + (col - (inRow - 1) / 2) * .29, y = (n <= 3 ? .55 : .42 + row * .32) + (d.title ? .03 : 0);
-        c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw" });
+        c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw", duration: .6 });
         visualAt(c, `card${i}_v`, it, x, y - .05, .1, when[i]);
         c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .033, maxW: .22 }, when[i], { style: "type" });
       } else if (v === "steps") {
-        const x = .5 + (i - (n - 1) / 2) * Math.min(.22, .84 / n);
-        const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .5, width: .07, height: .12, filled: i === n - 1 }, when[i]);
+        const x = .5 + (i - (n - 1) / 2) * Math.min(.24, .86 / n);
+        const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .52, width: .09, height: .16, filled: i === n - 1 }, when[i], { style: "draw", duration: .5 });
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: `${c.objects.find(o => o.id.startsWith(`step${i - 1}`))?.id}`, to: dot }, when[i], { style: "draw" });
-        visualAt(c, `step${i}_v`, it, x, .34, .09, when[i]);
-        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .68, size: .03, maxW: Math.min(.2, .8 / n) }, when[i], { style: "type" });
+        visualAt(c, `step${i}_v`, it, x, .33, .09, when[i]);
+        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .7, size: .036, maxW: Math.min(.21, .82 / n), opacity: .85 }, when[i], { style: "type" });
       } else {
         const y = top + i * Math.min(.14, .62 / n);
         visualAt(c, `item${i}_v`, it.icon || it.emoji ? it : { icon: "checkmark-circle" }, .2, y, .075, when[i]);
-        c.add({ id: c.id(`item${i}`), type: "text", text: it.text, x: .26, y, size: .045, maxW: .64, align: "left" }, when[i], { style: "slide", edge: "right" });
+        c.add({ id: c.id(`item${i}`), type: "text", text: it.text, x: .26, y, size: .045, maxW: .64, align: "left", opacity: .9 }, when[i], { style: "slide", edge: "right" });
       }
     });
   },
   character(c, d, v) {
+    // Speech bubbles sit above the speaker with a tail pointing down at them; nothing overlaps the head.
     const right = v === "right", duo = v === "duo" && d.other;
-    const px = duo ? .24 : right ? .72 : .28;
-    const me = c.add({ id: c.id("person"), type: "person", pose: d.pose, facing: right ? "left" : "right", x: px, y: .6, size: .5 }, frac(0), { style: "draw" });
-    const bx = duo ? .32 : right ? .34 : .66;
-    if (d.says) c.add({ id: c.id("says"), type: "shape", shape: "pill", label: d.says, x: bx, y: .17, width: .34, height: .15 }, frac(.15), { style: "pop" });
+    const px = duo ? .25 : right ? .7 : .3;
+    const me = c.add({ id: c.id("person"), type: "person", pose: d.pose, facing: right ? "left" : "right", x: px, y: .62, size: .5 }, frac(0), { style: "draw", duration: .6 });
+    const bx = duo ? .33 : right ? .5 : .5, tail = duo || !right ? "left" : "right";
+    if (d.says) c.add({ id: c.id("says"), type: "shape", shape: "pill", label: d.says, x: bx, y: .17, width: duo ? .32 : .36, height: .14, tail }, frac(.15), { style: "pop" });
     if (d.thinks) {
-      c.add({ id: c.id("bubble"), type: "shape", shape: "circle", x: bx, y: .3, width: .17, height: .3 }, frac(.2), { style: "draw" });
-      c.add({ id: c.id("thinks"), type: "text", text: d.thinks, x: bx, y: .3, size: .035, maxW: .13 }, frac(.3), { style: "type" });
+      const tx = right ? .38 : .62;
+      c.add({ id: c.id("bubble"), type: "shape", shape: "circle", x: tx, y: .3, width: .2, height: .34 }, frac(.2), { style: "draw", duration: .6 });
+      c.add({ id: c.id("thinks"), type: "text", text: d.thinks, x: tx, y: .3, size: .035, maxW: .14, opacity: .9 }, frac(.3), { style: "type" });
     }
-    if (!d.thinks) visualAt(c, "prop", d, duo ? .5 : right ? .36 : .64, .62, .2, frac(.35));
+    if (!d.thinks) visualAt(c, "prop", d, duo ? .5 : right ? .4 : .6, .6, .18, frac(.35));
     if (d.poseTo) c.act({ at: frac(.55), do: "pose", target: me, to: d.poseTo });
     if (duo) {
-      c.add({ id: c.id("person2"), type: "person", pose: d.other!.pose, facing: "left", x: .76, y: .6, size: .5 }, frac(.3), { style: "draw" });
-      if (d.other!.says) c.add({ id: c.id("says2"), type: "shape", shape: "pill", label: d.other!.says, x: .68, y: .17, width: .3, height: .15 }, frac(.5), { style: "pop" });
+      c.add({ id: c.id("person2"), type: "person", pose: d.other!.pose, facing: "left", x: .75, y: .62, size: .5 }, frac(.3), { style: "draw", duration: .6 });
+      if (d.other!.says) c.add({ id: c.id("says2"), type: "shape", shape: "pill", label: d.other!.says, x: .67, y: .17, width: .32, height: .14, tail: "right" }, frac(.5), { style: "pop" });
     }
   },
   diagram(c, d, v) {
     const nodes = d.nodes, ids = new Set(nodes.map(n => n.id));
     const edges = d.edges.filter(e => ids.has(e.from) && ids.has(e.to));
     const top = d.title ? .2 : .1, bottom = .9, n = nodes.length;
-    if (d.title) c.add({ id: c.id("diagram_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05 }, frac(0), { style: "type" });
+    if (d.title) c.add({ id: c.id("diagram_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05, opacity: 1 }, frac(0), { style: "type" });
     const place = new Map<string, [number, number]>();
     let w = .16, h = .13, layered: ReturnType<typeof layers> | undefined;
     if (v === "cycle" || v === "hub") {
       const ring = v === "hub" ? nodes.slice(1) : nodes, cy = (top + bottom) / 2;
       if (v === "hub") place.set(nodes[0].id, [.5, cy]);
       ring.forEach((nd, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ring.length; place.set(nd.id, [.5 + .3 * Math.cos(a), cy + .3 * Math.sin(a)]); });
-      w = Math.min(.17, .9 / Math.max(3, ring.length)); h = .12;
+      w = Math.min(.18, .9 / Math.max(3, ring.length)); h = .13;
     } else if (v === "layers") {
       nodes.forEach((nd, i) => place.set(nd.id, [.5, top + (i + .5) * (bottom - top) / n]));
       w = .56; h = Math.min(.12, (bottom - top) / n * .75);
@@ -208,14 +211,14 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
         const main = (l + .5) / L.layerCount, cross = (i - (k - 1) / 2) / Math.max(1, across);
         place.set(nd.id, vertical ? [.5 + cross * .7, top + main * (bottom - top)] : [.06 + main * .88, (top + bottom) / 2 + cross * (bottom - top) * .8]);
       }
-      w = vertical ? Math.min(.22, .7 / across) : Math.min(.17, .8 / L.layerCount * .7);
-      h = vertical ? Math.min(.12, (bottom - top) / L.layerCount * .6) : Math.min(.14, (bottom - top) / across * .55);
+      w = vertical ? Math.min(.24, .7 / across) : Math.min(.19, .88 / L.layerCount * .68);
+      h = vertical ? Math.min(.14, (bottom - top) / L.layerCount * .6) : Math.min(.17, (bottom - top) / across * .55);
     }
     const when = spread(n, d.title ? .1 : 0, .7).map((f, i) => c.anchor(f, nodes[i].at));
     const made = new Map<string, { id: string; i: number }>();
     nodes.forEach((nd, i) => {
       const [x, y] = place.get(nd.id)!;
-      made.set(nd.id, { id: c.add({ id: c.id(nd.id), type: "shape", shape: shapeFor(nd.shape, nd.label), label: nd.label, sublabel: nd.sub, x, y, width: w, height: h }, when[i], { style: "draw" }), i });
+      made.set(nd.id, { id: c.add({ id: c.id(nd.id), type: "shape", shape: shapeFor(nd.shape, nd.label), label: nd.label, sublabel: nd.sub, x, y, width: w, height: h }, when[i], { style: "draw", duration: .6 }), i });
     });
     const edgeIds = new Map<string, string>();
     for (const e of edges) {
@@ -242,8 +245,8 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     (d.notes ?? []).slice(0, 1).forEach(nt => c.add({ id: c.id("note"), type: "text", text: nt.text, x: .5, y: .88, size: .035 }, c.anchor(.6, nt.at), { style: "type" }));
   },
   code(c, d) {
-    if (d.title) c.add({ id: c.id("code_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05 }, frac(0), { style: "type" });
-    const id = c.add({ id: c.id("code"), type: "code", lines: d.lines, x: .5, y: .54, width: .72, height: Math.min(.7, d.lines.length * .065) }, frac(0), { style: "type" });
+    if (d.title) c.add({ id: c.id("code_title"), type: "text", text: d.title, weight: "bold", mono: true, x: .5, y: .12, size: .05, opacity: 1 }, frac(0), { style: "type" });
+    const id = c.add({ id: c.id("code"), type: "code", lines: d.lines, x: .5, y: .55, width: .76, height: Math.min(.7, .06 + d.lines.length * .075) }, frac(0), { style: "type" });
     const hl = (d.highlight ?? []).filter(([a, b]) => a <= b && b < d.lines.length);
     spread(hl.length, .3, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, range: hl[i] }));
   },
@@ -258,7 +261,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
   },
   chart(c, d, v) {
-    if (d.title) c.add({ id: c.id("chart_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .12, size: .05 }, frac(0), { style: "type" });
+    if (d.title) c.add({ id: c.id("chart_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .12, size: .05, opacity: 1 }, frac(0), { style: "type" });
     const n = Math.min(d.labels.length, d.values.length);
     const id = c.add({ id: c.id("chart"), type: "chart", kind: v === "line" ? "line" : "bar", labels: d.labels.slice(0, n), values: d.values.slice(0, n), x: .5, y: .56, width: .72, height: .6 }, frac(.05), { style: v === "line" ? "draw" : "stagger", duration: 1.2 });
     if (d.highlight !== undefined && d.highlight < n) c.act({ at: frac(.75), do: "highlight", target: id, col: d.highlight });
@@ -273,12 +276,13 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (side && d.caption) c.add({ id: c.id("gif_text"), type: "KineticText", text: d.caption, variant: "stack", x: .72, y: .5, size: .08, maxW: .4 }, frac(.15));
   },
   callout(c, d, v) {
-    const id = c.add({ id: c.id("callout"), type: v === "punch" ? "KineticText" : "text", text: d.text, variant: "punch", weight: "bold", x: .5, y: .45, size: .08, maxW: .82 }, frac(0), v === "punch" ? {} : { style: "type" });
-    if (v === "underline") c.add({ id: c.id("callout_line"), type: "line", from: [.18, .58], to: [.82, .58] }, frac(.4), { style: "draw" });
-    if (v === "box") c.add({ id: c.id("callout_box"), type: "shape", shape: "rect", x: .5, y: .5, width: .88, height: .5 }, frac(.25), { style: "draw" });
+    // The frame is pushed before the text so it sits behind it (draw order = object order).
+    const y = d.sub ? .44 : .5;
+    if (v === "box") c.add({ id: c.id("callout_box"), type: "shape", shape: "rect", x: .5, y: d.sub ? .5 : .5, width: .86, height: d.sub ? .48 : .38 }, frac(.25), { style: "draw", duration: .7 });
+    c.add({ id: c.id("callout"), type: v === "punch" ? "KineticText" : "text", text: d.text, variant: "punch", weight: "bold", x: .5, y, size: .085, maxW: .76, opacity: 1 }, frac(0), v === "punch" ? {} : { style: "type" });
+    if (v === "underline") c.add({ id: c.id("callout_line"), type: "line", from: [.2, y + .1], to: [.8, y + .1] }, frac(.4), { style: "draw", duration: .5 });
     if (v === "punch") c.act({ at: frac(.3), do: "camera", zoom: 1.08, duration: 2 });
-    if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: .7, size: .04, opacity: .65 }, frac(.5), { style: "type" });
-    void id;
+    if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .04, opacity: .6 }, frac(.5), { style: "type" });
   },
   table(c, d) {
     const cols = d.headers.length, rows = d.rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ""));
@@ -324,7 +328,7 @@ export function expandTemplates(raw: unknown): { scene: Scene | null; errors: Ex
     }
     if (beat.sticker) visualAt(c, "sticker", beat.sticker, .87, .2, .12, c.anchor(.5, beat.sticker.at));
     if (beat.camera === "drift") c.act({ at: "@0.05", do: "camera", zoom: 1.06, duration: 4 });
-    if (beat.camera === "zoom") c.act({ at: "@0.4", do: "camera", zoom: 1.15, duration: .8, easing: "outBack" });
+    if (beat.camera === "zoom") c.act({ at: "@0.4", do: "camera", zoom: 1.15, duration: .8, easing: "outExpo" });
     if (beat.camera === "shake") c.act({ at: "@0.3", do: "camera", shake: .02, duration: .4 });
     objects.push(...c.objects, ...raws);
     onScreen.push(...c.objects.map(o => o.id), ...raws.map(o => String((o as { id?: unknown }).id)));

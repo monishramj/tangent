@@ -17,6 +17,21 @@ const answerFor = (group: { say: string }[], extra: (k: number) => object = () =
   : { template: "list", variant: "column", data: { items: [{ text: "One" }, { text: "Two" }] } }), ...extra(k) })) });
 const groupOf = (prompt: string) => JSON.parse(prompt.split("Narration beats (JSON):\n")[1].split("\n")[0]) as { say: string }[];
 
+/** Like the sidecar: each segment is synthesized alone (0.5 s per word + 0.5 s), joined by GAP s of silence. */
+const GAP = 0.45;
+function fakeTts(segments: string[], wavPath: string) {
+  const words: { word: string; start: number; end: number }[] = [], spans: { start: number; end: number }[] = [];
+  let t = 0;
+  segments.forEach((seg, k) => {
+    if (k) t += GAP;
+    const parts = seg.split(" ");
+    parts.forEach((word, j) => words.push({ word, start: t + 0.25 + j * 0.5, end: t + 0.65 + j * 0.5 }));
+    spans.push({ start: t, end: t + parts.length * 0.5 + 0.5 });
+    t = spans[k].end;
+  });
+  return { wavPath, sec: t, words, segments: spans };
+}
+
 function setup(count = 4, dslMs = (_i: number) => 200) {
   vi.useFakeTimers();
   vi.setSystemTime(0);
@@ -40,14 +55,13 @@ function setup(count = 4, dslMs = (_i: number) => 200) {
     entry.end = Date.now();
     return answerFor(group);
   }) };
-  const ttsAlign = vi.fn(async (text: string, o?: { sceneId: string }) => {
+  const ttsAlign = vi.fn(async (segments: string[], o?: { sceneId: string }) => {
     const i = Number(o?.sceneId.replace("scene-", "")) - 1;
     const entry = { stage: "tts", i, start: Date.now(), end: 0 };
     trace.push(entry);
     await sleep(100 + i * 20);
     entry.end = Date.now();
-    const words = text.split(" ");
-    return { wavPath: `/tmp/${i}.wav`, sec: words.length * 0.5 + 0.5, words: words.map((word, j) => ({ word, start: 0.25 + j * 0.5, end: 0.65 + j * 0.5 })) };
+    return fakeTts(segments, `/tmp/${i}.wav`);
   });
   const options = { sectionMarkdown: "Arrays grow.", provider, ttsAlign, clock: { now: () => Date.now() } };
   return { beats, trace, provider, ttsAlign, options };
@@ -74,7 +88,8 @@ it("beats playback time with fake latencies and overlaps TTS with the preceding 
       expect(event.generationMs).toBeGreaterThanOrEqual(300);
       expect(event.scene.beats).toHaveLength(sizeOf(n));
       expect(event.timeline.events.filter(e => e.verb === "say")).toHaveLength(sizeOf(n));
-      expect(event.timeline.totalSec).toBeCloseTo(sizeOf(n) * 2 * 0.5 + 0.5, 5); // one wav, no extra beat pauses
+      // one wav: per beat 2 words + 0.5 s, plus the sidecar's gap between beats; no extra compiler pauses
+      expect(event.timeline.totalSec).toBeCloseTo(sizeOf(n) * (2 * 0.5 + 0.5) + (sizeOf(n) - 1) * GAP, 5);
       expect(event.scene.scene).toBe(event.sceneId);
       expect(event.scene.objects[0].id).toBe("arr");
       expect(event.generationMs).toBeLessThan(event.timeline.totalSec * 1000);
@@ -195,7 +210,7 @@ it("converts math before synthesis and rejects rewritten narration", async () =>
     : JSON.stringify({ beats: groupOf(p).map(() => ({ say: "A different script.", template: "callout", variant: "box", data: { text: "x" } })) }));
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
-  expect(ttsAlign.mock.calls.map(call => call[0].slice(0, 16))).toEqual(["x squared grows."]); // audio is reused across the DSL retry
+  expect(ttsAlign.mock.calls.map(call => call[0][0])).toEqual(["x squared grows."]); // audio is reused across the DSL retry
   expect((await events)[0]).toMatchObject({ type: "error", error: expect.objectContaining({ message: expect.stringMatching(/narration/i) }) });
 });
 
@@ -205,7 +220,7 @@ it("compiles math anchors against the expanded spoken words", async () => {
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   const [event] = await events;
-  expect(ttsAlign.mock.calls[0][0].startsWith("x squared grows. SceneAB grows.")).toBe(true);
+  expect(ttsAlign.mock.calls[0][0].slice(0, 2)).toEqual(["x squared grows.", "SceneAB grows."]); // one segment per beat
   expect(event.type).toBe("scene");
   if (event.type === "scene") {
     expect(event.scene.beats[0]).toMatchObject({ say: "x squared grows." });
@@ -215,12 +230,35 @@ it("compiles math anchors against the expanded spoken words", async () => {
 
 it("rejects invalid alignment without calling the scene model", async () => {
   const { options, provider, ttsAlign } = setup(1);
-  ttsAlign.mockResolvedValue({ wavPath: "/tmp/a.wav", sec: 1, words: [{ word: "bad", start: -1, end: 3 }] });
+  ttsAlign.mockResolvedValue({ wavPath: "/tmp/a.wav", sec: 1, words: [{ word: "bad", start: -1, end: 3 }], segments: [{ start: 0, end: 1 }] });
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("error");
   expect(ttsAlign).toHaveBeenCalledTimes(2);
   expect(provider.complete).toHaveBeenCalledTimes(2); // script + checkpoints only
+});
+
+it("rejects alignment whose segments do not match the beats", async () => {
+  const { options, provider, ttsAlign } = setup(1);
+  ttsAlign.mockImplementation(async segments => ({ ...fakeTts(segments, "/tmp/a.wav"), segments: [{ start: 0, end: 1 }] }));
+  const events = collect(streamVideo(options));
+  await vi.runAllTimersAsync();
+  expect((await events)[0]).toMatchObject({ type: "error", error: expect.objectContaining({ message: expect.stringMatching(/segments/) }) });
+  expect(provider.complete).toHaveBeenCalledTimes(2);
+});
+
+it("cuts beats at the returned segment starts, so each beat clip ends with its pause on the single wav clock", async () => {
+  const { options, ttsAlign } = setup(1);
+  const events = collect(streamVideo(options));
+  await vi.runAllTimersAsync();
+  const [event] = await events;
+  if (event.type !== "scene") throw new Error("expected a scene");
+  const audio = await ttsAlign.mock.results[0].value as ReturnType<typeof fakeTts>;
+  const says = event.timeline.events.filter(e => e.verb === "say");
+  expect(says.map(e => e.start)).toEqual(audio.segments.map((s, b) => b === 0 ? 0 : s.start));
+  expect(says.map(e => e.end)).toEqual([...audio.segments.slice(1).map(s => s.start), audio.sec]);
+  expect(event.timeline.totalSec).toBeCloseTo(audio.sec, 9);
+  expect(event.timeline.insertedSilences).toEqual([]);
 });
 
 it("aborts promptly even if a dependency ignores cancellation", async () => {
@@ -263,9 +301,9 @@ it.each([0, -1, 1.5, Infinity])("rejects invalid concurrency %s", concurrency =>
 it.each([0, 1, 2, 3, 4, -1])("drains five scenes with a twice-failed scene at %s across completion orders", async failed => {
   const { options, ttsAlign, beats } = setup(5, i => i % 2 ? 500 : 1);
   const synthesize = ttsAlign.getMockImplementation()!;
-  ttsAlign.mockImplementation(async (text, o) => {
-    if (failed >= 0 && text.startsWith(beats[startOf(failed)].say)) throw new Error("tts offline");
-    return synthesize(text, o);
+  ttsAlign.mockImplementation(async (segments, o) => {
+    if (failed >= 0 && segments[0] === beats[startOf(failed)].say) throw new Error("tts offline");
+    return synthesize(segments, o);
   });
   for (const concurrency of [1, 2, 3]) {
     let results: PipelineEvent[] | undefined;
@@ -281,9 +319,9 @@ it.each([0, 1, 2, 3, 4, -1])("drains five scenes with a twice-failed scene at %s
 it("resumes a paused consumer after an error with no work outstanding", async () => {
   const { options, ttsAlign, beats } = setup(5, i => i === 0 ? 500 : 1);
   const synthesize = ttsAlign.getMockImplementation()!;
-  ttsAlign.mockImplementation(async (text, o) => {
-    if (text.startsWith(beats[startOf(1)].say)) throw new Error("tts offline");
-    return synthesize(text, o);
+  ttsAlign.mockImplementation(async (segments, o) => {
+    if (segments[0] === beats[startOf(1)].say) throw new Error("tts offline");
+    return synthesize(segments, o);
   });
   const stream = streamVideo(options);
   const first = stream.next();

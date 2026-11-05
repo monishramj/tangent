@@ -93,7 +93,7 @@ describe("compileOps", () => {
     expect(scene).toEqual(before);
   });
 
-  it("pads short gaps, keeps later words aligned, and carries state in anchor order across beats and fades", () => {
+  it("compresses into short gaps without silence, keeps words aligned, and carries state in anchor order across beats and fades", () => {
     const scene = Scene.parse({ scene: "t", objects: [array([3, 9, 7, 1, 4])], beats: [
       { say: "go. next", actions: [
         { at: "next", do: "op", target: "h", op: "swap", args: [0, 4] },
@@ -108,14 +108,13 @@ describe("compileOps", () => {
       { words: [{ word: "fade", start: 0, end: 0.1 }, { word: "go", start: 0.4, end: 0.6 }], duration: 2 },
     ];
     const tl = compileOps(scene, audio, 0);
-    expect(tl.insertedSilences[0]).toMatchObject({ beat: 0, afterWord: 0 });
+    expect(tl.insertedSilences).toEqual([]);
     const moves = tl.events.filter(e => e.verb === "move");
     expect(moves.every(e => e.end - e.start >= MIN_SEC - 1e-9)).toBe(true);
-    expect(moves.find(e => e.args.value === 9 && e.args.to === "h.slot[4]")?.start)
-      .toBeCloseTo(0.14 + tl.insertedSilences[0].sec);
+    expect(moves.find(e => e.args.value === 9 && e.args.to === "h.slot[4]")?.start).toBeCloseTo(0.14); // on its word
     expect(moves.some(e => e.beat === 1 && e.args.value === 3)).toBe(true);
     expect(tl.events.find(e => e.verb === "fade")?.args).toEqual({});
-    expect(tl.totalSec).toBeCloseTo(2.3 + tl.insertedSilences.reduce((sum, s) => sum + s.sec, 0));
+    expect(tl.totalSec).toBeCloseTo(2.3);
     for (const e of tl.events) expect(e.end).toBeLessThanOrEqual(tl.totalSec + 1e-9);
   });
 

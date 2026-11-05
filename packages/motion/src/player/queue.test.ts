@@ -15,20 +15,22 @@ const scene = (sceneId: string, totalSec = 5) => ({
     totalSec, insertedSilences: [], events: [0, 2].map(start => ({ start, end: start + 1, verb: "say", beat: start, args: {} })),
   } as Timeline,
 });
-function setup(readyState = 4) {
+// Most tests check scene switching itself, so they run with no inter-scene gap.
+function setup(readyState = 4, gapSec = 0) {
   const audios: FakeAudio[] = [];
   const callbacks = new Map<number, () => void>();
   let id = 0;
   const render = vi.fn();
   const onChange = vi.fn();
   const onError = vi.fn();
-  const queue = new SceneQueue({ render, onChange, onError,
+  const clock = { ms: 0 };
+  const queue = new SceneQueue({ render, onChange, onError, gapSec, now: () => clock.ms,
     createAudio: () => { const audio = new FakeAudio(); audio.readyState = readyState; audios.push(audio); return audio; },
     raf: cb => { callbacks.set(++id, cb); return id; },
     caf: h => { callbacks.delete(h); },
   });
   const frame = () => { for (const [h, cb] of [...callbacks]) { callbacks.delete(h); cb(); } };
-  return { queue, audios, render, onChange, onError, frame, callbacks };
+  return { queue, audios, render, onChange, onError, frame, callbacks, clock };
 }
 
 describe("SceneQueue", () => {
@@ -159,5 +161,81 @@ describe("SceneQueue", () => {
     expect(() => queue.enqueue(scene("bad", 0))).toThrow(/duration/i);
     queue.enqueue(scene("a")); queue.seek(NaN);
     expect(queue.currentTime).toBe(0);
+  });
+});
+
+describe("SceneQueue gap between scenes", () => {
+  const gapped = () => setup(4, 0.6);
+  it("offsets, duration and beat starts include the gap after every scene but the last", () => {
+    const { queue } = gapped();
+    queue.enqueue(scene("a")); queue.enqueue(scene("b", 7)); queue.enqueue(scene("c"));
+    expect(queue.sceneBeats.map(e => e.offset)).toEqual([0, 5.6, 13.2]);
+    expect(queue.duration).toBeCloseTo(18.2, 9);
+    expect(queue.beatStarts).toEqual([0, 2, 5.6, 7.6, 13.2, 15.2]);
+    expect(resumeTime(queue.beatStarts, 5.3)).toBe(2); // the gap belongs to the earlier scene
+  });
+  it("holds the last frame silently for gapSec on the clock, then starts the next scene", () => {
+    const { queue, audios, render, frame, clock } = gapped();
+    queue.enqueue(scene("a")); queue.enqueue(scene("b")); queue.play();
+    audios[0].currentTime = 5; audios[0].dispatchEvent(new Event("ended"));
+    expect(render).toHaveBeenLastCalledWith(expect.objectContaining({ sceneId: "a" }), 5);
+    expect(audios[1].play).not.toHaveBeenCalled();
+    expect(queue.buffering).toBe(false);
+    clock.ms = 300; frame();
+    expect(queue.currentTime).toBeCloseTo(5.3, 9);
+    expect(queue.current?.sceneId).toBe("a");
+    expect(audios[1].play).not.toHaveBeenCalled();
+    clock.ms = 600; frame();
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+    expect(queue.current?.sceneId).toBe("b");
+    expect(queue.currentTime).toBeCloseTo(5.6, 9);
+  });
+  it("pausing freezes the gap; play resumes it where it was", () => {
+    const { queue, audios, frame, clock } = gapped();
+    queue.enqueue(scene("a")); queue.enqueue(scene("b")); queue.play();
+    audios[0].currentTime = 5; frame();
+    clock.ms = 200; queue.pause();
+    clock.ms = 5000;
+    expect(queue.currentTime).toBeCloseTo(5.2, 9);
+    queue.play();
+    clock.ms = 5300; frame();
+    expect(audios[1].play).not.toHaveBeenCalled();
+    clock.ms = 5400; frame();
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+  });
+  it("seeks into a gap (renders the last frame) and across it", () => {
+    const { queue, audios, render, frame, clock } = gapped();
+    queue.enqueue(scene("a")); queue.enqueue(scene("b"));
+    queue.seek(5.4);
+    expect(queue.current?.sceneId).toBe("a");
+    expect(queue.currentTime).toBeCloseTo(5.4, 9);
+    expect(render).toHaveBeenLastCalledWith(expect.objectContaining({ sceneId: "a" }), 5);
+    queue.play(); clock.ms = 200; frame();
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+    queue.seek(6);
+    expect(queue.current?.sceneId).toBe("b");
+    expect(audios[1].currentTime).toBeCloseTo(0.4, 9);
+    queue.seek(1);
+    expect(queue.currentTime).toBe(1);
+  });
+  it("a starved queue waits after the gap; the last scene of a finished queue has no gap", () => {
+    const { queue, audios, frame, clock } = gapped();
+    queue.enqueue(scene("a")); queue.play();
+    audios[0].currentTime = 5; frame();
+    expect(queue.buffering).toBe(false); // the pause first
+    clock.ms = 600; frame();
+    expect(queue.buffering).toBe(true);
+    queue.enqueue(scene("b"));
+    expect(queue.buffering).toBe(false);
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+    expect(queue.currentTime).toBeCloseTo(5.6, 9);
+    queue.finish();
+    audios[1].currentTime = 5; frame();
+    expect(queue.playing).toBe(false);
+    expect(queue.currentTime).toBeCloseTo(10.6, 9);
+    expect(queue.duration).toBeCloseTo(10.6, 9);
+  });
+  it("rejects a negative gap", () => {
+    expect(() => new SceneQueue({ render: () => {}, gapSec: -1 })).toThrow(/gapSec/);
   });
 });
