@@ -1,9 +1,9 @@
 // Script beats -> one templated scene per group. The model only picks templates and fills short slots;
 // templates own layout and timing (see dsl/templates.ts), so output is small, fast and hard to get wrong.
-import { Scene } from "../dsl/schema";
-import { TREE_OPS } from "../dsl/treeOps";
-import { validateScene, type DslError } from "../dsl/validate";
-import { expandTemplates, TEMPLATE_GUIDE, TemplateScene, type TemplateSceneT } from "../dsl/templates";
+import { Scene } from "@motion/dsl/schema";
+import { TREE_OPS } from "@motion/dsl/treeOps";
+import { validateScene, type DslError } from "@motion/dsl/validate";
+import { expandTemplates, TEMPLATE_GUIDE, TemplateScene, type TemplateSceneT } from "@motion/dsl/templates";
 import type { LLMProvider } from "../llm/provider";
 import { devlog } from "../devlog";
 import { figuresPrompt, type Figure, type ScenePlan } from "./plan";

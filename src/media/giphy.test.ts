@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { giphySearch, resolveGifs } from "./giphy";
-import type { Scene } from "../dsl/schema";
+import type { Scene } from "@motion/dsl/schema";
 
 it("searches GIPHY and fills gif srcs", async () => {
   const fetchFn = vi.fn(async () => new Response(JSON.stringify({ data: [{ images: { downsized_medium: { url: "https://g/1.gif" } } }] })));

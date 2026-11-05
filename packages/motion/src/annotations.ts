@@ -1,6 +1,6 @@
 // Tutor annotation DSL: draw-on-the-live-scene marks. Targets are object ids or slots ("h.slot[0]").
 import { z } from "zod";
-import { parseTarget } from "../dsl/schema";
+import { parseTarget } from "./dsl/schema";
 
 export const Annotation = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("circle"), target: z.string() }),

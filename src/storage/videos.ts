@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Scene } from "../dsl/schema";
-import type { Timeline } from "../dsl/compile";
+import type { Scene } from "@motion/dsl/schema";
+import type { Timeline } from "@motion/dsl/compile";
 import type { PipelineEvent } from "../pipeline/streamVideo";
 import type { Checkpoint } from "../gen/checkpoints";
 

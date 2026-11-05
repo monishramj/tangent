@@ -213,7 +213,8 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Current state (keep this section current)
 Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
 
-**Architecture now (2026-11-04):**
+**Architecture now (2026-11-05):**
+- **Rendering engine is its own package**: `packages/motion` (`@tangent/motion`, alias `@motion/*`): `dsl/` (schema, validator, templates, compiler, ops), `stage/` (scene state + PixiJS renderer), `player/` (audio-clock `Player`, `SceneQueue`), `annotations.ts`. It must not import app code (`@/…`), React or Tauri, so it can be published separately.
 - **Templates over raw DSL.** The scene LLM picks a template per beat (`title, stat, versus, list, character, diagram, math, code, array, tree, chart, figure, gif, callout, table`, each with variants) and fills short slots. `src/dsl/templates.ts` expands them into positioned DSL objects + word-anchored actions, clears the previous frame unless `keep:true`, and adds a transition. Raw `objects`/`actions` stay as the escape hatch. Fractional anchors `"@0.4"` (word at 40% of the beat) make template timing immune to TTS rewording.
 - New primitives: `icon` (Hugeicons by loose name), `emoji`, `person` (stick figure, 9 poses, `pose` action), `gif`, `chart`, `counter`, 10 shape kinds (incl. `alu`, `trapezoid` for MUX, `cylinder`), arrows with `label`/`route: elbow|curve`/`dashed`, `pulse` action (signal dot along an arrow).
 - Scene grouping is deterministic (`chunkBeats(beats, 4, 3)`: a short first scene for a faster first frame); the LLM planning call is gone.

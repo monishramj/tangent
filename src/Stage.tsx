@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Application } from "pixi.js";
 import "katex/dist/katex.min.css";
-import type { Timeline } from "@/dsl/compile";
-import type { Scene } from "@/dsl/schema";
-import { SceneRenderer } from "./stage/renderer";
-import type { Annotation } from "./tutor/annotations";
-import { applyEventsAt } from "./stage/scene";
+import type { Timeline } from "@motion/dsl/compile";
+import type { Scene } from "@motion/dsl/schema";
+import { SceneRenderer } from "@motion/stage/renderer";
+import type { Annotation } from "@motion/annotations";
+import { applyEventsAt } from "@motion/stage/scene";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 

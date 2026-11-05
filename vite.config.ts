@@ -7,7 +7,7 @@ const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  resolve: { alias: { "@motion": path.resolve(import.meta.dirname, "packages/motion/src"), "@": path.resolve(import.meta.dirname, "src") } },
   test: { environment: "jsdom" },
   clearScreen: false,
   server: {

@@ -5,10 +5,10 @@ import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/chec
 import { resolveGifs, type GifSearch } from "../media/giphy";
 import { splitBeatAudio } from "./splitAudio";
 import { mathToSpeech } from "../speech/mathToSpeech";
-import { compileOps } from "../dsl/ops";
-import { resolveAnchor, type Timeline, type Word } from "../dsl/compile";
+import { compileOps } from "@motion/dsl/ops";
+import { resolveAnchor, type Timeline, type Word } from "@motion/dsl/compile";
 import type { LLMProvider } from "../llm/provider";
-import { FRACTION_ANCHOR, type Scene } from "../dsl/schema";
+import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
 
 export type PipelineEvent =
   | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number }

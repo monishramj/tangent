@@ -1,5 +1,5 @@
-import type { Scene } from "../dsl/schema";
-import type { Timeline } from "../dsl/compile";
+import type { Scene } from "@motion/dsl/schema";
+import type { Timeline } from "@motion/dsl/compile";
 
 export type Line = { t: number; say: string };
 /** Narration lines with global start times, from scenes laid end to end in play order. */

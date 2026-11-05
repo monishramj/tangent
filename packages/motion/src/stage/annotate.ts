@@ -1,6 +1,6 @@
 // Pure: tutor annotations + laid-out target points -> primitive shapes. The renderer paints them; no Pixi here.
-import { parseTarget } from "@/dsl/schema";
-import type { Annotation } from "@/tutor/annotations";
+import { parseTarget } from "../dsl/schema";
+import type { Annotation } from "../annotations";
 
 export type Pt = { x: number; y: number; r: number }; // px, center + rough radius
 export type Shape =

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { timeline } from "../stage/demo";
+import { timeline } from "@motion/stage/demo";
 import { beatStarts, stubProvider } from "./glue";
 import { ask, buildTutorContext, resumeTime } from "./tutor";
 

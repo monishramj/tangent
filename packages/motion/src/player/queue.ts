@@ -1,5 +1,13 @@
 import type { Timeline } from "../dsl/compile";
-import { beatStarts } from "../tutor/glue";
+/** Where to resume after an answer: start of the beat containing `t`. `beatStarts` sorted ascending (sec). */
+export function resumeTime(beatStarts: number[], t: number): number {
+  let r = 0;
+  for (const s of beatStarts) if (s <= t) r = s; else break;
+  return r;
+}
+
+/** Start time (sec) of each spoken beat, ascending. */
+export const beatStarts = (tl: Timeline) => tl.events.filter(e => e.verb === "say").map(e => e.start).sort((a, b) => a - b);
 import { Player, type Clock } from "./player";
 
 export type QueuedScene = { sceneId: string; timeline: Timeline; wavPath: string };

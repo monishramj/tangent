@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
 import { ClaudeCodeCLI, type Spawn } from "../llm/claudeCli";
-import { validateScene } from "../dsl/validate";
+import { validateScene } from "@motion/dsl/validate";
 import { checkTemplateScene, generateGroupScene } from "./scene";
 
 const mockProvider = (...responses: string[]) => ({

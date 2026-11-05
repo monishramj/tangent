@@ -1,6 +1,6 @@
 // Pure: (scene, compiled timeline, t) -> per-object render state. No clocks, no Pixi; seeking is just a different t.
-import { parseTarget, type Scene } from "@/dsl/schema";
-import type { Timeline, TimelineEvent } from "@/dsl/compile";
+import { parseTarget, type Scene } from "../dsl/schema";
+import type { Timeline, TimelineEvent } from "../dsl/compile";
 import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`

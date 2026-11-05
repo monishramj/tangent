@@ -1,7 +1,7 @@
 // GIPHY lookup for `gif` objects. Resolved once at generation time; the URL is saved in the bundle.
 // No key (Settings -> GIPHY) = no lookup: the renderer shows a framed reaction card with the caption instead.
 import { invoke } from "@tauri-apps/api/core";
-import type { Scene } from "../dsl/schema";
+import type { Scene } from "@motion/dsl/schema";
 
 export type GifSearch = (query: string) => Promise<string | null>;
 const BANNED = /\b(nsfw|sexy|gore|blood|drunk)\b/i;

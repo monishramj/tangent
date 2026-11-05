@@ -1,9 +1,9 @@
 // Dev-only: ?showcase=<template>[&variant=..][&t=..] renders one templated beat with fake word timings (no LLM/TTS).
 import { useEffect, useRef } from "react";
 import Stage from "@/Stage";
-import { compileOps } from "@/dsl/ops";
-import { expandTemplates } from "@/dsl/templates";
-import { Scene } from "@/dsl/schema";
+import { compileOps } from "@motion/dsl/ops";
+import { expandTemplates } from "@motion/dsl/templates";
+import { Scene } from "@motion/dsl/schema";
 import { SAMPLES } from "./samples";
 
 export default function Showcase() {

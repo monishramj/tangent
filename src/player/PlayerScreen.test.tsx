@@ -5,7 +5,7 @@ import type { PipelineEvent } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
 import { memoryJsonStore, type Thread } from "@/storage/projects";
-import { scene, timeline } from "@/stage/demo";
+import { scene, timeline } from "@motion/stage/demo";
 import { narrationLines } from "@/tutor/narration";
 
 const stage = vi.fn();

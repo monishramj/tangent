@@ -1,5 +1,5 @@
 import type { LLMProvider } from "../llm/provider";
-import { checkAnnotations, type Annotation } from "./annotations";
+import { checkAnnotations, type Annotation } from "@motion/annotations";
 
 export type TutorContext = { prompt: string; ids: string[] };
 
@@ -44,10 +44,5 @@ export async function ask(a: { question: string; context: TutorContext; provider
   return { answer: out.answer, annotations: ok as Annotation[], dropped };
 }
 
-/** Where to resume after an answer: start of the beat containing `t`. `beatStarts` sorted ascending (sec). */
-export function resumeTime(beatStarts: number[], t: number): number {
-  let r = 0;
-  for (const s of beatStarts) if (s <= t) r = s; else break;
-  return r;
-}
+export { resumeTime } from "@motion/player/queue";
 // Glue (in the app): player.pause() on interrupt; after the answer's audio ends, player.seek(resumeTime(starts, t)); player.play().

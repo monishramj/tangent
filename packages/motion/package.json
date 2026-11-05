@@ -1,0 +1,10 @@
+{
+  "name": "@tangent/motion",
+  "version": "0.1.0",
+  "description": "Word-anchored motion graphics: a JSON scene DSL, templates, a timeline compiler and a PixiJS renderer on an audio clock.",
+  "type": "module",
+  "private": true,
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*" },
+  "peerDependencies": { "pixi.js": "^8", "katex": "^0.16 || ^0.19", "zod": "^4", "@hugeicons/core-free-icons": "^4" }
+}

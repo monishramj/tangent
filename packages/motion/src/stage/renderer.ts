@@ -1,9 +1,9 @@
 // Pixi v8 drawing of SceneState. Display objects are built once per scene object and mutated per frame; no clocks here.
 import { CanvasTextMetrics, Container, Graphics, Text, TextStyle, type Application } from "pixi.js";
 import katex from "katex";
-import type { Scene, SceneObject, TreeNode } from "@/dsl/schema";
-import { fromLevel } from "@/dsl/trees/shared";
-import type { Annotation } from "@/tutor/annotations";
+import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
+import { fromLevel } from "../dsl/trees/shared";
+import type { Annotation } from "../annotations";
 import { annotationShapes, type Pt } from "./annotate";
 import { DEFAULT_POS, easeOut, type ObjState, type SceneState } from "./scene";
 import { layoutScene, type Placed } from "./layout";

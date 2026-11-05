@@ -9,11 +9,11 @@ import { providers } from "@/llm/registry";
 import type { PipelineEvent, Progress } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import { tauriJsonStore, threads as threadStore, newId, type JsonStore, type Thread } from "@/storage/projects";
-import type { Annotation } from "@/tutor/annotations";
+import type { Annotation } from "@motion/annotations";
 import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
 import { narrationLines, transcriptUntil } from "@/tutor/narration";
 import { devlog } from "@/devlog";
-import { SceneQueue } from "./queue";
+import { SceneQueue } from "@motion/player/queue";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
 

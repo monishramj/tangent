@@ -17,7 +17,7 @@ import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
 import { devlog } from "./devlog";
-import { AUDIO_URL, scene, timeline } from "./stage/demo";
+import { AUDIO_URL, scene, timeline } from "@motion/stage/demo";
 
 type Screen =
   | { s: "home" } | { s: "settings" }

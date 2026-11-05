@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Timeline } from "../dsl/compile";
-import { resumeTime } from "../tutor/tutor";
+import { resumeTime } from "./queue";
 import { SceneQueue } from "./queue";
 
 class FakeAudio extends EventTarget {

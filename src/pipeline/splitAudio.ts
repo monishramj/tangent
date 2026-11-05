@@ -1,4 +1,4 @@
-import type { BeatAudio, Word } from "../dsl/compile";
+import type { BeatAudio, Word } from "@motion/dsl/compile";
 
 /**
  * Split one scene-wide alignment back into per-beat clips (times local to each clip).

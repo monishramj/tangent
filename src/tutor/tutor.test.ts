@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
-import { checkAnnotations } from "./annotations";
+import { checkAnnotations } from "@motion/annotations";
 import { ask, buildTutorContext, resumeTime } from "./tutor";
 
 const objs = [{ id: "h", type: "Array", state: "[3,1,2]" }, { id: "t", type: "text" }];
