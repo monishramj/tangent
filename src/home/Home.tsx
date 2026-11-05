@@ -12,7 +12,20 @@ import { loadIr, type LoadProgress } from "../library";
 import { tauriJsonStore, type JsonStore } from "../storage/store";
 import { tauriVideoStore, videoDuration, type VideoBundle, type VideoStore } from "../storage/videos";
 
-export type StartMeta = { pdfPath: string; title: string };
+import { DETAIL_LEVELS, isDetailLevel, type DetailLevel } from "../gen/script";
+
+export type StartMeta = { pdfPath: string; title: string; detail: DetailLevel };
+const DETAIL_KEY = "tangent.detail";
+const DETAIL_LABEL: Record<DetailLevel, string> = { overview: "Overview", standard: "Standard", detailed: "Detailed", complete: "Complete" };
+const DETAIL_HINT: Record<DetailLevel, string> = {
+  overview: "Key ideas only. Shortest video.",
+  standard: "Key ideas, main definitions and examples.",
+  detailed: "Every idea, example and important caveat.",
+  complete: "Covers everything in the section. Longest video.",
+};
+const readDetail = (): DetailLevel => {
+  try { const v = localStorage.getItem(DETAIL_KEY); return isDetailLevel(v) ? v : "standard"; } catch { return "standard"; }
+};
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 const KEY = "tangent.recent";
@@ -54,6 +67,8 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
   const savedFor = (path: string, sectionId: string) => videos.find(v => v.source.pdfPath === path && v.source.sectionId === sectionId);
   const [state, setState] = useState<State>({ s: "idle" });
   const [recent, setRecent] = useState(readRecent);
+  const [detail, setDetailState] = useState<DetailLevel>(readDetail);
+  const setDetail = (d: DetailLevel) => { setDetailState(d); try { localStorage.setItem(DETAIL_KEY, d); } catch { /* per-viewer convenience only */ } };
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
@@ -99,21 +114,21 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
     const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
     localStorage.setItem(KEY, JSON.stringify(next));
     setRecent(next);
-    const go = () => onStart(sectionId, ir, { pdfPath: path, title });
+    const go = () => onStart(sectionId, ir, { pdfPath: path, title, detail });
     const saved = savedFor(path, sectionId);
     if (saved) setChoice({ saved, title, regenerate: go }); else go();
   };
   const reopen = async (r: Recent) => {
     const regenerate = async () => {
       setChoice(null);
-      try { onStart(r.sectionId, await ingest(r.path, r.title), { pdfPath: r.path, title: r.title }); }
+      try { onStart(r.sectionId, await ingest(r.path, r.title), { pdfPath: r.path, title: r.title, detail }); }
       catch (e) { setState({ s: "error", msg: String(e) }); }
     };
     const saved = savedFor(r.path, r.sectionId);
     if (saved) return setChoice({ saved, title: r.title, regenerate });
     try {
       const ir = await ingest(r.path, r.title);
-      onStart(r.sectionId, ir, { pdfPath: r.path, title: r.title });
+      onStart(r.sectionId, ir, { pdfPath: r.path, title: r.title, detail });
     } catch (e) {
       setState({ s: "error", msg: String(e) });
     }
@@ -135,6 +150,17 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Pick a section</h2>
               <button type="button" className={btn} onClick={() => setState({ s: "idle" })}>Choose another PDF</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div role="radiogroup" aria-label="Detail level" className="inline-flex rounded-lg border border-line p-0.5">
+                {DETAIL_LEVELS.map(d => (
+                  <button key={d} type="button" role="radio" aria-checked={detail === d} onClick={() => setDetail(d)}
+                    className={`h-9 rounded-md px-3 text-sm transition-colors ${detail === d ? "bg-fg text-bg" : "text-muted hover:text-fg"}`}>
+                    {DETAIL_LABEL[d]}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-subtle">{DETAIL_HINT[detail]}</span>
             </div>
             <AnimatedList
               items={state.sections.map((x) => ({ id: x.id, title: x.title, meta: pages(x.anchors) }))}

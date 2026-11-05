@@ -9,6 +9,29 @@ export type ScriptResult = { beats: Beat[] | null; attempts: number; violations:
 
 const MAX_WORDS = 22;
 
+/** How much of the section the video covers. Chosen when starting a video; "standard" by default. */
+export const DETAIL_LEVELS = ["overview", "standard", "detailed", "complete"] as const;
+export type DetailLevel = (typeof DETAIL_LEVELS)[number];
+export const isDetailLevel = (x: unknown): x is DetailLevel => typeof x === "string" && (DETAIL_LEVELS as readonly string[]).includes(x);
+/** Source words per beat for each level. */
+const WORDS_PER_BEAT: Record<DetailLevel, number> = { overview: 250, standard: 120, detailed: 70, complete: 40 };
+
+/** Target beat count for a section at a level (never fewer than 4). */
+export function targetBeats(sectionMarkdown: string, detail: DetailLevel): number {
+  const words = sectionMarkdown.split(/\s+/).filter(Boolean).length;
+  return Math.max(4, Math.round(words / WORDS_PER_BEAT[detail]));
+}
+
+function detailRules(detail: DetailLevel, beats: number): string {
+  const what: Record<DetailLevel, string> = {
+    overview: "Overview: only the key ideas and why they matter. Skip side examples, proofs and minor caveats.",
+    standard: "Standard: the key ideas plus the main definitions and one worked example per big idea. Skip minor side notes.",
+    detailed: "Detailed: every key idea, definition and theorem, the worked examples, and the important caveats and edge cases.",
+    complete: "Complete: cover everything in the section. Every definition, example, theorem, caveat and number gets its own beats, in the section's order. Skip nothing. This is still a rewrite for the ear, never a reading: split dense passages into many short beats instead of dropping detail.",
+  };
+  return `Detail level: ${what[detail]} Aim for about ${beats} beats; the section's length sets this, so do not pad and do not compress past it.`;
+}
+
 /** Deterministic speech linter for CLAUDE.md principle 1. Empty result = clean. */
 export function checkScript(beats: Beat[]): Violation[] {
   const out: Violation[] = [];
@@ -42,7 +65,7 @@ export function cleanSay(say: string): string {
     .trim();
 }
 
-function scriptPrompt(sectionMarkdown: string): string {
+function scriptPrompt(sectionMarkdown: string, detail: DetailLevel): string {
   return `Rewrite the textbook section below as a spoken script for a narrated explainer video. This is a rewrite for the ear, not a summary and not prose read aloud. Return JSON only, without commentary or fences: an array of beats, each {"say": string, "visualIntent": string, "cite"?: string}.
 
 Voice: a fast, witty tech explainer in the style of Fireship's "The Code Report". Open with a hook: a surprising fact, a bold claim or a question. Keep it punchy and conversational, use vivid analogies and the occasional dry joke, set up tension ("but here's the catch"), and land each idea with a short memorable line. End with a quick recap of the key idea. Never trade accuracy for a joke.
@@ -55,6 +78,8 @@ Speech rules, all mandatory:
 5. Write numbers and symbols the way you would say them: "n log n", "x squared". LaTeX in say is fine for simple expressions like O(n \\log n); it is converted to speech later.
 6. Lightly repeat the key idea at the start and end of its explanation.
 7. say is plain spoken English only. No markdown: no asterisks, backticks, # headings or bullet points. No square brackets, so say a list as words ("3, 9 and 7", not "[3, 9, 7]"). No emoji. Digits are fine, and so is simple math.
+
+${detailRules(detail, targetBeats(sectionMarkdown, detail))}
 
 visualIntent is a short plain description of what should be on screen while the beat is spoken (motion, diagram, highlight). Energy comes from visuals, never from packing more ideas into a sentence. cite is optional: copy a source anchor like "p. 287" only if the section supplies one; never invent one.
 Do not add claims the section does not make.
@@ -76,8 +101,8 @@ function parse(response: string): { beats?: Beat[]; error?: string } {
   }
 }
 
-export async function generateScript({ sectionMarkdown, provider }: { sectionMarkdown: string; provider: LLMProvider }): Promise<ScriptResult> {
-  const base = scriptPrompt(stripWatermarks(sectionMarkdown));
+export async function generateScript({ sectionMarkdown, provider, detail = "standard" }: { sectionMarkdown: string; provider: LLMProvider; detail?: DetailLevel }): Promise<ScriptResult> {
+  const base = scriptPrompt(stripWatermarks(sectionMarkdown), detail);
   let prompt = base;
   let beats: Beat[] | null = null;
   let violations: Violation[] = [];

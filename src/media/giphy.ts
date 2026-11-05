@@ -6,8 +6,27 @@ import type { Scene } from "@motion/dsl/schema";
 export type GifSearch = (query: string) => Promise<string | null>;
 const BANNED = /\b(nsfw|sexy|gore|blood|drunk)\b/i;
 
+// The Keychain prompts on every read in unsigned dev builds, so a non-secret localStorage flag says whether a
+// key exists. No flag = no Keychain access at all; with the flag, the key is read once per app session.
+export const GIPHY_FLAG = "tangent.giphy.set";
+export function hasGiphyKey(): boolean {
+  try { return localStorage.getItem(GIPHY_FLAG) === "1"; } catch { return false; }
+}
+function setFlag(on: boolean) {
+  try { if (on) localStorage.setItem(GIPHY_FLAG, "1"); else localStorage.removeItem(GIPHY_FLAG); } catch { /* flag is a convenience */ }
+}
+
 let key: Promise<string | null> | undefined;
-export const giphyKey = () => key ??= invoke<string | null>("get_secret", { name: "giphy" }).catch(() => null);
+export const giphyKey = (): Promise<string | null> => {
+  if (!hasGiphyKey()) return Promise.resolve(null);
+  return key ??= invoke<string | null>("get_secret", { name: "giphy" }).then(k => k || null, () => null);
+};
+/** Store (non-empty) or delete (empty) the key, keep the flag in step, and cache the new value without re-reading. */
+export async function saveGiphyKey(value: string): Promise<void> {
+  await invoke("set_secret", { name: "giphy", value });
+  setFlag(!!value);
+  key = Promise.resolve(value || null);
+}
 export const resetGiphyKey = () => { key = undefined; };
 
 /** Top results for the query, one picked at random so repeated intents don't repeat the same gif. */

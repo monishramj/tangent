@@ -148,13 +148,24 @@ it("a slow scene N does not block generation of N+1..N+3, and output stays in or
   expect(sceneEvents(await events).map(e => e.sceneId)).toEqual(Array.from({ length: 8 }, (_, i) => `scene-${i + 1}`));
 });
 
-it("passes section figures to the scene prompts", async () => {
+it("passes section figures to the scene and checkpoint prompts", async () => {
   const { options, provider } = setup(1);
   const events = collect(streamVideo({ ...options, figures: [{ id: "figure-1", caption: "A datapath", src: "asset://dp.png" }] }));
   await vi.runAllTimersAsync();
   await events;
   const prompts = vi.mocked(provider.complete).mock.calls.map(c => c[0]);
-  expect(prompts.filter(p => p.includes("asset://dp.png"))).toHaveLength(1);
+  expect(prompts.filter(p => p.includes("asset://dp.png") && !p.startsWith("Write checkpoint questions"))).toHaveLength(1);
+  expect(prompts.filter(p => p.includes("asset://dp.png") && p.startsWith("Write checkpoint questions"))).toHaveLength(1);
+});
+
+it("passes the detail level to the script prompt (standard by default)", async () => {
+  for (const [detail, needle] of [[undefined, "Detail level: Standard"], ["complete", "Detail level: Complete"]] as const) {
+    const { options, provider } = setup(1);
+    const events = collect(streamVideo({ ...options, detail }));
+    await vi.runAllTimersAsync();
+    await events;
+    expect(vi.mocked(provider.complete).mock.calls[0][0]).toContain(needle);
+  }
 });
 
 it("supports a single worker while retaining lookahead", async () => {

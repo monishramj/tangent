@@ -67,6 +67,8 @@ body {
 
 @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } }
 .fade-up { animation: fade-up 500ms both cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes fade-in { from { opacity: 0; } }
+.fade-in { animation: fade-in 200ms ease-out both; }
 
 /* Solid translucent surface for anything over/near the video: no backdrop-filter (it re-composites every frame). */
 .glass-solid {
@@ -74,3 +76,17 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.5);
 }
+
+@keyframes captions-in { from { opacity: 0; } }
+.captions-in { animation: captions-in 160ms ease-out both; }
+
+/* Player chrome over the video: fades with opacity only (no layout shift, no canvas resize). */
+.chrome { transition: opacity 260ms ease-out; }
+.chrome[data-hidden] { opacity: 0; pointer-events: none; }
+.chrome[data-hidden] * { pointer-events: none; }
+.scrim-top { background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)); }
+.scrim-bottom { background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0)); }
+
+/* Tutor answers: KaTeX at text size; display math scrolls instead of overflowing the bubble. */
+.rich .katex { font-size: 1.05em; }
+.rich .katex-display { margin: 0.4em 0; overflow-x: auto; overflow-y: hidden; }

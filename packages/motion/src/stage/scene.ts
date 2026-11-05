@@ -1,6 +1,7 @@
 // Pure: (scene, compiled timeline, t) -> per-object render state. No clocks, no Pixi; seeking is just a different t.
 import { parseTarget, type Scene } from "../dsl/schema";
 import type { Timeline, TimelineEvent } from "../dsl/compile";
+import { seqItems, type SeqSnap } from "../dsl/components";
 import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01 } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`
@@ -24,7 +25,9 @@ export type ObjState = {
   focus?: Focus;
   hl: number; // 0..1 highlight pulse
   slots?: Slot[]; // Array
-  valHl?: Record<string, number>; // Tree: highlight by node key
+  valHl?: Record<string, number>; // Tree/Graph: highlight by node key
+  snap?: unknown; snapFrom?: unknown; snapP?: number; // computed components: current snapshot, previous one, blend 0..1
+  keyHl?: Record<string, number>; // Stack/Queue/LinkedList: highlight by item key (follows the item as it moves)
   pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
   pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
   born?: number; // start time of the create event (transitions tell incoming objects from outgoing ones)
@@ -54,7 +57,9 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     const [dx, dy] = DEFAULT_POS[o.type] ?? [0.5, 0.5];
     const s: ObjState = { id: o.id, visible: false, opacity: 0, x: num(o.x, dx), y: num(o.y, dy), scale: 1, hl: 0, reveal: 0, age: 0, rotation: 0, color: typeof o.color === "string" ? parseInt(o.color.slice(1), 16) : 0xffffff, ring: 0 };
     if (o.type === "Array") s.slots = o.init.map((value) => ({ value, hl: 0, p: 0 }));
-    if (o.type === "Tree") s.valHl = {};
+    if (o.type === "Tree" || o.type === "Graph") s.valHl = {};
+    if (o.type === "Stack" || o.type === "Queue" || o.type === "LinkedList") { s.snap = { items: seqItems(o) }; s.keyHl = {}; }
+    if (o.type === "Graph") s.snap = { visited: [], frontier: [], tree: [] };
     if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; }
     objects.set(o.id, s);
   }
@@ -147,6 +152,10 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       break;
     }
     case "transform": {
+      if (e.args.snap !== undefined) { // computed component: blend from the previous snapshot while the step runs
+        if (p < 1) { o.snapFrom = o.snap; o.snapP = ease(p, "inOutCubic"); } else { o.snapFrom = undefined; o.snapP = 1; }
+        o.snap = e.args.snap;
+      }
       o.scale = lerp(o.scale, num(e.args.scale, o.scale), k);
       o.rotation = lerp(o.rotation ?? 0, num(e.args.rotate, o.rotation ?? 0), k);
       if (typeof e.args.color === "string") {
@@ -176,6 +185,11 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
 }
 
 function applySlot(o: ObjState, i: number, e: TimelineEvent, p: number, pulse: number) {
+  if (o.keyHl) { // keyed components: the slot is a position in the current snapshot; the highlight sticks to that item
+    const k = (o.snap as SeqSnap).items[i]?.k;
+    if (k && (e.verb === "highlight" || e.verb === "indicate")) o.keyHl[k] = Math.max(o.keyHl[k] ?? 0, pulse);
+    return;
+  }
   const s = o.slots?.[i];
   if (!s) return;
   if (e.verb === "highlight" || e.verb === "indicate") {

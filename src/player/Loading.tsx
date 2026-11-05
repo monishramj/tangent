@@ -25,7 +25,7 @@ export default function Loading({ progress, compact = false }: { progress?: Prog
   const fraction = loadingFraction(step, (now - since.current.at) / 1000);
 
   if (compact) return (
-    <div role="status" aria-label="Buffering" className="glass absolute top-3 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-muted">
+    <div role="status" aria-label="Buffering" className="glass absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full px-4 py-1.5 text-xs text-muted">
       Buffering{progress?.scenesTotal ? ` · scene ${Math.min(progress.scenesTotal, progress.scenesReady + 1)} of ${progress.scenesTotal}` : "…"}
     </div>
   );

@@ -50,7 +50,7 @@ it("ingests a chosen PDF, shows loading, then nested sections with pages; pickin
   expect(opts[0].textContent).toContain("pp. 3-5");
   expect(opts[1].textContent).toContain("p. 4");
   fireEvent.click(opts[1]);
-  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify" });
+  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "standard" });
 });
 
 it("records a recent video when a section starts", async () => {
@@ -178,7 +178,7 @@ it("starting a section that already has a saved video offers Open saved vs Regen
   expect(onStart).not.toHaveBeenCalled();
   fireEvent.click((await screen.findAllByRole("option"))[0]);
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Regenerate" }));
-  expect(onStart).toHaveBeenCalledWith("s1", ir, { pdfPath: "/x/book.pdf", title: "Heaps" });
+  expect(onStart).toHaveBeenCalledWith("s1", ir, { pdfPath: "/x/book.pdf", title: "Heaps", detail: "standard" });
 });
 
 it("shows ingest progress while reading", async () => {
@@ -198,4 +198,30 @@ it("the reaction gifs popover saves a GIPHY key to the Keychain", async () => {
   await act(async () => { fireEvent.click(within(dlg).getByRole("button", { name: "Save" })); });
   expect(invoke).toHaveBeenCalledWith("set_secret", { name: "giphy", value: "abc" });
   expect(within(dlg).getByText("A key is saved.")).toBeTruthy();
+  expect(localStorage.getItem("tangent.giphy.set")).toBe("1");
+  expect(invoke).not.toHaveBeenCalledWith("get_secret", expect.anything());
+});
+
+it("shows gif on/off from the local flag without reading the Keychain", async () => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  localStorage.setItem("tangent.giphy.set", "1");
+  render(<Home />);
+  expect(screen.getByRole("button", { name: /reaction gifs · on/i })).toBeTruthy();
+  expect(invoke).not.toHaveBeenCalledWith("get_secret", expect.anything());
+});
+
+it("picks a detail level above the section list, remembers it, and passes it to onStart", async () => {
+  const onStart = vi.fn();
+  const { container, unmount } = render(<Home onStart={onStart} />);
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
+  const group = await screen.findByRole("radiogroup", { name: "Detail level" });
+  expect(within(group).getByRole("radio", { name: "Standard" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(within(group).getByRole("radio", { name: "Complete" }));
+  expect(localStorage.getItem("tangent.detail")).toBe("complete");
+  fireEvent.click(await screen.findByText("Heapify"));
+  expect(onStart).toHaveBeenCalledWith("s2", ir, { pdfPath: "/x/book.pdf", title: "Heapify", detail: "complete" });
+  unmount();
+  render(<Home />);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [pick()] } });
+  expect((await screen.findByRole("radio", { name: "Complete" })).getAttribute("aria-checked")).toBe("true");
 });

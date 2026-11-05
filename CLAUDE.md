@@ -228,13 +228,19 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Motion polish (`@tangent/motion`): word-by-word text reveals (no per-frame re-centering), rounded/scaled strokes traced from top-centre with fill fading in, filled arrowheads, one 0.35 s highlight punch (no looping wobble), fixed-slot rolling counters, short slides, decaying camera shake, transitions where the old frame exits left while the new one enters (deterministic in t), speech bubbles with tails. Penner eases inline (`stage/motion.ts`, `MOTION` tokens); no animation library. Standalone dev showcase: `/src/dev/showcase.html?showcase=<t>&variant=<v>&prev=<t>&tr=whip`.
 - Player: captions strip under the video, checkpoints pause the video and render inside the frame, persistent Checks strip, seek-bar markers. Home is main's barebones page again; projects/settings removed (in git history).
 
+**2026-11-05 later:**
+- Player overlays the video (header + controls fade after 2.5 s idle while playing; no border; captions are plain per-beat text over the bottom). Icon-only header; Checks button with badge opens a Checks tab (grouped by scene, score, "Take the quiz" via React Bits Stepper). Playback speed 0.75–2× (`SceneQueue.setRate`, pitch-preserved; gaps scale). Tutor answers render `$…$` via KaTeX (`RichText`, text never as HTML). Ask opens a fresh question when reopened >3 s / a scene away.
+- Checkpoints: must be answerable from the card (`needsMissingData` drops ones that reference unseen tables/figures; may attach `table` or a section `figure`); ~1–2 per scene + end set (≤16). Cards show table / figure / scene thumbnail.
+- Detail level per video (`overview | standard | detailed | complete`) picked on Home, flows to the script prompt (`targetBeats`), saved on the bundle.
+- Keychain is read only if `tangent.giphy.set` is set (no prompt on Home load). Linux keyring is non-persistent (kernel keyring).
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
 - The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
 - Beat/scene gaps (0.45 s / 0.6 s) are untuned; listen on a real chapter.
-- Checkpoints re-show each session even if answered; Play while a card is open doesn't record a skip.
+- Retaking a check replaces the saved result (a retake can lower the score).
 - **Objects accumulate only in raw-DSL beats.** Template beats clear the previous frame (unless `keep:true`); escape-hatch objects still rely on the model to fade them.
 - **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.

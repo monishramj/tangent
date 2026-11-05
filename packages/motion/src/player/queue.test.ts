@@ -239,3 +239,43 @@ describe("SceneQueue gap between scenes", () => {
     expect(() => new SceneQueue({ render: () => {}, gapSec: -1 })).toThrow(/gapSec/);
   });
 });
+
+describe("SceneQueue playback rate", () => {
+  type RateAudio = FakeAudio & { playbackRate?: number; preservesPitch?: boolean };
+  it("applies the rate, pitch-preserved, to current and later scene audio", () => {
+    const { queue, audios } = setup(4, 0.6);
+    queue.enqueue(scene("a"));
+    expect((audios[0] as RateAudio).playbackRate).toBe(1);
+    queue.setRate(1.5);
+    queue.enqueue(scene("b"));
+    expect(queue.rate).toBe(1.5);
+    for (const a of audios as RateAudio[]) { expect(a.playbackRate).toBe(1.5); expect(a.preservesPitch).toBe(true); }
+    expect(queue.duration).toBeCloseTo(10.6, 9); // timeline seconds: speed never changes positions
+  });
+  it("the gap holds 1/rate as long on the wall clock", () => {
+    const { queue, audios, frame, clock } = setup(4, 0.6);
+    queue.enqueue(scene("a")); queue.enqueue(scene("b"));
+    queue.setRate(2); queue.play();
+    audios[0].currentTime = 5; frame();
+    clock.ms = 200; frame();
+    expect(queue.currentTime).toBeCloseTo(5.4, 9);
+    expect(audios[1].play).not.toHaveBeenCalled();
+    clock.ms = 300; frame();
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+  });
+  it("a rate change mid-gap keeps the time already held", () => {
+    const { queue, audios, frame, clock } = setup(4, 0.6);
+    queue.enqueue(scene("a")); queue.enqueue(scene("b")); queue.play();
+    audios[0].currentTime = 5; frame();
+    clock.ms = 200; queue.setRate(2); // 0.2 s held at 1x
+    expect(queue.currentTime).toBeCloseTo(5.2, 9);
+    clock.ms = 350; frame(); // + 0.15 s wall x2 = 0.5 s
+    expect(queue.currentTime).toBeCloseTo(5.5, 9);
+    clock.ms = 400; frame();
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a non-positive rate", () => {
+    const { queue } = setup();
+    expect(() => queue.setRate(0)).toThrow(/rate/);
+  });
+});

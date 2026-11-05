@@ -1,16 +1,35 @@
 // Pure geometry for shapes, connectors and text pieces. No Pixi, so it is unit-testable.
 import { pathPoint, tracePoints, type Point } from "./motion";
 
-export type Outline = { pts: Point[]; fill: Point[] }; // pts: stroke path (traced on draw); fill: closed region
+export type Outline = { pts: Point[]; fill: Point[]; extra?: Point[][]; open?: boolean }; // pts: stroke path (traced on draw); fill: closed region; extra: detail strokes drawn after
 const arc = (cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, n = 16): Point[] =>
   Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
-const closed = (p: Point[]): Outline => ({ pts: [...p, p[0]], fill: p });
+const closed = (p: Point[], extra?: Point[][]): Outline => ({ pts: [...p, p[0]], fill: p, extra });
+const quad = (p0: Point, c: Point, p1: Point, n = 10): Point[] =>
+  Array.from({ length: n + 1 }, (_, i) => { const t = i / n, u = 1 - t; return [u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1]]; });
+const polar = (n: number, r: (i: number) => number, a: number, b: number, rot = -Math.PI / 2): Point[] =>
+  Array.from({ length: n }, (_, i) => { const t = rot + i * 2 * Math.PI / n; return [Math.cos(t) * r(i) * a, Math.sin(t) * r(i) * b]; });
+/** Scalloped closed outline (cloud, thought bubble): n circular bumps on a unit circle, ends of neighbours meeting. */
+function scallop(n: number): Point[] {
+  const R = .78, d = 2 * R * Math.sin(Math.PI / n), rho = d * .62, off = Math.acos(d / 2 / rho);
+  return Array.from({ length: n }, (_, i) => {
+    const t = -Math.PI / 2 + i * 2 * Math.PI / n, cx = Math.cos(t) * R, cy = Math.sin(t) * R;
+    return arc(cx, cy, rho, rho, t - Math.PI / n - Math.PI / 2 + off, t + Math.PI / n + Math.PI / 2 - off, 8).slice(0, -1);
+  }).flat();
+}
+/** Scale point sets so together they exactly fill [-a, a] x [-b, b]. */
+function fitBox(sets: Point[][], a: number, b: number): Point[][] {
+  const all = sets.flat(), xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  return sets.map(s => s.map(([x, y]) => [((x - x0) / (x1 - x0 || 1) * 2 - 1) * a, ((y - y0) / (y1 - y0 || 1) * 2 - 1) * b] as Point));
+}
+const ring = (cx: number, cy: number, r: number, n = 24): Point[] => arc(cx, cy, r, r, -Math.PI / 2, Math.PI * 1.5, n);
 
 export function shapeOutline(kind: string, w: number, h: number): Outline {
-  const a = w / 2, b = h / 2;
+  const a = w / 2, b = h / 2, m = Math.min(a, b);
   switch (kind) {
     case "circle": return closed(arc(0, 0, a, b, 0, Math.PI * 2, 64).slice(0, -1));
-    case "rect": return closed([[-a, -b], [a, -b], [a, b], [-a, b]]);
+    case "rect": case "bubble": return closed([[-a, -b], [a, -b], [a, b], [-a, b]]);
     case "diamond": return closed([[0, -b], [a, 0], [0, b], [-a, 0]]);
     case "pill": { const r = Math.min(a, b); return closed([...arc(a - r, 0, r, r, -Math.PI / 2, Math.PI / 2), ...arc(r - a, 0, r, r, Math.PI / 2, Math.PI * 1.5)]); }
     case "cylinder": { // top ellipse (back half), right side, bottom front arc, left side, then the front half of the top ellipse
@@ -22,7 +41,30 @@ export function shapeOutline(kind: string, w: number, h: number): Outline {
     case "hexagon": return closed([[-a, 0], [-a / 2, -b], [a / 2, -b], [a, 0], [a / 2, b], [-a / 2, b]]);
     case "parallelogram": return closed([[-a + w * .2, -b], [a, -b], [a - w * .2, b], [-a, b]]);
     case "alu": return closed([[-a, -b], [a, -b * .5], [a, b * .5], [-a, b], [-a / 2, 0]]); // V notch on the wide side
-    default: return closed([[0, -b], [a, b], [-a, b]]); // polygon = triangle
+    case "star": return closed(fitBox([polar(10, i => i % 2 ? .45 : 1, 1, 1)], a, b)[0]);
+    case "octagon": return closed(polar(8, () => 1 / Math.cos(Math.PI / 8), a, b, -Math.PI / 2 + Math.PI / 8).map(([x, y]) => [Math.max(-a, Math.min(a, x)), Math.max(-b, Math.min(b, y))] as Point));
+    case "gear": { const g = polar(48, i => [.74, 1, 1, .74][i % 4], a, b, -Math.PI / 2 - Math.PI / 48); return closed(g, [ring(0, 0, m * .26)]); }
+    case "ring": return closed(arc(0, 0, a, b, -Math.PI / 2, Math.PI * 1.5, 64).slice(0, -1), [arc(0, 0, a * .55, b * .55, -Math.PI / 2, Math.PI * 1.5, 48)]);
+    case "cloud": { const s = scallop(7).map(([x, y]) => [x, Math.min(y, .62)] as Point); return closed(fitBox([s], a, b)[0]); }
+    case "thought": { // scalloped body in the top 78% plus two trailing dots bottom-left
+      const [body, d1, d2] = fitBox([scallop(9).map(([x, y]) => [x * 1.25, y] as Point), ring(-.85, 1.05, .1, 12), ring(-1.15, 1.32, .06, 10)], a, b);
+      return closed(body, [d1, d2]);
+    }
+    case "document": { const f = m * .55; return closed([[-a, -b], [a - f, -b], [a, -b + f], [a, b], [-a, b]], [[[a - f, -b], [a - f, -b + f], [a, -b + f]]]); }
+    case "chip": { // die with pins on every side
+      const da = a * .72, db = b * .72, pins: Point[][] = [];
+      for (let i = 0; i < 4; i++) { const t = (i + .5) / 4 * 2 - 1; pins.push([[t * da * .8, -db], [t * da * .8, -b]], [[t * da * .8, db], [t * da * .8, b]], [[-da, t * db * .8], [-a, t * db * .8]], [[da, t * db * .8], [a, t * db * .8]]); }
+      return closed([[-da, -db], [da, -db], [da, db], [-da, db]], [...pins, ring(-da * .62, -db * .62, m * .07, 12)]);
+    }
+    case "tag": return closed([[-a, 0], [-a + w * .22, -b], [a, -b], [a, b], [-a + w * .22, b]], [ring(-a + w * .2, 0, m * .12, 14)]);
+    case "brace": { // horizontal curly brace opening upward, its tip pointing down
+      const k = Math.min(h * .9, w * .12), y = -b + h * .45, P = (x: number, yy: number): Point => [x, yy];
+      const pts = [...quad(P(-a, -b), P(-a, y), P(-a + k, y)), ...quad(P(-k, y), P(0, y), P(0, b)), ...quad(P(0, b), P(0, y), P(k, y)), ...quad(P(a - k, y), P(a, y), P(a, -b))];
+      return { pts, fill: [], open: true };
+    }
+    case "check": return { pts: [[-a * .85, 0], [-a * .25, b * .75], [a * .85, -b * .8]], fill: [], open: true };
+    case "cross": return { pts: [[-a * .75, -b * .75], [a * .75, b * .75]], fill: [], open: true, extra: [[[a * .75, -b * .75], [-a * .75, b * .75]]] };
+    default: return closed([[0, -b], [a, b], [-a, b]]); // polygon / triangle
   }
 }
 
@@ -30,6 +72,9 @@ export function shapeOutline(kind: string, w: number, h: number): Outline {
 export const LABEL_BOX: Record<string, [number, number, number, number]> = {
   rect: [.84, .84, 0, 0], circle: [.65, .65, 0, 0], polygon: [.4, .4, 0, .12], diamond: [.5, .5, 0, 0], pill: [.8, .8, 0, 0],
   cylinder: [.84, .6, 0, .1], trapezoid: [.7, .8, 0, 0], hexagon: [.7, .84, 0, 0], parallelogram: [.66, .84, 0, 0], alu: [.5, .6, .12, 0],
+  triangle: [.4, .4, 0, .12], star: [.36, .3, 0, .06], octagon: [.7, .7, 0, 0], gear: [.36, .36, 0, 0], ring: [.4, .4, 0, 0], cloud: [.62, .5, 0, .08],
+  thought: [.6, .46, .04, -.1], document: [.74, .72, -.04, .08], chip: [.58, .58, 0, 0], tag: [.66, .8, .1, 0], bubble: [.84, .8, 0, 0],
+  brace: [.9, .3, 0, .78], check: [.9, .3, 0, .8], cross: [.9, .3, 0, .8],
 };
 
 export type Route = "straight" | "elbow" | "curve";
@@ -139,7 +184,8 @@ export function startAtTop(p: Point[]): Point[] {
 /** Display outline: rounded corners, starting top-centre so it can be traced symmetrically; optional speech-bubble tail. */
 export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity): Outline & { sym: boolean } {
   const base = shapeOutline(kind, w, h);
-  if (kind === "cylinder") return { ...base, sym: false };
+  if (kind === "cylinder" || base.open) return { ...base, sym: false };
+  if (kind === "bubble") tail ??= "left";
   let poly = base.fill;
   if (tail) { // insert a pointer into the longest bottom edge (rect, pill)
     const b = h / 2, tw = Math.min(w * .07, h * .22), x0 = (tail === "left" ? -1 : 1) * w * .22;
@@ -151,9 +197,10 @@ export function smoothOutline(kind: string, w: number, h: number, tail?: "left" 
       poly = [...poly.slice(0, i + 1), [x0 - dir * tw, b], tip, [x0 + dir * tw, b], ...poly.slice(i + 1)];
     }
   }
-  const r = kind === "circle" ? 0 : Math.min(maxR, Math.min(w, h) * (kind === "rect" ? .16 : .1));
+  const k = { rect: .16, bubble: .3, star: .03, gear: .015, tag: .1, chip: .1, document: .06 }[kind] ?? .1;
+  const r = ["circle", "ring", "cloud", "thought"].includes(kind) ? 0 : Math.min(maxR, Math.min(w, h) * k);
   const fill = r ? roundPoly(poly, r) : poly;
-  return { pts: startAtTop(fill), fill, sym: true };
+  return { pts: startAtTop(fill), fill, extra: base.extra, sym: true };
 }
 
 /** The visible part of a closed outline traced from its start in both directions at once (one polyline, meets at p = 1). */

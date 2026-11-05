@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import PlayerScreen, { clock } from "./PlayerScreen";
+import PlayerScreen, { IDLE_MS, clock } from "./PlayerScreen";
 import type { PipelineEvent } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
@@ -19,6 +19,7 @@ vi.mock("@/Stage", () => ({ default: (props: { snapshotRef?: { current: unknown 
   return null;
 } }));
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
+window.matchMedia ??= ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); stage.mockClear(); localStorage.clear(); snap.image = "FRAMEPNG"; });
 
@@ -177,6 +178,27 @@ it("threads saved earlier load for this video", async () => {
   expect(await screen.findByRole("button", { name: "Question at 0:02: Old question" })).toBeTruthy();
 });
 
+it("reopening Ask at the same moment returns to the open thread; at another moment it starts a new question", async () => {
+  const s = setup();
+  await startWithScene(s); await s.push(sceneEvent("s2"));
+  const askBtn = () => screen.getByRole("button", { name: "Ask" });
+  fireEvent.click(askBtn());
+  await ask("Why?");
+  await screen.findByText(/keeps the heap valid/);
+  fireEvent.click(askBtn()); // close
+  fireEvent.click(askBtn()); // same moment
+  expect(screen.getByLabelText("Reply in thread")).toBeTruthy();
+  fireEvent.click(askBtn());
+  fireEvent.click(screen.getByRole("button", { name: "Next scene" })); // > 3 s away, another scene
+  fireEvent.click(askBtn());
+  const box = screen.getByLabelText("Ask about this moment");
+  expect(document.activeElement).toBe(box);
+  expect(screen.queryByLabelText("Reply in thread")).toBeNull();
+  expect(within(screen.getByRole("list", { name: "Questions" })).getByText("Why?")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Question at 0:00: Why?" })); // a marker still opens its thread
+  expect(screen.getByLabelText("Reply in thread")).toBeTruthy();
+});
+
 it("Transcript lists narration lines and clicking one seeks", async () => {
   const s = setup();
   await startWithScene(s);
@@ -210,7 +232,7 @@ it("checkpoint pauses at the end of its scene and opens inside the video; the ri
   await screen.findByText("Nailed it.");
   expect(screen.queryByRole("button", { name: "Ask about it" })).toBeNull();
   await waitFor(() => expect(s.store.data.get("checks-vid1")).toEqual({ cp1: expect.objectContaining({ response: "The bigger", correct: true }) }));
-  expect(screen.getByRole("button", { name: "Checkpoint 1: Which child swaps? (right)" })).toBeTruthy();
+  expect(screen.getByTestId("checks-badge").textContent).toBe("1/1");
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
 });
@@ -274,7 +296,7 @@ it("Next scene seeks to the next scene's offset", async () => {
   expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec + DEFAULT_GAP_SEC, 1);
 });
 
-// --- checkpoints mid-video, the Checks strip, captions, and what the tutor sees ---
+// --- checkpoints mid-video, the Checks tab, quiz, captions, speed, chrome, and what the tutor sees ---
 
 const mid: Checkpoint = { ...mcq, id: "cp1", afterScene: 0, prompt: "Mid question?" };
 const last: Checkpoint = { ...mcq, id: "cp2", afterScene: 1, kind: "short", prompt: "Last question?", choices: undefined, answer: "A sentence." };
@@ -296,47 +318,139 @@ it("a mid-video checkpoint pauses when its scene ends, and Continue resumes the 
   expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
 });
 
-it("checkpoints get seek-bar markers and an ordered Checks strip; a chip opens its card paused", async () => {
+const openChecks = () => { fireEvent.click(screen.getByRole("button", { name: "Checks" })); return within(screen.getByRole("navigation", { name: "Checks" })); };
+
+it("header buttons are icon-only with tooltips; Checks shows an answered/total badge and opens the Checks tab", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: "checkpoints", items: [last, mid] });
+  await s.push(sceneEvent("s1"));
+  for (const name of ["Checks", "Transcript", "Ask", "Toggle fullscreen", "Back"]) {
+    const b = screen.getByRole("button", { name });
+    expect(b.getAttribute("title")).toBeTruthy();
+    expect(b.textContent).not.toContain(name);
+  }
+  expect(screen.getByTestId("checks-badge").textContent).toBe("0/2");
+  openChecks();
+  expect(screen.getByRole("tab", { name: "Checks" }).getAttribute("aria-selected")).toBe("true");
+});
+
+it("the Checks tab lists checkpoints by scene; one opens its card paused at the scene end; Skip records a skip", async () => {
   const s = setup();
   await settle();
   await s.push({ type: "checkpoints", items: [last, mid] });
   await s.push(sceneEvent("s1"));
   expect(screen.getByRole("button", { name: `Checkpoint 1 at ${clock(timeline.totalSec)}` })).toBeTruthy();
-  const strip = within(screen.getByRole("navigation", { name: "Checks" }));
-  const chips = strip.getAllByRole("button");
-  expect(chips.map(c => c.getAttribute("aria-label"))).toEqual(["Checkpoint 1: Mid question? (upcoming)", "Checkpoint 2: Last question? (upcoming)"]);
-  expect((chips[1] as HTMLButtonElement).disabled).toBe(true); // its scene hasn't arrived yet
-  fireEvent.click(chips[0]);
+  const list = openChecks();
+  const items = list.getAllByRole("button");
+  expect(items.map(c => c.getAttribute("aria-label"))).toEqual(["Checkpoint 1: Mid question? (upcoming)", "Checkpoint 2: Last question? (upcoming)"]);
+  expect((items[1] as HTMLButtonElement).disabled).toBe(true); // its scene hasn't arrived yet
+  fireEvent.click(items[0]);
   const card = screen.getByRole("region", { name: "Checkpoint" });
   expect(within(card).getByText("Mid question?")).toBeTruthy();
   expect(s.audios[0].currentTime).toBeCloseTo(timeline.totalSec - 0.05, 2);
   fireEvent.click(within(card).getByRole("button", { name: "Skip" }));
   expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
-  expect(strip.getByRole("button", { name: "Checkpoint 1: Mid question? (skipped)" })).toBeTruthy();
+  expect(list.getByRole("button", { name: "Checkpoint 1: Mid question? (skipped)" })).toBeTruthy();
   await waitFor(() => expect((s.store.data.get("checks-vid1") as Record<string, { skipped?: boolean }>).cp1.skipped).toBe(true));
 });
 
-it("saved checkpoint results show in the strip", async () => {
+it("saved results show in the list and badge, and an answered checkpoint never auto-pops again", async () => {
   const s = setup({ store: memoryJsonStore({ "checks-vid1": { cp1: { response: "x", correct: false, at: 1 }, cp2: { response: "y", correct: true, at: 2 } } }) });
   await settle();
   await s.push({ type: "checkpoints", items: [mid, last] });
-  await screen.findByRole("button", { name: "Checkpoint 1: Mid question? (wrong)" });
-  expect(screen.getByRole("button", { name: "Checkpoint 2: Last question? (right)" })).toBeTruthy();
+  await s.push(sceneEvent("s1")); await s.push(sceneEvent("s2"));
+  await waitFor(() => expect(screen.getByTestId("checks-badge").textContent).toBe("2/2"));
+  const list = openChecks();
+  expect(list.getByRole("button", { name: "Checkpoint 1: Mid question? (wrong)" })).toBeTruthy();
+  expect(list.getByRole("button", { name: "Checkpoint 2: Last question? (right)" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  await act(async () => { s.audios[0].currentTime = timeline.totalSec; s.audios[0].dispatchEvent(new Event("ended")); });
+  expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy(); // still playing
 });
 
-it("captions sit below the video, show the current beat with the current word marked, and CC toggles and persists", async () => {
+it("pressing the bottom Play while a card is open records a skip and plays on", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: "checkpoints", items: [mid] });
+  await s.push(sceneEvent("s1")); await s.push(sceneEvent("s2"));
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  await act(async () => { s.audios[0].currentTime = timeline.totalSec; s.audios[0].dispatchEvent(new Event("ended")); });
+  await screen.findByRole("region", { name: "Checkpoint" });
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
+  await waitFor(() => expect((s.store.data.get("checks-vid1") as Record<string, { skipped?: boolean }>).cp1.skipped).toBe(true));
+  expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+});
+
+it("two checkpoints after one scene pop one after the other before the next scene", async () => {
+  const s = setup();
+  await settle();
+  const second: Checkpoint = { ...mid, id: "cp3", prompt: "Second question?" };
+  await s.push({ type: "checkpoints", items: [mid, second] });
+  await s.push(sceneEvent("s1")); await s.push(sceneEvent("s2"));
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  await act(async () => { s.audios[0].currentTime = timeline.totalSec; s.audios[0].dispatchEvent(new Event("ended")); });
+  await act(async () => { fireEvent.click(within(await screen.findByRole("region", { name: "Checkpoint" })).getByRole("button", { name: "Skip" })); });
+  expect(within(screen.getByRole("region", { name: "Checkpoint" })).getByText("Second question?")).toBeTruthy();
+  expect(s.audios[1].play).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(within(screen.getByRole("region", { name: "Checkpoint" })).getByRole("button", { name: "Skip" })); });
+  expect(s.audios[1].play).toHaveBeenCalled();
+});
+
+it("a checkpoint with a table shows it as context on the card", async () => {
+  const s = setup();
+  await settle();
+  const withTable = { ...mid, table: { headers: ["i", "A[i]"], rows: [["0", "9"], ["1", "4"]] } } as Checkpoint;
+  await s.push({ type: "checkpoints", items: [withTable] });
+  await s.push(sceneEvent("s1"));
+  fireEvent.click(openChecks().getByRole("button", { name: /Checkpoint 1/ }));
+  const ctx = within(screen.getByRole("region", { name: "Checkpoint" })).getByTestId("check-context");
+  expect(within(ctx).getAllByRole("columnheader").map(h => h.textContent)).toEqual(["i", "A[i]"]);
+  expect(within(ctx).getAllByRole("row")).toHaveLength(3);
+});
+
+it("Take the quiz steps through the ready questions and ends with scenes to rewatch", async () => {
+  const s = setup();
+  await settle();
+  const q2: Checkpoint = { ...mcq, id: "cp9", afterScene: 1, prompt: "Root after?" };
+  await s.push({ type: "checkpoints", items: [mid, q2] });
+  await s.push(sceneEvent("s1")); await s.push(sceneEvent("s2")); await s.end();
+  openChecks();
+  fireEvent.click(screen.getByRole("button", { name: /Take the quiz/ }));
+  const quiz = within(screen.getByRole("dialog", { name: "Quiz" }));
+  expect(quiz.getByText(/Question/).textContent).toContain("1 of 2");
+  await act(async () => { fireEvent.click(quiz.getByRole("radio", { name: "The bigger" })); });
+  await quiz.findByText("Nailed it.");
+  fireEvent.click(quiz.getByRole("button", { name: "Next question" }));
+  expect(quiz.getAllByText("Root after?").length).toBeGreaterThan(0);
+  await act(async () => { fireEvent.click(quiz.getAllByRole("radio", { name: "The smaller" }).slice(-1)[0]); });
+  await quiz.findByText("Not quite.");
+  fireEvent.click(quiz.getByRole("button", { name: "See results" }));
+  expect(quiz.getByLabelText("1 of 2 right")).toBeTruthy();
+  await waitFor(() => expect(Object.keys(s.store.data.get("checks-vid1") as object).sort()).toEqual(["cp1", "cp9"]));
+  fireEvent.click(quiz.getByRole("button", { name: "Rewatch scene 2" }));
+  expect(screen.queryByRole("dialog", { name: "Quiz" })).toBeNull();
+  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec + DEFAULT_GAP_SEC, 1);
+  expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+});
+
+it("captions sit over the video (not in the canvas), show the current beat as plain text, and CC toggles and persists", async () => {
   const s = setup();
   await startWithScene(s);
   const cues = captionCues([{ scene, timeline }]);
   const region = screen.getByRole("region", { name: "Captions" });
   expect(screen.getByTestId("video").contains(region)).toBe(false);
+  expect(screen.getByTestId("frame").contains(region)).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   const t = (cues[1].start + cues[1].end) / 2;
   await act(async () => { s.audios[0].currentTime = t; s.audios[0].dispatchEvent(new Event("timeupdate")); });
   fireEvent.click(screen.getByRole("button", { name: "Pause" })); // re-renders at the paused time
   const text = region.textContent!.replace(/\s+/g, " ").trim();
+  expect(text.length).toBeGreaterThan(0);
   expect(cues[1].text.replace(/\s+/g, " ")).toContain(text);
-  expect(region.querySelectorAll("[data-current]").length).toBe(1);
+  expect(region.querySelectorAll("[data-current]").length).toBe(0);
   const cc = screen.getByRole("button", { name: "Captions" });
   expect(cc.getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(cc);
@@ -345,6 +459,53 @@ it("captions sit below the video, show the current beat with the current word ma
   cleanup();
   setup();
   expect(screen.getByRole("button", { name: "Captions" }).getAttribute("aria-pressed")).toBe("false");
+});
+
+it("speed menu sets the audio rate, persists it, and < / > step it (not while typing)", async () => {
+  const s = setup();
+  await startWithScene(s);
+  const audio = s.audios[0] as FakeAudio & { playbackRate?: number; preservesPitch?: boolean };
+  expect(audio.playbackRate).toBe(1);
+  fireEvent.click(screen.getByRole("button", { name: "Playback speed" }));
+  fireEvent.click(within(screen.getByRole("menu", { name: "Speed" })).getByRole("menuitemradio", { name: "1.5×" }));
+  expect(audio.playbackRate).toBe(1.5);
+  expect(audio.preservesPitch).toBe(true);
+  expect(localStorage.getItem("tangent.speed")).toBe("1.5");
+  expect(screen.queryByRole("menu")).toBeNull();
+  fireEvent.keyDown(window, { key: ">" });
+  expect(audio.playbackRate).toBe(1.75);
+  fireEvent.keyDown(window, { key: "<" }); fireEvent.keyDown(window, { key: "<" });
+  expect(audio.playbackRate).toBe(1.25);
+  const box = document.createElement("textarea"); document.body.appendChild(box);
+  fireEvent.keyDown(box, { key: ">" });
+  expect(audio.playbackRate).toBe(1.25);
+  box.remove();
+  cleanup();
+  const again = setup();
+  await startWithScene(again);
+  expect((again.audios[0] as FakeAudio & { playbackRate?: number }).playbackRate).toBe(1.25);
+  expect(screen.getByRole("button", { name: "Playback speed" }).textContent).toBe("1.25×");
+});
+
+it("chrome over the video fades out after idle playback and comes back on pointer move; stays while paused", async () => {
+  const s = setup();
+  await startWithScene(s);
+  const frame = screen.getByTestId("frame");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    expect(frame.dataset.chrome).toBe("shown");
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
+    expect(frame.dataset.chrome).toBe("hidden");
+    expect(screen.getByRole("button", { name: "Pause" }).closest("[data-hidden]")).toBeTruthy();
+    fireEvent.pointerMove(frame);
+    expect(frame.dataset.chrome).toBe("shown");
+    act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
+    expect(frame.dataset.chrome).toBe("hidden");
+    fireEvent.keyDown(window, { key: "k" }); // pause
+    act(() => { vi.advanceTimersByTime(IDLE_MS * 2); });
+    expect(frame.dataset.chrome).toBe("shown");
+  } finally { vi.useRealTimers(); }
 });
 
 it("Ask sends the frame, what's on screen, and the line being said", async () => {

@@ -2,15 +2,17 @@ import { compile, resolveAnchor, type BeatAudio } from "./compile";
 import type { Action, Scene, SceneObject } from "./schema";
 import { TREE_OPS } from "./treeOps";
 import { Trace } from "./trees/shared";
+import { COMPONENT_OPS, expandComponent, type Component } from "./components";
 
 export type OpSteps = Action[][]; // each step runs concurrently; steps run in sequence
 export type OpPlan = ReadonlyMap<Action, OpSteps>;
-type Component = Extract<SceneObject, { type: "Array" | "Tree" }>;
+type Computed = Extract<SceneObject, { type: "Array" | "Tree" }> | Component;
 
 // Array sift direction and Tree kind come from the component options.
-export function expandOp(object: SceneObject, action: Action): { object: Component; steps: OpSteps } {
-  if (action.do !== "op" || action.target !== object.id || (object.type !== "Array" && object.type !== "Tree"))
-    throw new Error("op needs a matching Array or Tree target");
+export function expandOp(object: SceneObject, action: Action): { object: Computed; steps: OpSteps } {
+  if (action.do !== "op" || action.target !== object.id || (object.type !== "Array" && object.type !== "Tree" && !(object.type in COMPONENT_OPS)))
+    throw new Error("op needs a matching computed component target");
+  if (object.type !== "Array" && object.type !== "Tree") return expandComponent(object as Component, action);
   const { op, args, at } = action;
   const steps: OpSteps = [];
   const slot = (i: number) => `${object.id}.slot[${i}]`;

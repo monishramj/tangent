@@ -11,7 +11,7 @@ export const beatStarts = (tl: Timeline) => tl.events.filter(e => e.verb === "sa
 import { Player, type Clock } from "./player";
 
 export type QueuedScene = { sceneId: string; timeline: Timeline; wavPath: string };
-type AudioClock = Clock & EventTarget & { readyState: number; preload: string };
+type AudioClock = Clock & EventTarget & { readyState: number; preload: string; playbackRate?: number; preservesPitch?: boolean };
 type Options<T> = Pick<ConstructorParameters<typeof Player>[0], "raf" | "caf"> & {
   render: (scene: T, localTime: number) => void;
   createAudio?: (wavPath: string) => AudioClock;
@@ -47,6 +47,7 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
   private gapSince: number | null = null;
   private gapFrame: number | null = null;
   private readonly gap: number;
+  private speed = 1;
   private readonly now: () => number;
   private readonly raf: (cb: () => void) => number;
   private readonly caf: (h: number) => void;
@@ -70,6 +71,7 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
   get time() { return this.currentTime; }
   get duration() { return this.total; }
   get playing() { return this.wanted; }
+  get rate() { return this.speed; }
   get buffering() { return this.waiting; }
   get sceneBeats() { return this.entries.map(e => ({ sceneId: e.scene.sceneId, offset: e.offset, beatStarts: beatStarts(e.scene.timeline) })); }
   get beatStarts() { return this.sceneBeats.flatMap(e => e.beatStarts.map(t => e.offset + t)); }
@@ -79,6 +81,7 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
     if (!Number.isFinite(scene.timeline.totalSec) || scene.timeline.totalSec <= 0) throw new Error("Invalid scene duration");
     const audio = this.options.createAudio?.(scene.wavPath) ?? new Audio(scene.wavPath);
     audio.preload = "auto";
+    this.applyRate(audio);
     const offset = this.entries.length ? this.total + this.gap : 0;
     const entry: Entry<T> = { scene, offset, audio, player: null!, cleanup: () => {} };
     const fail = (error: unknown) => {
@@ -96,6 +99,7 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
       render: t => { this.options.render(scene, t); this.options.onChange?.(); },
       onEnd: () => this.boundary(entry),
     });
+    entry.player.rate = this.speed;
     const ended = () => this.boundary(entry);
     const ready = () => { if (this.entry === entry && this.waiting) this.sync(); };
     const stalled = () => {
@@ -126,9 +130,23 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
     this.sync();
   }
 
+  private applyRate(audio: AudioClock) {
+    audio.playbackRate = this.speed;
+    audio.preservesPitch = true; // faster narration, same voice
+  }
+  /** The gap is timeline seconds, so wall time counts `rate`× as fast: a 0.6 s gap holds 0.3 s of wall time at 2×. */
   private gapElapsed() {
     if (this.gapAt === null) return 0;
-    return Math.min(this.gap, this.gapAt + (this.gapSince === null ? 0 : (this.now() - this.gapSince) / 1000));
+    return Math.min(this.gap, this.gapAt + (this.gapSince === null ? 0 : (this.now() - this.gapSince) / 1000 * this.speed));
+  }
+  /** Playback speed for the current and every later scene (audio + the between-scene hold). */
+  setRate(r: number) {
+    if (!Number.isFinite(r) || r <= 0) throw new Error("rate must be a positive number");
+    // Bank the gap time elapsed at the old rate before switching.
+    if (this.gapAt !== null && this.gapSince !== null) { this.gapAt = this.gapElapsed(); this.gapSince = this.now(); }
+    this.speed = r;
+    for (const e of this.entries) { this.applyRate(e.audio); e.player.rate = r; }
+    this.options.onChange?.();
   }
   /** Freeze the gap clock (pause, seek, dispose). */
   private holdGap() {

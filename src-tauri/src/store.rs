@@ -46,11 +46,18 @@ pub fn store_delete(app: AppHandle, name: String) -> Result<(), String> { delete
 
 fn entry(name: &str) -> Result<keyring::Entry, String> { keyring::Entry::new(SERVICE, valid_name(name)?).map_err(|e| e.to_string()) }
 
+/// No usable keychain (no backend on this machine, locked, or access denied). Reads treat it as "no secret".
+fn backend_missing(e: &keyring::Error) -> bool { matches!(e, keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)) }
+fn backend_error(e: keyring::Error) -> String {
+    if backend_missing(&e) { format!("No system keychain is available on this computer ({e}).") } else { e.to_string() }
+}
+
 #[tauri::command]
 pub fn get_secret(name: String) -> Result<Option<String>, String> {
     match entry(&name)?.get_password() {
         Ok(v) => Ok(Some(v)),
         Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) if backend_missing(&e) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -59,9 +66,9 @@ pub fn get_secret(name: String) -> Result<Option<String>, String> {
 pub fn set_secret(name: String, value: String) -> Result<(), String> {
     let e = entry(&name)?;
     if value.is_empty() {
-        return match e.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(err) => Err(err.to_string()) };
+        return match e.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(err) => Err(backend_error(err)) };
     }
-    e.set_password(&value).map_err(|err| err.to_string())
+    e.set_password(&value).map_err(backend_error)
 }
 
 #[cfg(test)]
@@ -102,6 +109,22 @@ mod tests {
         assert!(valid_name("ir-src_1.v2").is_ok());
         assert!(valid_name(&"x".repeat(128)).is_ok());
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn secrets_reject_bad_names_before_touching_the_keychain() {
+        for n in ["", "..", "a/b", "a b", "../giphy", &"x".repeat(129)] {
+            assert!(get_secret(n.to_string()).unwrap_err().starts_with("invalid name"), "{n:?}");
+            assert!(set_secret(n.to_string(), "v".into()).unwrap_err().starts_with("invalid name"), "{n:?}");
+        }
+    }
+
+    #[test]
+    fn missing_backend_is_a_clear_error() {
+        let e = keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("no dbus")));
+        assert!(backend_missing(&e));
+        assert!(backend_error(e).starts_with("No system keychain"));
+        assert!(!backend_missing(&keyring::Error::NoEntry));
     }
 
     #[test]

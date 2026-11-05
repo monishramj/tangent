@@ -1,4 +1,4 @@
-import { generateScript, type Beat } from "../gen/script";
+import { generateScript, type Beat, type DetailLevel } from "../gen/script";
 import { generateGroupScene } from "../gen/scene";
 import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
 import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/checkpoints";
@@ -36,6 +36,8 @@ type Options = {
   lookahead?: number;
   figures?: Figure[];
   exercises?: Exercise[];
+  /** How much of the section the script covers (see DetailLevel). */
+  detail?: DetailLevel;
   gifSearch?: GifSearch | null;
   onProgress?: (p: Progress) => void;
   signal?: AbortSignal;
@@ -43,7 +45,7 @@ type Options = {
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], exercises = [], gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -164,7 +166,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       checkAbort();
       onStatus?.("writing script");
       progress("script", 0);
-      const script = await generateScript({ sectionMarkdown, provider: complete });
+      const script = await generateScript({ sectionMarkdown, provider: complete, detail });
       if (!script.beats || script.violations.length) throw new Error("Invalid script");
       const beats = script.beats;
       says = beats.map(b => b.say);
@@ -172,7 +174,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       fill();
       // Checkpoints are one side call; they never delay a scene and failure just means none.
       let checkpoints: Checkpoint[] | null = null, sent = false;
-      const pending = generateCheckpoints({ sectionMarkdown, exercises, scenes: groups.map(g => g.plan.concept), provider: complete })
+      const pending = generateCheckpoints({ sectionMarkdown, exercises, figures, scenes: groups.map(g => g.plan.concept), provider: complete })
         .then(items => { checkpoints = items; }, () => { checkpoints = []; });
       while (cursor < groups.length) {
         const event = await Promise.race([jobs.get(cursor)!, aborted]);

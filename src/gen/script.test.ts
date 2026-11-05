@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
-import { checkScript, cleanSay, generateScript, type Beat } from "./script";
+import { checkScript, cleanSay, generateScript, targetBeats, type Beat } from "./script";
 
 const b = (say: string): Beat => ({ say, visualIntent: "x" });
 const rules = (say: string) => checkScript([b(say)]).map((v) => v.rule);
@@ -101,5 +101,26 @@ describe("generateScript privacy", () => {
     const provider = mockProvider(JSON.stringify([{ say: "Muxes pick.", visualIntent: "x" }]));
     await generateScript({ sectionMarkdown: "Muxes pick.\n©zyBooks 01/15/26 14:03 EST 1234567 Jane Q Student PURDUECS250Fall2026\nDone.", provider });
     expect(provider.complete.mock.calls[0][0]).not.toMatch(/Jane|1234567|zyBooks/);
+  });
+});
+
+describe("detail level", () => {
+  const section = Array.from({ length: 1200 }, (_, i) => `w${i}`).join(" ");
+  it("targets beats proportional to section length", () => {
+    expect([targetBeats(section, "overview"), targetBeats(section, "standard"), targetBeats(section, "detailed"), targetBeats(section, "complete")]).toEqual([5, 10, 17, 30]);
+    expect(targetBeats("short text", "complete")).toBe(4);
+  });
+  it("defines the chosen level in the script prompt and keeps the speech rules", async () => {
+    const ok = JSON.stringify([b("First, a heap is a tree.")]);
+    const p = mockProvider(ok, ok);
+    await generateScript({ sectionMarkdown: section, provider: p });
+    await generateScript({ sectionMarkdown: section, provider: p, detail: "complete" });
+    const [standard, complete] = p.complete.mock.calls.map(c => c[0]);
+    expect(standard).toContain("Detail level: Standard");
+    expect(standard).toContain("about 10 beats");
+    expect(complete).toMatch(/Detail level: Complete: cover everything/);
+    expect(complete).toContain("never a reading");
+    expect(complete).toContain("about 30 beats");
+    expect(complete).toContain("Speech rules, all mandatory");
   });
 });

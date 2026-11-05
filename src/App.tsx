@@ -62,10 +62,10 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
         const key = await giphyKey();
         const stream = startSession({
           irSection: { markdown, figures: sectionFigures(ir, sectionId), exercises: sectionExercises(ir, sectionId) },
-          provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null,
+          provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });
-        setState({ markdown, stream: recordStream(stream, { id: videoId, title: meta.title, source: { pdfPath: meta.pdfPath, sectionId, sectionTitle: meta.title } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
+        setState({ markdown, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { pdfPath: meta.pdfPath, sectionId, sectionTitle: meta.title } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
       } catch (e) { if (!controller.signal.aborted) setState({ error: String(e) }); }
     })();
     return () => controller.abort();

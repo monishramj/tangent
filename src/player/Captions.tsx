@@ -24,58 +24,38 @@ export function captionCues(scenes: { scene: Scene; timeline: Timeline }[], offs
   return out.sort((a, b) => a.start - b.start);
 }
 
-/** Words of a cue with approximate times: duration shared by character count (+1 per word for the gap). */
-export function timeWords(cue: Cue): TimedWord[] {
-  const words = cue.text.split(/\s+/).filter(Boolean);
-  const weight = words.map(w => w.length + 1);
-  const total = weight.reduce((s, x) => s + x, 0) || 1;
-  const span = Math.max(0, cue.end - cue.start);
-  let t = cue.start;
-  return words.map((word, i) => { const start = t; t += span * weight[i] / total; return { word, start, end: t }; });
-}
-
-/** Split into caption pages that fit two lines: break after a sentence end, else at `max` words (preferring a comma). */
-export function pages(words: TimedWord[], max = 14): TimedWord[][] {
-  const out: TimedWord[][] = [];
-  let cur: TimedWord[] = [];
-  const flush = () => { if (cur.length) out.push(cur); cur = []; };
-  for (const w of words) {
-    cur.push(w);
-    if (/[.!?]["')\]]*$/.test(w.word) && cur.length >= 4) flush();
-    else if (cur.length >= max) {
-      let comma = -1;
-      for (let i = cur.length - 2; i >= max / 2; i--) if (/[,;:]$/.test(cur[i].word)) { comma = i; break; }
-      if (comma >= 0) { const rest = cur.slice(comma + 1); cur = cur.slice(0, comma + 1); flush(); cur = rest; }
-      else flush();
-    }
+/** Long beats (two sentences) split at sentence ends into parts that fit two lines, timed by character share.
+ *  Sentence-level timing is coarse on purpose: per-word estimates drift visibly from the voice. */
+export function captionParts(cue: Cue, max = 110): Cue[] {
+  const text = cue.text.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return [{ ...cue, text }];
+  const sentences = text.match(/[^.!?]+(?:[.!?]+["')\]]*|$)\s*/g)?.map(x => x.trim()).filter(Boolean) ?? [text];
+  const parts: string[] = [];
+  for (const s of sentences) {
+    const last = parts.length - 1;
+    if (last >= 0 && parts[last].length + 1 + s.length <= max) parts[last] += ` ${s}`;
+    else parts.push(s);
   }
-  flush();
-  return out;
+  const total = parts.reduce((n, p) => n + p.length, 0) || 1;
+  let t = cue.start;
+  return parts.map(p => { const start = t; t += (cue.end - cue.start) * p.length / total; return { start, end: t, text: p }; });
 }
 
 const HOLD = 0.8; // keep the last line up briefly after it ends (beat pauses, scene seams)
 
-export default function Captions({ cues, time }: { cues: Cue[]; time: number }) {
+/** The line being said, plain: no per-word highlight. Sits over the bottom of the video; `lift` moves it above the controls. */
+export default function Captions({ cues, time, lift = false }: { cues: Cue[]; time: number; lift?: boolean }) {
   const idx = cues.reduce((k, c, i) => c.start <= time + .01 ? i : k, -1);
   const cue = idx >= 0 && time < cues[idx].end + HOLD ? cues[idx] : null;
-  const split = useMemo(() => cue ? pages(timeWords(cue)) : [], [cue]);
-  const flat = split.flat();
-  const cur = flat.reduce((k, w, i) => w.start <= time ? i : k, -1);
-  let page = split.length ? split.length - 1 : 0, n = 0;
-  for (let p = 0; p < split.length; p++) { if (cur < n + split[p].length) { page = p; break; } n += split[p].length; }
-  const first = split.slice(0, page).reduce((s, p) => s + p.length, 0);
+  const parts = useMemo(() => cue ? captionParts(cue) : [], [cue]);
+  const k = parts.reduce((j, p, i) => p.start <= time + .01 ? i : j, 0);
+  const part = parts[k];
   return (
-    <div role="region" aria-label="Captions" className="flex h-[4.5rem] w-full items-start justify-center px-4 pt-3">
-      {cue && split[page] && (
-        // Fixed weight for every word: emphasis is color + a background pill, so nothing reflows as it moves.
-        <p key={`${idx}-${page}`} className="captions-in line-clamp-2 max-w-[60ch] text-center text-[clamp(15px,1.6vw,20px)] leading-[1.45] font-medium text-balance">
-          {split[page].map((w, i) => {
-            const k = first + i, state = k === cur ? "now" : k < cur ? "said" : "next";
-            return <span key={i} data-current={state === "now" || undefined}
-              className={`rounded-[0.3em] px-[0.08em] transition-[color,background-color] duration-150 ease-out ${state === "now" ? "bg-fg/15 text-fg" : state === "said" ? "text-fg/85" : "text-fg/40"}`}>{w.word}</span>;
-          }).flatMap((el, i) => i ? [" ", el] : [el])}
-        </p>
-      )}
+    <div role="region" aria-label="Captions" aria-live="off"
+      className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-[6%] pb-[max(0.75rem,3.2%)] transition-transform duration-300 ease-out ${lift ? "-translate-y-[5.25rem]" : ""}`}>
+      {part && <p key={`${idx}-${k}`} className="captions-in line-clamp-2 max-w-[56ch] rounded-lg bg-black/70 px-[0.6em] py-[0.2em] text-center text-[clamp(14px,1.9cqw,22px)] leading-[1.4] font-medium text-balance text-fg [box-decoration-break:clone]">
+        {part.text}
+      </p>}
     </div>
   );
 }

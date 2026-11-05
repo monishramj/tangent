@@ -91,13 +91,30 @@ it("empty transcript shows a placeholder", () => {
   expect(screen.getByText(/transcript fills in/i)).toBeTruthy();
 });
 
-it("only Ask and Transcript tabs (checkpoints live in the video); tabs switch; Escape and close button close", () => {
+it("Ask and Transcript tabs, plus Checks when given; tabs switch; Escape and close button close", () => {
   const p = setup();
   expect(screen.getAllByRole("tab").map(t => t.textContent)).toEqual(["Ask", "Transcript"]);
+  cleanup();
+  setup({ checks: <p>checks list</p>, tab: "checks" });
+  expect(screen.getAllByRole("tab").map(t => t.textContent)).toEqual(["Ask", "Transcript", "Checks"]);
+  expect(screen.getByText("checks list")).toBeTruthy();
+  cleanup();
+  Object.assign(p, setup());
   fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
   expect(p.onTab).toHaveBeenCalledWith("transcript");
   fireEvent.keyDown(document, { key: "Escape" });
   expect(p.onClose).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
   expect(p.onClose).toHaveBeenCalledTimes(2);
+});
+
+it("tutor answers render inline LaTeX with KaTeX and keep markup as text", () => {
+  const t = thread({ messages: [{ role: "user", text: "<b>hi</b>", at: 1 }, { role: "tutor", text: "It costs $n \\log n$.\n<script>alert(1)</script>", at: 2 }] });
+  setup({ threads: [t], activeThread: "t1" });
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.querySelector(".katex")).toBeTruthy();
+  expect(dialog.querySelector("script")).toBeNull();
+  expect(dialog.querySelector("b")).toBeNull();
+  expect(dialog.textContent).toContain("<script>alert(1)</script>");
+  expect(dialog.textContent).toContain("<b>hi</b>");
 });

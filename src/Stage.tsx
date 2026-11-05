@@ -10,11 +10,12 @@ import { applyEventsAt } from "@motion/stage/scene";
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // `drawRef.current(t)` is filled once Pixi is ready: update the scene to t, then render (on demand; the ticker never runs).
-// `snapshotRef.current()` resolves a base64 PNG (no `data:` prefix) of the current frame for the tutor, or null.
+// `snapshotRef.current(maxW?)` resolves a base64 PNG (no `data:` prefix) of the current frame, or null: full size for the
+// tutor, small (`maxW`) for checkpoint thumbnails.
 // It captures the Pixi canvas only: KaTeX and gif DOM overlays are not in it.
 type Props = {
   scene: Scene; timeline: Timeline; drawRef: RefObject<((t: number) => void) | null>; annotateRef?: RefObject<((a: Annotation[]) => void) | null>;
-  timeRef?: RefObject<number>; snapshotRef?: RefObject<(() => Promise<string | null>) | null>;
+  timeRef?: RefObject<number>; snapshotRef?: RefObject<((maxW?: number) => Promise<string | null>) | null>;
 };
 const SNAP_MAX_W = 1280; // plenty for a vision model, and keeps the prompt small
 
@@ -36,10 +37,10 @@ export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef, 
     drawRef.current = draw;
     if (annotateRef) annotateRef.current = (an) => { r.setAnnotations(an); draw(last); };
     // Re-render and copy in the same task: the WebGL drawing buffer is only guaranteed until the frame is presented.
-    if (snapshotRef) snapshotRef.current = async () => {
+    if (snapshotRef) snapshotRef.current = async (maxW = SNAP_MAX_W) => {
       try {
         draw(last);
-        const src = a.canvas, k = Math.min(1, SNAP_MAX_W / (src.width || 1));
+        const src = a.canvas, k = Math.min(1, maxW / (src.width || 1));
         const out = document.createElement("canvas");
         out.width = Math.max(1, Math.round(src.width * k)); out.height = Math.max(1, Math.round(src.height * k));
         const ctx = out.getContext("2d");

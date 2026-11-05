@@ -3,6 +3,7 @@ import type { Scene } from "@motion/dsl/schema";
 import type { Timeline } from "@motion/dsl/compile";
 import type { PipelineEvent } from "../pipeline/streamVideo";
 import type { Checkpoint } from "../gen/checkpoints";
+import type { DetailLevel } from "../gen/script";
 
 export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number };
 export type VideoBundle = {
@@ -10,6 +11,7 @@ export type VideoBundle = {
   source: { pdfPath: string; sectionId: string; sectionTitle: string };
   scenes: StoredScene[];
   checkpoints?: Checkpoint[];
+  detail?: DetailLevel; // how granular the script was (overview … complete)
 };
 /** audioFile is a temp path when saving and an absolute app-data path when loaded. */
 export type VideoStore = {
@@ -47,8 +49,8 @@ type SceneEvent = Extract<PipelineEvent, { type: "scene" }>;
  * Tee a pipeline stream into the store: save after every scene (so a partial watch survives),
  * mark complete only if the stream ends cleanly with no scene errors. Save failures never break playback.
  */
-export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"] }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
-  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
+export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: string; title: string; source: VideoBundle["source"]; detail?: DetailLevel }, store: VideoStore = tauriVideoStore, onError: (e: unknown) => void = () => {}): AsyncIterable<PipelineEvent> {
+  const bundle: VideoBundle = { id: meta.id ?? `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, title: meta.title, detail: meta.detail, createdAt: Date.now(), complete: false, source: meta.source, scenes: [] };
   let chain: Promise<unknown> = Promise.resolve();
   const persist = () => { const snap = structuredClone(bundle); chain = chain.then(() => store.save(snap)).catch(onError); return chain; };
   return (async function* () {

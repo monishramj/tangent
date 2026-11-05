@@ -15,7 +15,11 @@ const unit = z.number().min(0).max(1);
 const focus = z.tuple([unit, unit, unit, unit]).refine(([x, y, r, b]) => x < r && y < b, "focus box must have positive size");
 const point = z.union([id, num2]); // object id or [x, y]
 const size = z.number().positive().max(1).optional(); // fraction of stage height
-export const SHAPES = ["rect", "circle", "polygon", "diamond", "pill", "cylinder", "trapezoid", "hexagon", "parallelogram", "alu"] as const;
+const value = z.union([z.number(), z.string()]);
+export const SHAPES = ["rect", "circle", "polygon", "diamond", "pill", "cylinder", "trapezoid", "hexagon", "parallelogram", "alu",
+  "triangle", "star", "octagon", "gear", "ring", "cloud", "thought", "document", "chip", "tag", "bubble", "brace", "check", "cross"] as const;
+export const MARKS = ["underline", "circle", "strike", "marker"] as const;
+export const SEQ_TYPES = ["Stack", "Queue", "LinkedList"] as const; // linear computed components (one renderer, different layouts)
 export const POSES = ["stand", "point", "think", "shrug", "celebrate", "wave", "confused", "walk", "explain"] as const;
 export const Pose = z.enum(POSES);
 const obj = <K extends string, T extends z.ZodRawShape>(type: K, shape: T) =>
@@ -62,7 +66,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), opacity: unit.optional() }),
   obj("KineticText", { text: z.string(), variant: z.string().optional(), size, maxW: unit.optional() }), // variant: slam | punch | words | stack
   obj("Math", { tex: z.string(), size }), // KaTeX
-  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape
+  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
   obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
   obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
   obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
@@ -94,6 +98,28 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("arrow", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
   obj("line", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
   obj("axes", { x: num2, y: num2 }),
+  obj("numberline", { min: z.number(), max: z.number(), step: z.number().positive().optional(), width: unit.optional() }).superRefine((o, ctx) => {
+    if (!(o.min < o.max) || (o.max - o.min) / (o.step ?? 1) > 24) ctx.addIssue({ code: "custom", message: "numberline needs min < max and at most 24 ticks" });
+  }),
+  obj("matrix", { rows: z.array(z.array(value)).min(1).max(6), label: z.string().optional(), cell: z.number().positive().max(.3).optional() }).superRefine((o, ctx) => {
+    if (o.rows.some(r => r.length !== o.rows[0].length || !r.length) || o.rows[0].length > 6) ctx.addIssue({ code: "custom", message: "matrix rows must be equal length (1-6)" });
+  }),
+  obj("distribution", { kind: z.enum(["normal", "uniform", "binomial"]), mean: z.number().default(0), sd: z.number().positive().default(1), min: z.number().default(0), max: z.number().default(1),
+    n: z.number().int().min(1).max(40).default(10), p: unit.default(.5), a: z.number().optional(), b: z.number().optional(), width: unit.optional(), height: unit.optional() }).superRefine((o, ctx) => {
+    if (o.kind === "uniform" && !(o.min < o.max)) ctx.addIssue({ code: "custom", message: "uniform needs min < max" });
+    if (o.a !== undefined && o.b !== undefined && o.a > o.b) ctx.addIssue({ code: "custom", message: "shaded range needs a <= b" });
+  }),
+  obj("mark", { target: id, text: z.string().optional(), mark: z.enum(MARKS) }), // hand-drawn emphasis on an object (or a phrase inside a text)
+  obj("texture", { pattern: z.enum(["dots", "grid", "scanlines"]) }), // subtle full-stage background
+  ...SEQ_TYPES.map(t => obj(t, { init: z.array(value).max(10), label: z.string().optional() })),
+  obj("Graph", {
+    nodes: z.array(z.object({ id, label: z.string().optional(), x: unit.optional(), y: unit.optional() })).min(1).max(12),
+    edges: z.array(z.object({ from: id, to: id, w: z.number().optional() })).max(30), directed: z.boolean().default(false),
+    width: unit.optional(), height: unit.optional(),
+  }).superRefine((o, ctx) => {
+    const ids = new Set(o.nodes.map(n => n.id));
+    if (ids.size !== o.nodes.length || o.edges.some(e => !ids.has(e.from) || !ids.has(e.to))) ctx.addIssue({ code: "custom", message: "graph needs unique node ids and existing edge endpoints" });
+  }),
   obj("plot", { axes: id, expr: z.string() }),
   obj("media", { src: z.string() }), // gif/image
   // computed components (MVP set; Heap, Graph, ... later)

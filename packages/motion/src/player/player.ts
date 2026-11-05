@@ -17,6 +17,8 @@ export class Player {
     this.raf = o.raf ?? ((cb) => requestAnimationFrame(cb));
     this.caf = o.caf ?? ((h) => cancelAnimationFrame(h));
   }
+  /** Playback rate of the audio clock (the queue sets it), so the extrapolation between coarse updates keeps pace. */
+  rate = 1;
   get time() { return this.o.audio.currentTime; }
   get playing() { return this.h !== null; }
 
@@ -25,7 +27,7 @@ export class Player {
   private smooth() {
     const audio = this.time, now = performance.now();
     if (audio !== this.sample.audio) { this.sample = { audio, at: now }; return audio; }
-    return Math.min(this.o.timeline.totalSec, audio + Math.min(.25, (now - this.sample.at) / 1000));
+    return Math.min(this.o.timeline.totalSec, audio + Math.min(.25 * this.rate, (now - this.sample.at) / 1000 * this.rate));
   }
   private tick = () => {
     const t = this.smooth();

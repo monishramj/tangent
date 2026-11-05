@@ -106,3 +106,16 @@ describe("resumeTime", () => {
     expect(resumeTime([], 5)).toBe(0);
   });
 });
+
+describe("answer style", () => {
+  it("asks for brief plain answers with inline LaTeX allowed and no headings or bold", () => {
+    expect(ctx.prompt).toContain("1-4 short sentences");
+    expect(ctx.prompt).toContain("$O(n \\log n)$");
+    expect(ctx.prompt).toMatch(/no markdown headings, bold/);
+  });
+  it("keeps LaTeX and short line-broken lists in the answer", async () => {
+    const answer = "Heapify costs $O(\\log n)$.\nFirst, compare.\nThen, swap.";
+    const { p } = mock(JSON.stringify({ answer, annotations: [] }));
+    expect((await ask({ question: "cost?", context: ctx, provider: p })).answer).toBe(answer);
+  });
+});

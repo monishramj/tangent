@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import Captions, { captionCues, pages, timeWords, type Cue } from "./Captions";
+import Captions, { captionCues, captionParts, type Cue } from "./Captions";
 import { scene, timeline } from "@motion/stage/demo";
 
 afterEach(cleanup);
@@ -16,32 +16,31 @@ it("cues come from say events with global times across scenes", () => {
   expect(gapped[one.length].start).toBeCloseTo(timeline.totalSec + 0.6 + one[0].start, 6);
 });
 
-it("word times fill the cue in order, weighted by length", () => {
-  const w = timeWords({ start: 10, end: 12, text: "a heapify" });
-  expect(w.map(x => x.word)).toEqual(["a", "heapify"]);
-  expect(w[0].start).toBe(10);
-  expect(w[1].end).toBeCloseTo(12, 6);
-  expect(w[1].end - w[1].start).toBeGreaterThan(w[0].end - w[0].start);
-});
-
-it("pages break at sentence ends and cap long runs", () => {
-  const words = timeWords({ start: 0, end: 10, text: "First we build the heap. Then the parent swaps with its bigger child, and we check again one level down until nothing is out of place." });
-  const p = pages(words, 14);
-  expect(p[0].map(x => x.word).join(" ")).toBe("First we build the heap.");
-  for (const page of p) expect(page.length).toBeLessThanOrEqual(14);
-  expect(p.flat()).toHaveLength(words.length);
-  expect(p[1][p[1].length - 1].word).toBe("child,"); // prefers the comma when it must break
+it("long beats split at sentence ends into timed parts; short beats stay whole", () => {
+  const short = captionParts({ start: 0, end: 2, text: "Heapify fixes one broken spot." });
+  expect(short).toEqual([{ start: 0, end: 2, text: "Heapify fixes one broken spot." }]);
+  const long = captionParts({ start: 10, end: 20, text: "First we build the heap from the bottom up, one level at a time. Then the parent swaps with its bigger child, and we check again one level down until nothing is out of place." });
+  expect(long).toHaveLength(2);
+  expect(long[0].text).toBe("First we build the heap from the bottom up, one level at a time.");
+  expect(long[0].start).toBe(10);
+  expect(long[1].start).toBeCloseTo(long[0].end, 9);
+  expect(long[1].end).toBeCloseTo(20, 9);
 });
 
 const cues: Cue[] = [{ start: 0, end: 2, text: "Heapify fixes one broken spot." }, { start: 3, end: 5, text: "The parent swaps." }];
 
-it("shows the cue playing now with exactly one current word, and only words before it marked said", () => {
+it("shows the line playing now as plain text, with no per-word marks", () => {
   render(<Captions cues={cues} time={1.2} />);
   const region = screen.getByRole("region", { name: "Captions" });
   expect(region.textContent).toBe("Heapify fixes one broken spot.");
-  const cur = region.querySelectorAll("[data-current]");
-  expect(cur).toHaveLength(1);
-  expect(["one", "broken"]).toContain(cur[0].textContent);
+  expect(region.querySelectorAll("[data-current]")).toHaveLength(0);
+  expect(region.querySelectorAll("span")).toHaveLength(0);
+});
+
+it("changes per beat", () => {
+  const { rerender } = render(<Captions cues={cues} time={1} />);
+  rerender(<Captions cues={cues} time={3.5} />);
+  expect(screen.getByRole("region", { name: "Captions" }).textContent).toBe("The parent swaps.");
 });
 
 it("holds the last line briefly, then clears; empty before the first cue", () => {

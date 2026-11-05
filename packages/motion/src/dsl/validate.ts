@@ -1,4 +1,6 @@
 import { TREE_OPS } from "./treeOps";
+import { COMPONENT_OPS } from "./components";
+import { expandOp } from "./ops";
 import { FRACTION_ANCHOR, Scene, parseTarget, type Action, type SceneObject } from "./schema";
 
 export type ErrorCode =
@@ -11,7 +13,8 @@ export type ErrorCode =
   | "not-created"
   | "conflict"
   | "unknown-op"
-  | "slot-out-of-range";
+  | "slot-out-of-range"
+  | "bad-op-args";
 
 // beat is set whenever the error is local to one beat, so the caller can regenerate just that beat.
 export type DslError = { path: string; code: ErrorCode; message: string; beat?: number };
@@ -19,6 +22,7 @@ export type DslError = { path: string; code: ErrorCode; message: string; beat?: 
 // Use the same kind registry as expansion so validation cannot accept another kind's ops.
 const OPS: Record<string, string[]> = {
   Array: ["swap", "compare", "set", "siftDown", "siftUp"],
+  ...COMPONENT_OPS,
 };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -49,9 +53,11 @@ export function validateScene(json: unknown): DslError[] {
       const endpoint = o[field];
       if (typeof endpoint === "string" && !objs.has(endpoint)) bad(field, `unknown endpoint "${endpoint}"`);
     }
+    if (o.type === "mark" && !objs.has(o.target)) bad("target", `unknown mark target "${o.target}"`);
   });
 
   const created = new Set<string>();
+  const sim = new Map(objs);
   scene.beats.forEach((beat, b) => {
     if (!("say" in beat)) return;
     const err = (a: number, field: string, code: ErrorCode, message: string) =>
@@ -70,8 +76,8 @@ export function validateScene(json: unknown): DslError[] {
       const o = objs.get(t.id);
       if (!o) return err(a, "target", "unknown-target", `no object with id "${t.id}"`);
       if (act.do === "highlight") {
-        if (act.row !== undefined && (o.type !== "table" || act.row >= o.rows.length)) err(a, "row", "schema", "row highlight needs a valid table row");
-        if (act.col !== undefined && !(o.type === "table" ? act.col < o.headers.length : o.type === "chart" && act.col < o.values.length)) err(a, "col", "schema", "column highlight needs a valid table column or chart bar");
+        if (act.row !== undefined && !((o.type === "table" || o.type === "matrix") && act.row < o.rows.length)) err(a, "row", "schema", "row highlight needs a valid table/matrix row");
+        if (act.col !== undefined && !(o.type === "table" ? act.col < o.headers.length : o.type === "matrix" ? act.col < o.rows[0].length : o.type === "chart" && act.col < o.values.length)) err(a, "col", "schema", "column highlight needs a valid table/matrix column or chart bar");
         if (act.range && (o.type !== "code" || act.range[1] >= o.lines.length)) err(a, "range", "schema", "line highlight needs a valid code range");
       }
       if (act.do === "move" && typeof act.to === "string") {
@@ -99,6 +105,15 @@ export function validateScene(json: unknown): DslError[] {
       const key = `${pos}|${act.target}`;
       if (seen.has(key)) err(a, "at", "conflict", `two actions hit "${act.target}" at "${act.at}"`);
       seen.add(key);
+    }
+    // Run every op for real (in anchor order, state carried across beats) so bad arguments fail here, per beat.
+    for (const { a, act } of placed) {
+      if (act.do !== "op") continue;
+      const o = sim.get(act.target!);
+      const list = o?.type === "Tree" ? Object.keys(TREE_OPS[o.kind] ?? {}) : o && OPS[o.type];
+      if (!o || !list?.includes(act.op)) continue;
+      try { sim.set(o.id, expandOp(o, act).object as SceneObject); }
+      catch (e) { err(a, "op", "bad-op-args", `${act.op}: ${e instanceof Error ? e.message : String(e)}`); }
     }
     // Creates with a bad anchor still count, so one broken beat doesn't cascade into later beats.
     for (const act of beat.actions) if (act.do === "create" && act.target) created.add(parseTarget(act.target)?.id ?? "");
