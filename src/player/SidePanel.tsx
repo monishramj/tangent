@@ -31,7 +31,9 @@ export default function SidePanel(p: Props) {
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checkpoint ? [["check", "Check"] as [Tab, string]] : [])];
   return (
-    <GlassSurface width="min(400px,40vw)" height="calc(100% - 1.5rem)" borderRadius={16} className="slide-in m-3 ml-0 shrink-0">
+    // Docked beside the video on wide windows; floats over it below lg so the video doesn't shrink to a sliver.
+    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="calc(100% - 1.5rem)" borderRadius={16}
+      className="slide-in m-3 shrink-0 max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 lg:ml-0">
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">

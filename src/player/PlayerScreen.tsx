@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft02Icon, BubbleChatIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, LayersLogoIcon, PauseIcon, PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
-import type { IconSvgElement } from "@hugeicons/react";
-import AnimatedList from "@/components/AnimatedList";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
 import type { LLMProvider } from "@/llm/provider";
@@ -20,20 +18,10 @@ import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
-const IDLE_MS = 3000;
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-// Frosted round control (React Bits GlassSurface). Module-level so the overlay never remounts on time updates.
-function GlassBtn({ label, icon, size = 40, iconSize = 22, pressed, fill, onClick, ring }: { label: string; icon: IconSvgElement; size?: number; iconSize?: number; pressed?: boolean; fill?: boolean; ring?: boolean; onClick?: () => void }) {
-  return (
-    <GlassSurface width={size} height={size} borderRadius={size / 2} className="shrink-0">
-      <button type="button" aria-label={label} aria-pressed={pressed} onClick={onClick}
-        className={`grid size-full place-items-center rounded-full text-fg transition-[transform,background-color] duration-150 ease-out hover:bg-fg/15 active:scale-95 aria-pressed:bg-fg/25 ${ring ? "border-2 border-white/80" : ""}`}>
-        <Icon icon={icon} size={iconSize} className={fill ? "fill-current" : ""} />
-      </button>
-    </GlassSurface>
-  );
-}
+const iconBtn = "grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent";
+const pillBtn = "flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm text-muted transition-colors hover:bg-fg/10 hover:text-fg aria-pressed:bg-fg/15 aria-pressed:text-fg";
 // Absolute filesystem paths (sidecar WAVs, saved bundles) go through the asset protocol; URLs pass through.
 const audioSrc = (p: string) => p.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(p) : p;
 
@@ -63,8 +51,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [done, setDone] = useState(false);
   const [tab, setTab] = useState<Tab | null>(null);
-  const [idle, setIdle] = useState(false);
-  const [showScenes, setShowScenes] = useState(false);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [activeCp, setActiveCp] = useState<Checkpoint | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -144,17 +130,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   useEffect(() => { if (videoId) threadStore(store).list(videoId).then(setThreads, () => {}); }, [videoId, store]);
   const saveThreads = (next: Thread[]) => { setThreads(next); if (videoId) void threadStore(store).save(videoId, next).catch(() => {}); };
 
-  // Controls fade while playing; any activity brings them back.
-  useEffect(() => {
-    setIdle(false);
-    if (!playing || tab) return;
-    let h = setTimeout(() => setIdle(true), IDLE_MS);
-    const wake = () => { setIdle(false); clearTimeout(h); h = setTimeout(() => setIdle(true), IDLE_MS); };
-    const evs = ["pointermove", "pointerdown", "keydown"] as const;
-    evs.forEach(e => window.addEventListener(e, wake));
-    return () => { clearTimeout(h); evs.forEach(e => window.removeEventListener(e, wake)); };
-  }, [playing, tab]);
-
   const lines = useMemo(() => narrationLines(scenes), [scenes]);
   const seek = (s: number) => { const t = Math.min(duration, Math.max(0, s)); queue.seek(t); setTime(t); };
   const pause = () => { queue.pause(); setPlaying(false); };
@@ -201,82 +176,95 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const waiting = !current && !error;
   const beats = queue.sceneBeats;
   const sceneIdx = Math.max(0, beats.reduce((k, b, i) => b.offset <= time ? i : k, 0));
-  const hide = idle ? "pointer-events-none opacity-0" : "opacity-100";
-  const fade = "transition-opacity duration-200 ease-out";
   const p = duration ? time / duration * 100 : 0;
   const toggle = playing ? pause : play;
+  const canPlay = !!current && !error;
+  const keys = useRef({ toggle, seek, time });
+  keys.current = { toggle, seek, time };
+
+  // Space / K play-pause, arrows ±10 s. Typing in the panel never triggers them.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.metaKey || e.ctrlKey || e.altKey || el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      const k = keys.current;
+      if ((e.key === " " && el.tagName !== "BUTTON") || e.key === "k") { e.preventDefault(); k.toggle(); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); k.seek(k.time - 10); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); k.seek(k.time + 10); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
-    <main className={`flex h-screen bg-bg ${idle ? "cursor-none" : ""}`}>
-      {/* The video is always a 16:9 box, letterboxed in whatever space the side panel leaves. */}
-      <div className="grid min-h-0 min-w-0 flex-1 place-items-center [container-type:size]">
-        <div data-testid="video" className="relative aspect-video w-[min(100cqw,calc(100cqh*16/9))] overflow-hidden bg-bg">
-          {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} />}
-          {waiting && <Loading progress={progress} />}
-          {buffering && current && <Loading progress={progress} compact />}
-          {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
-            <div><p role="alert" className="text-muted">{error}</p>
-              {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
-          </div>}
-
-          <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/70 to-transparent ${fade} ${idle ? "opacity-0" : ""}`} />
-          <div aria-hidden className={`pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 to-transparent ${fade} ${idle ? "opacity-0" : ""}`} />
-
-          <div className={`absolute inset-x-0 top-0 flex items-start justify-between p-4 ${fade} ${hide}`}>
-            <GlassBtn label="Back" icon={ArrowLeft02Icon} onClick={onBack} />
-            <div className="flex gap-2">
-              <GlassBtn label="Scenes" icon={LayersLogoIcon} pressed={showScenes} onClick={() => setShowScenes(v => !v)} />
-              <GlassBtn label="Transcript" icon={TextAlignLeftIcon} pressed={tab === "transcript"} onClick={() => openTab("transcript")} />
-              <GlassBtn label="Ask" icon={BubbleChatIcon} pressed={tab === "ask"} onClick={() => openTab("ask")} />
-              <GlassBtn label="Toggle fullscreen" icon={FullScreenIcon} onClick={fullscreen} />
-            </div>
+    <main className="relative flex h-screen bg-bg">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-2 px-3 py-2 sm:px-4">
+          <button type="button" aria-label="Back" onClick={onBack} className={iconBtn}><Icon icon={ArrowLeft02Icon} /></button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-subtle">{kicker}</p>
+            <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
           </div>
+          <button type="button" aria-label="Transcript" aria-pressed={tab === "transcript"} onClick={() => openTab("transcript")} className={pillBtn}>
+            <Icon icon={TextAlignLeftIcon} size={18} /><span className="hidden md:inline">Transcript</span></button>
+          <button type="button" aria-label="Ask" aria-pressed={tab === "ask"} onClick={() => openTab("ask")} className={pillBtn}>
+            <Icon icon={BubbleChatIcon} size={18} /><span className="hidden md:inline">Ask a question</span></button>
+          <button type="button" aria-label="Toggle fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} /></button>
+        </header>
 
-          {current && !error && <div className={`absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-8 ${fade} ${playing && (idle || !buffering) ? "opacity-0 hover:opacity-100 focus-within:opacity-100" : "opacity-100"}`}>
-            <GlassBtn label="Back 10 seconds" icon={GoBackward10SecIcon} size={48} onClick={() => seek(time - 10)} />
-            <GlassBtn label={playing ? "Pause video" : "Play video"} icon={playing ? PauseIcon : PlayIcon} size={80} iconSize={34} fill ring onClick={toggle} />
-            <GlassBtn label="Forward 10 seconds" icon={GoForward10SecIcon} size={48} onClick={() => seek(time + 10)} />
-          </div>}
-
-          {showScenes && beats.length > 0 && <div className={`absolute top-20 right-4 bottom-28 w-56 ${fade} ${hide}`}>
-            <AnimatedList ariaLabel="Scenes" frame maxHeight="100%" currentIndex={sceneIdx} animation="fade"
-              items={beats.map((b, i) => ({ id: b.sceneId, title: `${i + 1}. Scene ${i + 1}`, meta: clock((i + 1 < beats.length ? beats[i + 1].offset : duration) - b.offset) }))}
-              onItemSelect={(_, i) => seek(beats[i].offset)} />
-          </div>}
-
-          <div className={`absolute inset-x-0 bottom-0 px-6 pb-3 ${fade} ${hide}`}>
-            <div className="mb-2 min-w-0">
-              <p className="truncate text-xs text-subtle">{kicker}</p>
-              <h1 className="truncate text-3xl font-bold tracking-tight">{title}</h1>
-              {beats.length > 0 && <p className="text-sm text-muted">Scene {sceneIdx + 1} of {beats.length}</p>}
-            </div>
-            <div className="group relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
-              {hover && <div role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-3 whitespace-nowrap" style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>
-                <GlassSurface width="auto" height="auto" borderRadius={12}><span className="block px-2.5 py-1 text-xs text-fg">{clock(hover.t)} · {hover.label}</span></GlassSurface></div>}
-              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-transform duration-200 ease-out group-hover:scale-y-[1.67]">
-                <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
-              </div>
-              <div aria-hidden className="pointer-events-none absolute top-1/2 left-0 w-full" style={{ transform: "translateY(-50%)" }}>
-                <div className="absolute top-0 -translate-y-1/2" style={{ left: `${p}%` }}>
-                  <span className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-full bg-black/60 px-2 py-0.5 text-xs text-fg tabular-nums">{clock(time)}</span>
-                  <span className="block size-3.5 -translate-x-1/2 rounded-full bg-accent" />
-                </div>
-              </div>
-              <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
-                // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
-                onPointerDown={() => { scrubResume.current = queue.playing; queue.pause(); }}
-                onPointerUp={() => { if (scrubResume.current) { scrubResume.current = false; queue.play(); } }}
-                onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-8 w-full" />
-              {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
-                onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
-                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-bg bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
-            </div>
-            <div className="flex items-center justify-between text-sm text-muted tabular-nums">
-              {current && !error ? <GlassBtn label={playing ? "Pause" : "Play"} icon={playing ? PauseIcon : PlayIcon} fill onClick={toggle} /> : <span />}
-              <span aria-label={`${clock(Math.max(0, duration - time))} remaining`}>-{clock(Math.max(0, duration - time))}</span>
-            </div>
+        {/* The video is a 16:9 box, letterboxed in whatever space is left. Controls live outside it. */}
+        <div className="grid min-h-0 flex-1 place-items-center px-3 sm:px-4 [container-type:size]">
+          <div data-testid="video" onClick={canPlay ? toggle : undefined}
+            className={`relative aspect-video w-[min(100cqw,calc(100cqh*16/9))] overflow-hidden rounded-xl border border-line bg-bg ${canPlay ? "cursor-pointer" : ""}`}>
+            {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} />}
+            {waiting && <Loading progress={progress} />}
+            {buffering && current && <Loading progress={progress} compact />}
+            {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
+              <div><p role="alert" className="text-muted">{error}</p>
+                {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
+            </div>}
+            {canPlay && !playing && !buffering && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+              <GlassSurface width={72} height={72} borderRadius={36}>
+                <button type="button" aria-label="Play video" onClick={e => { e.stopPropagation(); play(); }}
+                  className="grid size-full place-items-center rounded-full text-fg transition-transform duration-150 ease-out hover:scale-105 active:scale-95">
+                  <Icon icon={PlayIcon} size={30} className="translate-x-0.5 fill-current" /></button>
+              </GlassSurface>
+            </div>}
           </div>
         </div>
+
+        <footer className="px-3 pt-1 pb-3 sm:px-4">
+          <div className="group relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
+            {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
+              style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)} · {hover.label}</span>}
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/20 transition-transform duration-150 ease-out group-hover:scale-y-150">
+              <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
+            </div>
+            {/* Scene boundaries as gaps in the bar. */}
+            {duration > 0 && beats.slice(1).map(b => <span key={b.sceneId} aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-bg" style={{ left: `${b.offset / duration * 100}%` }} />)}
+            <span aria-hidden className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ left: `${p}%` }} />
+            <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
+              // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
+              onPointerDown={() => { scrubResume.current = queue.playing; queue.pause(); }}
+              onPointerUp={() => { if (scrubResume.current) { scrubResume.current = false; queue.play(); } }}
+              onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-6 w-full" />
+            {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
+              onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
+              className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-bg bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
+          </div>
+          <div className="flex items-center gap-1 text-sm text-muted tabular-nums">
+            <button type="button" aria-label={playing ? "Pause" : "Play"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
+              <Icon icon={playing ? PauseIcon : PlayIcon} className="fill-current" /></button>
+            <button type="button" aria-label="Back 10 seconds" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
+            <button type="button" aria-label="Forward 10 seconds" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
+            <span className="ml-1">{clock(time)} <span className="text-subtle">/ {clock(duration)}</span></span>
+            {beats.length > 1 && <div className="ml-auto flex items-center gap-1">
+              <button type="button" aria-label="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
+              <span className="whitespace-nowrap">Scene {sceneIdx + 1} <span className="text-subtle">of {beats.length}</span></span>
+              <button type="button" aria-label="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
+            </div>}
+          </div>
+        </footer>
       </div>
 
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}

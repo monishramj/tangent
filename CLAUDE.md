@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-04): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, overlay player (React Bits GlassSurface), checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
+> Status (2026-11-04): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -231,13 +231,12 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **A failed scene is skipped** (no overlay mid-playback), and the bundle is marked Partial.
 - **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
 - **This branch diverged from uncommitted `main` work** (WAV silence padding, captions, Docling MPS + progress events, auto-fade). Merge before building further. Docling on this branch runs on CPU, so formula enrichment on a math-heavy PDF takes many minutes with no progress.
-- **Overlay player is unverified in the app.** GlassSurface's SVG refraction needs backdrop-filter `url()`, which WKWebView lacks (falls back to a blur), and the blur over the moving canvas has an unmeasured GPU cost.
+- GlassSurface's SVG refraction needs backdrop-filter `url()`, which WKWebView lacks, so the side panel and paused play button fall back to a plain blur.
 
 **Recently fixed (2026-11-04), don't regress:**
 - **Scrubbing froze the whole app.** Calling play/pause/seek on every range input event deadlocked WebKit's media stack (webview blocked in `audio.play()` on a sync IPC to the GPU process, which was stuck in an AVFoundation lock). The scrubber pauses on pointerdown, only seeks during the drag, and plays once on pointerup (tested).
 - **Canvas didn't resize when the side panel opened.** Pixi `resizeTo` only listens to window resize; `Stage` adds a `ResizeObserver` that calls `app.resize()`.
-- **Player UI is an overlay** (Netflix-style): controls float over the video with React Bits `GlassSurface` (frosted), scene cards via React Bits `AnimatedList`. Animate transform/opacity only; no hand-rolled hover physics (the old Dock/Spotlight were janky and are deleted).
-- Video stays 16:9 (letterboxed via container units); the side panel docks beside it and never covers it.
+- **Player layout:** header bar (back, title, Transcript, Ask, fullscreen) above and controls below the video, attached to the window, never over it. The video is a plain 16:9 box (click toggles play; only a frosted play button shows while paused). Seek bar shows scene gaps; prev/next scene buttons; Space/K and ←/→ shortcuts (ignored while typing). The side panel docks beside the video at ≥1024px and floats over it below. Animate transform/opacity only; no hand-rolled hover physics (the old Dock/Spotlight/overlay controls were janky and are deleted).
 - Tutor gets the real narration transcript (was empty) and thread history for follow-ups.
 - Figures load (asset scope + app-data figures dir); one bad figure no longer kills an ingest.
 - Ingest runs once per source (IR cached); loading screens show real pipeline steps.

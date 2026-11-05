@@ -58,7 +58,8 @@ it("shows progress Loading before the first scene, then the title and a 16:9 vid
   await settle();
   expect(screen.getByRole("heading", { name: "Heapify" })).toBeTruthy();
   expect(screen.getByRole("status", { name: "Generation progress" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Play video" })).toBeNull();
+  expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByTestId("video").className).toContain("aspect-video");
   await s.push(sceneEvent());
   expect(screen.queryByRole("status", { name: "Generation progress" })).toBeNull();
@@ -223,15 +224,26 @@ it("a wrong answer offers 'Ask about it', which opens a thread", async () => {
   await waitFor(() => expect((s.store.data.get("threads-vid1") as Thread[])).toHaveLength(1));
 });
 
-it("the dock Play/Pause button toggles playback", async () => {
+it("the bottom Play/Pause button toggles playback; the center play shows only while paused", async () => {
   const s = setup();
   await startWithScene(s);
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   expect(s.audios[0].play).toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "Pause video" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Play video" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Pause" }));
   expect(s.audios[0].pause).toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Play video" })).toBeTruthy();
+});
+
+it("Space toggles playback, but not while typing", async () => {
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.keyDown(window, { key: " " });
+  expect(s.audios[0].play).toHaveBeenCalledTimes(1);
+  const box = document.createElement("textarea"); document.body.appendChild(box);
+  fireEvent.keyDown(box, { key: " " });
+  expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+  box.remove();
 });
 
 it("hovering the seek bar previews the time and scene without seeking", async () => {
@@ -246,11 +258,10 @@ it("hovering the seek bar previews the time and scene without seeking", async ()
   expect(screen.queryByTestId("scrub-preview")).toBeNull();
 });
 
-it("clicking a scene card seeks to that scene's offset", async () => {
-  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+it("Next scene seeks to the next scene's offset", async () => {
   const s = setup();
   await startWithScene(s); await s.push(sceneEvent("s2"));
-  fireEvent.click(screen.getByRole("button", { name: "Scenes" }));
-  fireEvent.click(screen.getByRole("option", { name: /2\. Scene 2/ }));
+  expect((screen.getByRole("button", { name: "Previous scene" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Next scene" }));
   expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec, 1);
 });
