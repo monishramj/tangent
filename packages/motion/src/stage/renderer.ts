@@ -233,7 +233,7 @@ export class SceneRenderer {
         this.root.addChild(c);
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
-          const n = cells.length, size = Math.min(0.14 * h, (w * 0.9) / (n * 1.15)), step = size * 1.15, x0 = -((n - 1) * step) / 2;
+          const n = cells.length, size = Math.min(0.17 * h, (w * 0.9) / (n * 1.15)), step = size * 1.15, x0 = -((n - 1) * step) / 2;
           cells.forEach(({ g, t }, i) => {
             const enter = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, n, s.gap) : s.reveal ?? 1;
             g.alpha = enter; t.alpha = enter;

@@ -155,7 +155,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
         const x = .5 + (col - (inRow - 1) / 2) * .29, y = (n <= 3 ? .55 : .42 + row * .32) + (d.title ? .03 : 0);
         c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw", duration: .6 });
         visualAt(c, `card${i}_v`, it, x, y - .05, .1, when[i]);
-        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .033, maxW: .22 }, when[i], { style: "type" });
+        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .04, maxW: .21, opacity: .9 }, when[i], { style: "type" });
       } else if (v === "steps") {
         const x = .5 + (i - (n - 1) / 2) * Math.min(.24, .86 / n);
         const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .52, width: .09, height: .16, filled: i === n - 1 }, when[i], { style: "draw", duration: .5 });
@@ -198,7 +198,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (v === "cycle" || v === "hub") {
       const ring = v === "hub" ? nodes.slice(1) : nodes, cy = (top + bottom) / 2;
       if (v === "hub") place.set(nodes[0].id, [.5, cy]);
-      ring.forEach((nd, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ring.length; place.set(nd.id, [.5 + .3 * Math.cos(a), cy + .3 * Math.sin(a)]); });
+      ring.forEach((nd, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ring.length; place.set(nd.id, [.5 + .3 * Math.cos(a), cy + .27 * Math.sin(a)]); });
       w = Math.min(.18, .9 / Math.max(3, ring.length)); h = .13;
     } else if (v === "layers") {
       nodes.forEach((nd, i) => place.set(nd.id, [.5, top + (i + .5) * (bottom - top) / n]));

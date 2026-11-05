@@ -169,7 +169,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
         ink.rect(x-cw/2, y-rh/2, cw, rh).fill({ color: fg, alpha: p * (active ? .22 : .035) }).stroke({ color: fg, width: 1, alpha: .3 * p });
         cell.t.position.set(x, y + (1-ease(p))*10); cell.t.alpha = p;
         if (resize) {
-          fitText(cell.t, cell.text, cw * .88, rh * .8, h * (o.type === "bits" ? .04 : .03));
+          fitText(cell.t, cell.text, cw * .88, rh * .8, h * (o.type === "bits" ? .04 : .038));
           cell.fitted = cell.t.text;
         }
       }

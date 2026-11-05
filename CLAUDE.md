@@ -221,10 +221,11 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - `npm run dev` → `/?showcase=<template>&variant=<v>` renders one template with fake timings (dev only) for visual checks.
 - Projects/threads/IR cache/checkpoint results are JSON docs via Rust `store_read/store_write/store_delete` (`<appData>/store`). Figures are written to `<appData>/figures/<sourceId>` (asset scope allows it; this was why figures were always "unavailable"). GIPHY key via `get_secret/set_secret` (Keychain, Settings screen).
 
-**2026-11-05 batch (in progress; motion polish still landing):**
+**2026-11-05 batch:**
 - LLM CLI locked down: `claude -p` runs with `--tools ""`, disallowed tools, `--strict-mcp-config`, `--setting-sources ""`, no slash commands/session persistence, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, in a fresh empty temp cwd. All untrusted text goes into neutralized `<tag>` data blocks (`src/gen/sanitize.ts`); model output is sanitized + length-capped.
 - Tutor sees the frame (Stage snapshot → `images` via stream-json), an on-screen description (`@motion/stage/describe`), the line being narrated, retrieved section passages and thread history.
 - Narration: `mathToSpeech` rewritten (markdown, lists, ranges, symbols, numbers → words). Beats synthesized per segment with 0.45 s gaps; SceneQueue holds 0.6 s between scenes; the compiler never inserts silence (fixes A/V drift).
+- Motion polish (`@tangent/motion`): word-by-word text reveals (no per-frame re-centering), rounded/scaled strokes traced from top-centre with fill fading in, filled arrowheads, one 0.35 s highlight punch (no looping wobble), fixed-slot rolling counters, short slides, decaying camera shake, transitions where the old frame exits left while the new one enters (deterministic in t), speech bubbles with tails. Penner eases inline (`stage/motion.ts`, `MOTION` tokens); no animation library. Standalone dev showcase: `/src/dev/showcase.html?showcase=<t>&variant=<v>&prev=<t>&tr=whip`.
 - Player: captions strip under the video, checkpoints pause the video and render inside the frame, persistent Checks strip, seek-bar markers. Home is main's barebones page again; projects/settings removed (in git history).
 
 **Open issues:**
