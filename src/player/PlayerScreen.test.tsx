@@ -189,7 +189,7 @@ it("reopening Ask at the same moment returns to the open thread; at another mome
   fireEvent.click(askBtn()); // same moment
   expect(screen.getByLabelText("Reply in thread")).toBeTruthy();
   fireEvent.click(askBtn());
-  fireEvent.click(screen.getByRole("button", { name: "Next scene" })); // > 3 s away, another scene
+  fireEvent.change(screen.getByLabelText("Seek"), { target: { value: String(timeline.totalSec) } }); // > 3 s away
   fireEvent.click(askBtn());
   const box = screen.getByLabelText("Ask about this moment");
   expect(document.activeElement).toBe(box);
@@ -276,24 +276,16 @@ it("Space toggles playback, but not while typing", async () => {
   box.remove();
 });
 
-it("hovering the seek bar previews the time and scene without seeking", async () => {
+it("hovering the seek bar previews the time without seeking", async () => {
   const s = setup();
   await startWithScene(s);
   const wrap = screen.getByRole("slider").parentElement!;
   wrap.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, right: 100, bottom: 10, height: 10, x: 0, y: 0, toJSON() {} });
   fireEvent.pointerMove(wrap, { clientX: 50 });
-  expect(screen.getByTestId("scrub-preview").textContent).toBe(`${clock(timeline.totalSec / 2)} · Scene 1`);
+  expect(screen.getByTestId("scrub-preview").textContent).toBe(`${clock(timeline.totalSec / 2)}`);
   expect(s.audios[0].currentTime).toBe(0);
   fireEvent.pointerLeave(wrap);
   expect(screen.queryByTestId("scrub-preview")).toBeNull();
-});
-
-it("Next scene seeks to the next scene's offset", async () => {
-  const s = setup();
-  await startWithScene(s); await s.push(sceneEvent("s2"));
-  expect((screen.getByRole("button", { name: "Previous scene" }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Next scene" }));
-  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeCloseTo(timeline.totalSec + DEFAULT_GAP_SEC, 1);
 });
 
 // --- checkpoints mid-video, the Checks tab, quiz, captions, speed, chrome, and what the tutor sees ---

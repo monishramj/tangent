@@ -29,10 +29,10 @@ export default function SidePanel(p: Props) {
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : [])];
   return (
-    // Docked beside the video on wide windows (its width grows open, so the video eases smaller instead of jumping);
-    // floats over the video below lg. backgroundOpacity gives the frost a visible tint even with only black behind it.
-    <div className="panel-open flex shrink-0 justify-end overflow-clip py-3 pr-3 max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:pl-3">
-    <GlassSurface width="min(400px,calc(100vw - 1.5rem))" height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    // Always docked beside the video (its width grows open, so the video eases smaller instead of jumping).
+    // backgroundOpacity gives the frost a visible tint even with only black behind it.
+    <div className="panel-open flex shrink-0 justify-end overflow-clip py-3 pr-3">
+    <GlassSurface width="min(400px,45vw)" height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">

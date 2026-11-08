@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, Flag02Icon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
@@ -269,7 +269,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     saveThreads(next); setThinking(false);
   };
 
-  // Hover preview on the seek bar: time under the cursor, its scene, or the marker it is near. Never seeks.
+  // Hover preview on the seek bar: time under the cursor, or the marker it is near. Never seeks.
   const hoverMove = (e: React.PointerEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (e.pointerType === "touch" || !duration || !r.width) return;
@@ -277,8 +277,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     const nearCps = checkpoints.filter(c => { const at = cpTime(c); return at !== undefined && Math.abs(at / duration * r.width - x) < 8; });
     const nearCp = nearCps[0];
     const near = threads.find(th => Math.abs(th.t / duration * r.width - x) < 8);
-    const scene = queue.sceneBeats.reduce((k, s, i) => s.offset <= t ? i : k, 0) + 1;
-    setHover({ x, t, label: nearCps.length > 1 ? `${nearCps.length} checkpoints` : nearCp ? `Checkpoint · ${nearCp.prompt}` : near ? near.title : `Scene ${scene}` });
+    setHover({ x, t, label: nearCps.length > 1 ? `${nearCps.length} checkpoints` : nearCp ? `Checkpoint · ${nearCp.prompt}` : near ? near.title : "" });
   };
   const openTab = (t: Tab) => {
     if (t === "ask" && tab !== "ask") {
@@ -298,8 +297,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   });
   const fullscreen = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   const waiting = !current && !error;
-  const beats = queue.sceneBeats;
-  const sceneIdx = Math.max(0, beats.reduce((k, b, i) => b.offset <= time ? i : k, 0));
   const p = duration ? time / duration * 100 : 0;
   const toggle = playing ? pause : play;
   const canPlay = !!current && !error;
@@ -387,7 +384,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <p className="truncate text-xs text-fg/60">{kicker}</p>
           <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
         </div>
-        <div className={`pointer-events-auto flex items-center gap-0.5 ${tab ? "max-lg:hidden" : ""}`}>
+        <div className={`pointer-events-auto flex items-center gap-0.5`}>
           {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
             <Icon icon={CheckListIcon} size={22} />
             <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
@@ -401,12 +398,10 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       <div data-hidden={!chrome || undefined} {...chromeHover} className="chrome scrim-bottom pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pt-10 pb-1.5 sm:px-3">
         <div className="group pointer-events-auto relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
           {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-[20rem] truncate whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
-            style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)} · {hover.label}</span>}
+            style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)}{hover.label && ` · ${hover.label}`}</span>}
           <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/25 transition-transform duration-150 ease-out group-hover:scale-y-150">
             <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
           </div>
-          {/* Scene boundaries as gaps in the bar. */}
-          {duration > 0 && beats.slice(1).map(b => <span key={b.sceneId} aria-hidden className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-black" style={{ left: `${b.offset / duration * 100}%` }} />)}
           <span aria-hidden className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ left: `${p}%` }} />
           <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
             // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
@@ -430,9 +425,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
                 s === "right" ? "border-black bg-fg" : s === "wrong" ? "border-fg bg-black" : s === "skipped" ? "border-fg/50 bg-black" : "border-fg bg-black"}`}
               style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
           })}
-          {/* Generation finished: the bar's end is the video's real end, nothing more is coming. */}
-          {done && duration > 0 && <span role="img" aria-label="Fully generated" title="Fully generated, nothing left to load"
-            className="pointer-events-auto absolute top-1/2 left-full ml-0.5 -translate-y-1/2 text-fg/70"><Icon icon={Flag02Icon} size={12} /></span>}
         </div>
         <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
           <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (Space)" : "Play (Space)"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
@@ -441,11 +433,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <button type="button" aria-label="Forward 10 seconds" title="Forward 10 s (→)" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
           <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
           <div className="ml-auto flex items-center gap-0.5">
-            {beats.length > 1 && <>
-              <button type="button" aria-label="Previous scene" title="Previous scene" disabled={sceneIdx === 0} onClick={() => seek(beats[sceneIdx - 1].offset)} className={iconBtn}><Icon icon={ArrowLeft01Icon} /></button>
-              <span className="whitespace-nowrap max-sm:hidden">Scene {sceneIdx + 1} <span className="text-fg/50">of {beats.length}</span></span>
-              <button type="button" aria-label="Next scene" title="Next scene" disabled={sceneIdx >= beats.length - 1} onClick={() => seek(beats[sceneIdx + 1].offset)} className={iconBtn}><Icon icon={ArrowRight01Icon} /></button>
-            </>}
             <div ref={speedMenu} className="relative">
               <button type="button" aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedOpen} title="Speed (< >)" onClick={() => setSpeedOpen(o => !o)}
                 className={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>{fmtSpeed(speed)}</button>
