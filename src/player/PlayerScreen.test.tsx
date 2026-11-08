@@ -434,7 +434,7 @@ it("captions sit over the video (not in the canvas), show the current beat as pl
   const cues = captionCues([{ scene, timeline }]);
   const region = screen.getByRole("region", { name: "Captions" });
   expect(screen.getByTestId("video").contains(region)).toBe(false);
-  expect(screen.getByTestId("frame").contains(region)).toBe(true);
+  expect(screen.getByTestId("frame").contains(region)).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   const t = (cues[1].start + cues[1].end) / 2;
   await act(async () => { s.audios[0].currentTime = t; s.audios[0].dispatchEvent(new Event("timeupdate")); });

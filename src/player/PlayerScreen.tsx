@@ -374,8 +374,9 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
               onAskAbout={q => { setActiveCp(null); autoScene.current = null; setTab("ask"); setActiveThread(null); void send(q, null); }} />}
           </div>
 
-          {cc && <Captions cues={activeCp ? [] : cues} time={time} lift={chrome} />}
         </div>
+
+        {cc && <Captions cues={activeCp ? [] : cues} time={time} />}
 
       <header data-hidden={!chrome || undefined} {...chromeHover}
         className="chrome scrim-top pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-1 px-2 pt-2 pb-8 sm:px-3">

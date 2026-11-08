@@ -43,8 +43,8 @@ export function captionParts(cue: Cue, max = 110): Cue[] {
 
 const HOLD = 0.8; // keep the last line up briefly after it ends (beat pauses, scene seams)
 
-/** The line being said, plain: no per-word highlight. Sits over the bottom of the video; `lift` moves it above the controls. */
-export default function Captions({ cues, time, lift = false }: { cues: Cue[]; time: number; lift?: boolean }) {
+/** The line being said, plain: no per-word highlight. Sits over the bottom of the video at the bottom of the video column, always above the bottom bar. */
+export default function Captions({ cues, time }: { cues: Cue[]; time: number }) {
   const idx = cues.reduce((k, c, i) => c.start <= time + .01 ? i : k, -1);
   const cue = idx >= 0 && time < cues[idx].end + HOLD ? cues[idx] : null;
   const parts = useMemo(() => cue ? captionParts(cue) : [], [cue]);
@@ -52,7 +52,7 @@ export default function Captions({ cues, time, lift = false }: { cues: Cue[]; ti
   const part = parts[k];
   return (
     <div role="region" aria-label="Captions" aria-live="off"
-      className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-[6%] pb-[max(0.75rem,3.2%)] transition-transform duration-300 ease-out ${lift ? "-translate-y-[5.25rem]" : ""}`}>
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-[6%] pb-[5.25rem]">
       {part && <p key={`${idx}-${k}`} className="captions-in line-clamp-2 max-w-[56ch] rounded-lg bg-black/70 px-[0.6em] py-[0.2em] text-center text-[clamp(14px,1.9cqw,22px)] leading-[1.4] font-medium text-balance text-fg [box-decoration-break:clone]">
         {part.text}
       </p>}
