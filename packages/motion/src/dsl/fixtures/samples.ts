@@ -1,8 +1,10 @@
 // One data sample per template (valid for every variant). Shared by templates.test.ts and the dev showcase.
 import type { TemplateName } from "../templates";
+import { SAMPLES as CODEX_SAMPLES } from "../tpl/codex";
 
 export const SAMPLE_SAY = "First the parent compares with both children, then the bigger child swaps up and we check again.";
 export const TEMPLATE_SAMPLES: Record<TemplateName, unknown> = {
+  ...CODEX_SAMPLES,
   title: { text: "Heapify", kicker: "CS 251", emoji: "🔥" },
   stat: { value: 42, suffix: "%", label: "faster lookups", icon: "rocket" },
   versus: { left: { title: "Array", icon: "list", points: ["fast index"] }, right: { title: "Linked list", icon: "link", points: ["cheap insert", "slow scan"] } },

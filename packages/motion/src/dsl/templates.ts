@@ -7,6 +7,7 @@ import { C, Op, TRANSITIONS, at, ctx, frac, occurrences, s, spread, visual, visu
 import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
 import { ACCENT, MOTION } from "../stage/motion";
 import { ICON_GUIDE, EMOJI_GUIDE } from "../stage/icons";
+import { TEMPLATES as CODEX_TEMPLATES, VARIANTS as CODEX_VARIANTS, EXPAND as CODEX_EXPAND, GUIDE as CODEX_GUIDE } from "./tpl/codex";
 const Item = z.object({ text: s, ...visual, ...at });
 const Side = z.object({ title: s, ...visual, points: z.array(s).max(3).optional() });
 const Node = z.object({ id: z.string().regex(/^[A-Za-z_][\w-]*$/), label: s, shape: z.string().optional(), sub: z.string().optional(), ...at });
@@ -30,13 +31,14 @@ export const TEMPLATES = {
   callout: z.object({ text: s, sub: s.optional() }),
   table: z.object({ headers: z.array(s).min(1).max(5), rows: z.array(z.array(z.string())).min(1).max(6), highlightRows: z.array(z.number().int().min(0)).optional() }),
   ...VOCAB_TEMPLATES,
+  ...CODEX_TEMPLATES,
 } as const;
 export type TemplateName = keyof typeof TEMPLATES;
 export const VARIANTS: Record<TemplateName, string[]> = {
   title: ["slam", "punch", "words", "stack"], stat: ["center", "side"], versus: ["split", "cards"], list: ["column", "grid", "steps"],
   character: ["left", "right", "duo"], diagram: ["flow-h", "flow-v", "cycle", "hub", "datapath", "layers"], math: ["derive", "focus"],
   code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["full", "center"],
-  callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS,
+  callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS, ...CODEX_VARIANTS,
 };
 /** The variant a beat actually gets: the requested one if valid, else a rotation by beat index. */
 export const resolveVariant = (template: TemplateName, variant: string | undefined, b: number) =>
@@ -261,6 +263,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .04, opacity: .6 }, frac(.5), { style: "type" });
   },
   ...VOCAB_EXPAND,
+  ...CODEX_EXPAND,
   table(c, d) {
     const cols = d.headers.length, rows = d.rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ""));
     const id = c.add({ id: c.id("table"), type: "table", headers: d.headers, rows, x: .5, y: .5, width: .8, height: Math.min(.75, (rows.length + 1) * .1) }, frac(0), { style: "stagger" });
@@ -362,6 +365,7 @@ export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.da
 - callout {text, sub?} underline|box|punch. The key idea, the takeaway, "here's the catch".
 - table {headers, rows, highlightRows?}.
 ${VOCAB_GUIDE}
+${CODEX_GUIDE}
 Icons (any simple noun works; e.g.) ${ICON_GUIDE}.
 Emoji packs: ${EMOJI_GUIDE}.
 Beat extras: emphasis:[{text|target, mark:"underline"|"circle"|"strike"|"marker", at?}] (<=2; text = a phrase that is ON SCREEN, e.g. in a callout); energy:"calm"|"punchy"; texture:"dots"|"grid"|"scanlines" (rarely); accent:true (at most one beat per scene: tints its key element); keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;

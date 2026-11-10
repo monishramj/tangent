@@ -186,7 +186,7 @@ export class SceneRenderer {
         const g = new Graphics(), lbl = this.text(o.label ?? "", 24);
         lbl.anchor.set(.5); c.addChild(g, lbl); this.root.addChildAt(c, 1); // connectors sit under the boxes they join (above textures)
         return { node: c, draw: (s, w, h, all) => {
-          c.visible = s.visible; c.alpha = s.opacity;
+          c.visible = s.visible; c.alpha = s.opacity; c.tint = s.color ?? 0xffffff;
           const pt = (p: string | [number, number]): [number, number] | null => {
             if (Array.isArray(p)) return [(p[0] + (s.dx ?? 0)) * w, p[1] * h]; // fixed endpoints ride along with a transition
             const t = all.get(p);
