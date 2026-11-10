@@ -182,7 +182,7 @@ export function startAtTop(p: Point[]): Point[] {
 }
 
 /** Display outline: rounded corners, starting top-centre so it can be traced symmetrically; optional speech-bubble tail. */
-export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity): Outline & { sym: boolean } {
+export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity, round = false): Outline & { sym: boolean } {
   const base = shapeOutline(kind, w, h);
   if (kind === "cylinder" || base.open) return { ...base, sym: false };
   if (kind === "bubble") tail ??= "left";
@@ -198,7 +198,7 @@ export function smoothOutline(kind: string, w: number, h: number, tail?: "left" 
     }
   }
   const k = { rect: .16, bubble: .3, star: .03, gear: .015, tag: .1, chip: .1, document: .06 }[kind] ?? .1;
-  const r = ["circle", "ring", "cloud", "thought"].includes(kind) ? 0 : Math.min(maxR, Math.min(w, h) * k);
+  const r = ["circle", "ring", "cloud", "thought"].includes(kind) ? 0 : Math.min(maxR, Math.min(w, h) * (round ? .5 : k)); // round: maxR is an explicit radius
   const fill = r ? roundPoly(poly, r) : poly;
   return { pts: startAtTop(fill), fill, extra: base.extra, sym: true };
 }
@@ -208,4 +208,14 @@ export function symmetricTrace(closed: Point[], p: number): Point[] {
   if (p >= 1) return closed;
   const fwd = partialPath(closed, p / 2), back = partialPath([...closed].reverse(), p / 2);
   return [...fwd.reverse(), ...back.slice(1)];
+}
+
+/** Clip a polygon below a horizontal surface (used by bottom-up liquid reveals). */
+export function clipBelow(points: Point[], top: number): Point[] {
+  return points.flatMap((a, i) => {
+    const b = points[(i + 1) % points.length], inside = a[1] >= top, next = b[1] >= top;
+    const out: Point[] = inside ? [a] : [];
+    if (inside !== next) out.push([a[0] + (b[0] - a[0]) * (top - a[1]) / (b[1] - a[1]), top]);
+    return out;
+  });
 }

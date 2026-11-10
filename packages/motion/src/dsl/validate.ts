@@ -102,7 +102,7 @@ export function validateScene(json: unknown): DslError[] {
       const id = parseTarget(act.target!)!.id;
       if (act.do === "create") created.add(id);
       else if (!created.has(id)) err(a, "target", "not-created", `"${id}" is used at "${act.at}" before it is created`);
-      const key = `${pos}|${act.target}`;
+      const key = `${pos}|${act.delay ?? 0}|${act.target}`; // a delayed action on the same word is a later moment, not a clash
       if (seen.has(key)) err(a, "at", "conflict", `two actions hit "${act.target}" at "${act.at}"`);
       seen.add(key);
     }

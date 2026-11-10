@@ -22,13 +22,13 @@ type T = typeof TEMPLATES;
 export const VARIANTS: Record<keyof T, string[]> = { scale: ["tip", "balance"], race: ["lanes", "podium"], gauge: ["dial", "meter"] };
 const AR = 9 / 16;
 const short = (t: string, n = 28) => t.length > n ? `${t.slice(0, n - 1)}…` : t;
-const text = (c: C, id: string, t: string, x: number, y: number, size: number, when: string, extra: Record<string, unknown> = {}) =>
-  c.add({ id: c.id(id), type: "text", text: short(t), x, y, size, maxW: .8, opacity: 1, ...extra }, when, { style: "type" });
+const text = (c: C, id: string, t: string, x: number, y: number, size: number, when: string, extra: Record<string, unknown> = {}, full = false) =>
+  c.add({ id: c.id(id), type: "text", text: full ? t : short(t), x, y, size, maxW: .8, opacity: 1, ...extra }, when, { style: "type" });
 const shape = (c: C, id: string, kind: string, x: number, y: number, width: number, height: number, when: string, extra: Record<string, unknown> = {}) =>
   c.add({ id: c.id(id), type: "shape", shape: kind, x, y, width, height, ...extra }, when, { style: "draw", duration: MOTION.punchSec });
 const line = (c: C, id: string, from: Point | string, to: Point | string, when: string, extra: Record<string, unknown> = {}) =>
   c.add({ id: c.id(id), type: "line", from, to, ...extra }, when, { style: "draw", duration: MOTION.punchSec });
-const head = (c: C, title?: string) => title && text(c, "title", title, .5, .1, .052, frac(0), { weight: "bold" });
+const head = (c: C, title?: string) => title && text(c, "title", title, .5, .1, .052, frac(0), { weight: "bold", maxW: .86 }, true);
 
 /** Normalising first avoids overflow for large, finite weights. Positive means the right pan drops. */
 export function scaleAngle(left: number, right: number) {
@@ -45,6 +45,11 @@ export function raceProgress(costs: number[]) {
   const min = Math.min(...costs);
   return costs.map(cost => Math.min(1, 2 ** (min - cost) * 2));
 }
+/** Podium order left to right: runner-up, winner, third, fourth (winner in the middle, like a real podium). */
+export function podiumSlots(costs: number[]) {
+  const o = costs.map((_, i) => i).sort((a, b) => costs[a] - costs[b] || a - b);
+  return [o[1], o[0], ...o.slice(2)];
+}
 export function gaugeAngle(value: number, min: number, max: number) { return Math.PI + Math.PI * Math.max(0, Math.min(1, (value - min) / (max - min))); }
 const polar = (angle: number, radius: number, cx: number, cy: number): Point => [cx + Math.cos(angle) * radius * AR, cy + Math.sin(angle) * radius];
 
@@ -54,7 +59,8 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     const theta = scaleAngle(d.left.weight, d.right.weight), max = Math.max(d.left.weight, d.right.weight);
     const when = orderedAnchors(c.say, [.08, .22, .44], [d.left.at, d.right.at, undefined]);
     const pivotY = .42, arm = .45;
-    shape(c, "fulcrum", "triangle", .5, .61, .105, .38, frac(0), { filled: true });
+    shape(c, "fulcrum", "triangle", .5, .61, .08, .38, frac(0), { filled: true });
+    line(c, "ground", [.5 - .16, .8], [.5 + .16, .8], frac(0));
     const ends: string[] = [];
     [d.left, d.right].forEach((side, i) => {
       const sign = i ? 1 : -1, x = .5 + sign * arm * AR, y = pivotY;
@@ -65,7 +71,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
       add(shape(c, `hanger${i}`, "rect", x, y + .115, .002, .23, frac(0)), 0, .115);
       add(shape(c, `pan${i}`, "pill", x, y + .23, .18, .025, frac(0)), 0, .23);
       add(text(c, `label${i}`, side.label, x, y + .3, .038, when[i], { maxW: .27, weight: "bold" }), 0, .3);
-      add(text(c, `weight${i}`, String(side.weight), x, y + .355, .03, when[i], { maxW: .22, opacity: .6 }), 0, .355);
+      add(text(c, `weight${i}`, String(side.weight), x, y + .36, .04, when[i], { maxW: .22, opacity: .8 }), 0, .36);
       const count = weightStack(side.weight, max);
       for (let j = 0; j < count; j++) {
         const dx = ((j % 3) - (Math.min(3, count) - 1) / 2) * .045, dy = .18 - Math.floor(j / 3) * .066;
@@ -83,12 +89,16 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
       }
     });
     c.key(line(c, "beam", ends[0], ends[1], frac(0), { color: ACCENT }));
+    // A small figure just outside the heavier pan turns and points at it as it drops; level (or balance) -> it gestures.
+    const heavy = theta < 0 ? -1 : 1;
+    const me = c.add({ id: c.id("scale_person"), type: "person", pose: "stand", facing: heavy > 0 ? "left" : "right", x: .5 + heavy * .42, y: .7, size: .2 }, when[1], { style: "draw", duration: .6 });
+    if (when[2] !== when[1]) c.act({ at: when[2], do: "pose", target: me, to: theta ? "point" : "explain" });
   },
   race(c, d, v) {
     head(c, d.title ?? (d.runners[0].growth ? `Cost at n = ${d.n}` : "Race the clock"));
     const costs = d.runners.map(r => r.growth ? logCost(r.growth, d.n) : Math.log2(r.time!));
     const min = Math.min(...costs), progress = raceProgress(costs), n = d.runners.length;
-    const start = .3, finish = .83, startAt = frac(.3), finishAt = frac(.76);
+    const start = .3, finish = .83, [readyAt, startAt, finishAt] = orderedAnchors(c.say, [.26, .3, .76], []), last = costs.indexOf(Math.max(...costs));
     const podium = v === "podium", bottom = podium ? .65 : .79;
     line(c, "finish", [finish + .035, .22], [finish + .035, bottom + .08], frac(0), { dashed: true });
     d.runners.forEach((r, i) => {
@@ -96,16 +106,20 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
       line(c, `lane${i}`, [start - .015, y + .06], [finish + .035, y + .06], when);
       text(c, `name${i}`, r.label, .07, y - .018, .035, when, { align: "left", maxW: .18, weight: "bold" });
       text(c, `cost${i}`, r.growth ?? `${r.time} ${d.unit}`, .07, y + .042, .027, when, { align: "left", maxW: .18, opacity: .55 });
+      // Default runner: a stick figure that sets off walking on the go word, then the winner celebrates and the slowest is lost.
       const id = visualAt(c, `runner${i}`, r, start, y, .11, when)
-        ?? c.add({ id: c.id(`runner${i}`), type: "person", pose: "walk", x: start, y, size: .12 }, when, { style: "pop" });
+        ?? c.add({ id: c.id(`runner${i}`), type: "person", pose: "stand", x: start, y: y - .005, size: .13 }, when, { style: "pop" });
+      const person = c.objects.find(o => o.id === id)!.type === "person";
+      if (person && readyAt !== when && readyAt !== startAt) c.act({ at: readyAt, do: "pose", target: id, to: "walk" });
       if (winner) { c.key(id); const obj = c.objects.find(o => o.id === id)!; if (obj.type !== "emoji") obj.color = ACCENT; }
-      c.act({ at: startAt, do: "move", target: id, to: [start + (finish - start) * progress[i], y], duration: winner ? 1.1 : Math.min(2.2, 1.1 * 2 ** Math.min(2, costs[i] - min)), easing: "inOutSine" });
+      c.act({ at: startAt, do: "move", target: id, to: [start + (finish - start) * progress[i], y - (person ? .005 : 0)], duration: winner ? 1.1 : Math.min(2.2, 1.1 * 2 ** Math.min(2, costs[i] - min)), easing: "inOutSine" });
+      if (person && finishAt !== when && finishAt !== readyAt && finishAt !== startAt) c.act({ at: finishAt, do: "pose", target: id, to: winner ? "celebrate" : i === last && n > 2 ? "confused" : "stand" });
       if (winner) visualAt(c, `flag${i}`, { icon: "flag" }, finish + .075, y - .02, .065, finishAt);
       if (podium) {
-        const rank = costs.filter(cost => cost < costs[i]).length + 1, x = .25 + i * .5 / Math.max(1, n - 1), h = .09 + (n - rank) * .025;
-        shape(c, `podium${i}`, "rect", x, .94 - h / 2, .13, h, finishAt, { filled: winner, color: winner ? ACCENT : undefined });
-        text(c, `podiumLabel${i}`, r.label, x, .94 - h - .035, .027, finishAt, { maxW: .13 });
-        text(c, `rank${i}`, String(rank), x, .94 - h / 2, .035, finishAt, { color: winner ? "#000000" : undefined });
+        const rank = costs.filter(cost => cost < costs[i]).length + 1, slot = podiumSlots(costs).indexOf(i), x = .5 + (slot - (n - 1) / 2) * .15, h = [.17, .125, .09, .065][rank - 1];
+        shape(c, `podium${i}`, "rect", x, .95 - h / 2, .15, h, finishAt, { filled: winner, color: winner ? ACCENT : undefined });
+        text(c, `podiumLabel${i}`, r.label, x, .95 - h - .03, .03, finishAt, { maxW: .14, weight: winner ? "bold" : "normal" });
+        text(c, `rank${i}`, String(rank), x, .95 - h / 2, .05, finishAt, { weight: "bold", color: winner ? "#000000" : undefined });
       }
     });
   },
@@ -115,11 +129,12 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     const zones = d.zones ?? [{ to: d.min + (d.max - d.min) / 2, label: "LOW" }, { to: d.max, label: "HIGH" }];
     const value = Math.max(d.min, Math.min(d.max, d.value)), theta = gaugeAngle(value, d.min, d.max);
     let from = d.min;
+    const zoneIds: string[] = [];
     zones.forEach((zone, i) => {
       const a = gaugeAngle(from, d.min, d.max), b = gaugeAngle(zone.to, d.min, d.max), when = frac(.04 + .06 * i);
       for (let j = 0; j < 12; j++) line(c, `arc${i}_${j}`, polar(a + (b - a) * j / 12, radius, cx, cy), polar(a + (b - a) * (j + 1) / 12, radius, cx, cy), when);
       const mid = polar((a + b) / 2, radius + .075, cx, cy);
-      text(c, `zone${i}`, zone.label, mid[0], mid[1], .029, when, { maxW: .14 });
+      zoneIds.push(text(c, `zone${i}`, zone.label, mid[0], mid[1], .034, when, { maxW: .14, weight: "bold", opacity: .85 }));
       line(c, `tick${i}`, polar(b, radius - .025, cx, cy), polar(b, radius + .015, cx, cy), when);
       from = zone.to;
     });
@@ -135,6 +150,11 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     const path = Array.from({ length: 33 }, (_, i) => polar(Math.PI + (overshoot - Math.PI) * i / 32, r, cx, cy));
     c.act({ at: swing, do: "move", target: tip, path, duration: 1.2, easing: "outCubic" });
     c.act({ at: settle, do: "move", target: tip, path: Array.from({ length: 9 }, (_, i) => polar(overshoot + (theta - overshoot) * i / 8, r, cx, cy)), duration: MOTION.punchSec, easing: "outBack" });
+    const hit = zones.findIndex(z => value <= z.to); // the clamped value always lands in a zone (last zone ends at max)
+    c.act({ at: settle, do: "transform", target: zoneIds[hit], color: ACCENT, scale: 1.25, duration: MOTION.punchSec, easing: "outBack" });
+    // A bystander faces the dial and reacts to the zone it settles in: points (low), thinks (middle), alarmed (top zone).
+    const me = c.add({ id: c.id("gauge_person"), type: "person", pose: "stand", facing: v === "meter" ? "left" : "right", x: v === "meter" ? .75 : .13, y: .79, size: .24 }, frac(.1), { style: "draw", duration: .6 });
+    if (settle !== frac(.1)) c.act({ at: settle, do: "pose", target: me, to: hit === zones.length - 1 ? "confused" : hit === 0 ? "point" : "think" });
     const decimals = Number.isInteger(d.value) ? 0 : 1;
     const digits = Math.max(formatCount(d.min, decimals, "", d.unit).length, formatCount(d.value, decimals, "", d.unit).length);
     const size = Math.min(.095, (v === "meter" ? .3 : .65) / (AR * digits));
@@ -145,9 +165,9 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
 };
 export const SAMPLES: Record<keyof T, unknown> = {
   scale: { title: "The hidden cost", left: { label: "Read", weight: 2, emoji: "📖" }, right: { label: "Write", weight: 5, emoji: "✍️" } },
-  race: { title: "Same input. Different finish.", n: 16, runners: [{ label: "Binary search", growth: "log n", emoji: "🏃" }, { label: "Scan", growth: "n", icon: "user" }, { label: "Nested loops", growth: "n^2", emoji: "🐢" }] },
+  race: { title: "Same input. Different finish.", n: 16, runners: [{ label: "Binary search", growth: "log n" }, { label: "Scan", growth: "n" }, { label: "Nested loops", growth: "n^2" }] },
   gauge: { label: "Server load", value: 72, unit: "%", zones: [{ to: 40, label: "IDLE" }, { to: 80, label: "BUSY" }, { to: 100, label: "LIMIT" }] },
 };
 export const GUIDE = `- scale {title?,left:{label,weight,icon?|emoji?,at?},right:{...}} tip|balance. A physical trade-off; heavier pan drops, equal weights settle level.
-- race {title?,n?,unit?,runners:[{label,growth?|time?,icon?|emoji?,at?}] 2-4} lanes|podium. Speed/latency; all growth (1|log n|n|n log n|n^2|2^n) or all positive times, lower wins.
+- race {title?,n?,unit?,runners:[{label,growth?|time?,icon?|emoji?,at?}] 2-4} lanes|podium. Speed/latency (no icon/emoji = running stick figures); all growth (1|log n|n|n log n|n^2|2^n) or all positive times, lower wins.
 - gauge {label,value,min?,max?,unit?,zones?:[{to,label}] 2-4} dial|meter. Load/risk: ordered zones end at max; needle clamps, counter keeps actual value.`;

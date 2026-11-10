@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EXPAND, GUIDE, SAMPLES, TEMPLATES, VARIANTS, fillLevel, pictographGrid } from "./antigravity";
+import { EXPAND, GUIDE, SAMPLES, TEMPLATES, VARIANTS, chatLayout, dominoLayout, dominoStages, fillLevel, overlaps, pictographGrid, slab } from "./antigravity";
 import { ctx } from "../tplkit";
 import { Scene } from "../schema";
 import { SAMPLE_SAY } from "../fixtures/samples";
@@ -48,4 +48,71 @@ describe("human template edge cases", () => {
       }
     }
   });
+});
+it("dominoes lean on the next one without cutting through it, and the row stays on the stage", () => {
+  for (const grow of [false, true]) for (let n = 3; n <= 6; n++) {
+    const { P, W, H, X, S } = dominoLayout(n, grow), stages = dominoStages(P, W, H);
+    expect(X - .21 * S * 9 / 16).toBeGreaterThanOrEqual(.05); // the figure's raised arms
+    expect(P[n - 1] + H[n - 1]).toBeLessThanOrEqual(.95); // the last one lying flat
+    stages.forEach((a, k) => {
+      expect(a[k]).toBeGreaterThan(.2); // it visibly tips
+      for (let j = 0; j + 1 < n; j++) expect(overlaps(slab(P[j], W[j], H[j], a[j]), slab(P[j + 1], W[j + 1], H[j + 1], a[j + 1]))).toBe(false);
+      if (k) a.forEach((x, j) => expect(x).toBeGreaterThanOrEqual(stages[k - 1][j] - 1e-9)); // nothing tips back
+    });
+    expect(stages[n - 1][n - 1]).toBeCloseTo(Math.PI / 2);
+    stages[n - 1].slice(0, -1).forEach(a => expect(a).toBeLessThan(Math.PI / 2));
+  }
+  expect(overlaps(slab(0, .1, 1, 0), slab(.05, .1, 1, 0))).toBe(true);
+});
+it("chat bubbles hug their text and the thread fits its room", () => {
+  const L = chatLayout(["Hi", "Long label ".repeat(30), "ok", "Long label ".repeat(30), "a", "b"], .26, .77, .028);
+  expect(L.items[0].w).toBeLessThan(L.items[1].w);
+  expect(L.items[1].text.split("\n").length).toBeLessThanOrEqual(4);
+  expect(L.total).toBeLessThanOrEqual(.77 + 1e-9);
+  for (const b of L.items) expect(b.w).toBeLessThanOrEqual(.26 * .78 + .01);
+});
+
+it("reveals the glass polygon without changing its wall taper", async () => {
+  const { clipBelow } = await import("../../stage/geometry");
+  const c = ctx(0, SAMPLE_SAY, new Set());
+  EXPAND.fill(c, { label: "Buffer", amount: 12, capacity: 10 }, "glass");
+  const liquid = c.objects.find(o => o.id === "fill_liquid");
+  if (liquid?.type !== "shape" || !liquid.points) throw new Error("missing glass polygon");
+  const [left, right, baseRight, baseLeft] = liquid.points;
+  expect(right[0]).toBeGreaterThan(baseRight[0]);
+  const half = clipBelow(liquid.points, 0);
+  expect(half).toContainEqual([(right[0] + baseRight[0]) / 2, 0]);
+  expect(half).toContainEqual(baseLeft);
+  expect(clipBelow(liquid.points, -.5)).toEqual([left, right, baseRight, baseLeft]);
+  const stream = c.objects.find(o => o.id === "fill_stream");
+  if (stream?.type !== "line" || !stream.points) throw new Error("missing spill path");
+  expect(stream.points.length).toBeGreaterThan(10);
+  const landing = stream.points.slice(16), end = landing[landing.length - 1], prev = landing[landing.length - 2];
+  landing.slice(1).forEach((p, i) => expect(p[1]).toBeGreaterThanOrEqual(landing[i][1]));
+  expect(end[0]).toBeGreaterThan(prev[0]); // the stream turns into the puddle
+  expect(end[1] - prev[1]).toBeLessThan(.001);
+  expect(c.objects.some(o => o.id === "fill_lip")).toBe(false);
+  const actions = c.actions as { target?: string; duration?: number; delay?: number }[];
+  const grow = actions.find(a => a.target === "fill_liquid")!;
+  expect(actions.find(a => a.target === "fill_percent")!.duration).toBeCloseTo(grow.duration! * 1.2);
+  expect(actions.find(a => a.target === "fill_stream")!.delay).toBe(grow.duration);
+});
+
+it("keeps the six stress labels whole within three word-wrapped lines", async () => {
+  const { dominoLabel } = await import("./antigravity");
+  const labels = ["Off-by-one index in the loop", "Wrong row returned", "Cache stores bad data", "Every reader gets it", "Alerts fire everywhere at once", "Full site outage for an hour"];
+  for (const variant of ["row", "grow"]) {
+    const c = ctx(0, SAMPLE_SAY, new Set());
+    EXPAND.dominoes(c, { items: labels.map(text => ({ text })) }, variant);
+    const rendered = c.objects.filter(o => o.type === "text" && o.id.startsWith("dom_label"));
+    rendered.forEach((o, i) => {
+      if (o.type !== "text") throw new Error("missing label");
+      expect(o.text.replace(/\n/g, " ")).toBe(labels[i]);
+      expect(o.text.split("\n").length).toBeLessThanOrEqual(3);
+    });
+  }
+  const long = dominoLabel("one two three four five six seven eight nine ten eleven twelve thirteen fourteen", 15);
+  expect(long.split("\n")).toHaveLength(3);
+  expect(long).toMatch(/…$/);
+  expect(long.split("\n")[2]).toBe("seven eight…");
 });

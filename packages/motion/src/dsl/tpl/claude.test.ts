@@ -12,22 +12,24 @@ const timed = (scene: Scene) => compile(scene, scene.beats.map(b => {
 }), 0);
 
 describe("claude templates", () => {
-  it("iceberg: every layer is inside the camera view when it lands; cutaway fits the frame", () => {
+  it("iceberg: every label is in view when it lands, the pull-back shows tip to bottom; cutaway fits the frame", () => {
     for (const n of [1, 2, 3, 4]) {
       const pan = icebergLayout(n, "pan");
       pan.layers.forEach((l, i) => {
-        expect(l.y + l.h / 2).toBeLessThanOrEqual(pan.cams[i] + .5 - .03);
-        expect(l.y - l.h / 2).toBeGreaterThanOrEqual(pan.cams[i] - .5);
+        expect(l.y + .04).toBeLessThanOrEqual(pan.cams[i] + .5 - .03);
+        expect(l.y - .04).toBeGreaterThanOrEqual(pan.cams[i] - .5);
+        expect(l.maxW).toBeGreaterThan(.2);
         if (i) expect(pan.cams[i]).toBeGreaterThanOrEqual(pan.cams[i - 1]); // the camera only goes down
       });
+      const half = .5 / pan.end.zoom; // visible half-height at the end camera
+      expect(pan.end.y - half).toBeLessThanOrEqual(pan.tip.y - pan.tip.h / 2 - .02);
+      expect(pan.end.y + half).toBeGreaterThanOrEqual(pan.mass.y + pan.mass.h / 2);
       const cut = icebergLayout(n, "cutaway");
       expect(cut.cams.every(y => y === .5)).toBe(true);
-      cut.layers.forEach((l, i) => {
-        expect(l.y + l.h / 2).toBeLessThanOrEqual(.96);
-        expect(l.w).toBeLessThanOrEqual(.84);
-        if (i) expect(l.y - l.h / 2).toBeGreaterThan(cut.layers[i - 1].y + l.h / 2); // no overlap
-      });
-      expect(cut.tip.y - cut.tip.h / 2).toBeGreaterThan(0);
+      expect(cut.mass.y + cut.mass.h / 2).toBeLessThanOrEqual(.96);
+      expect(cut.tip.y - cut.tip.h / 2).toBeGreaterThan(.05);
+      expect(cut.tip.w).toBeCloseTo(cut.mass.w / 2); // tip sits flush on the mass's flat top
+      cut.layers.forEach((l, i) => { if (i) expect(l.y - cut.layers[i - 1].y).toBeGreaterThan(.12); });
     }
   });
 

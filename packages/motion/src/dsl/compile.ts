@@ -79,8 +79,8 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
     if (beat.transition)
       events.push({ start: t, end: t + TRANSITION[beat.transition], verb: "transition", beat: b, args: { type: beat.transition } });
     for (const { act, w, key } of placed) {
-      const { at: _at, do: verb, target, ...args } = act;
-      const local = words[w].start;
+      const { at: _at, do: verb, target, delay = 0, ...args } = act;
+      const local = words[w].start + delay;
       const limit = Math.min(duration, ...placed.filter((q) => q.w > w && q.key === key).map((q) => words[q.w].start));
       const room = limit - local;
       const start = t + local;

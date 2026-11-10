@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEMPLATES, VARIANTS, SAMPLES, EXPAND, GUIDE, scaleAngle, weightStack, logCost, raceProgress, gaugeAngle } from "./codex";
+import { TEMPLATES, VARIANTS, SAMPLES, EXPAND, GUIDE, scaleAngle, weightStack, logCost, raceProgress, gaugeAngle, podiumSlots } from "./codex";
 import { ctx } from "../tplkit";
 import { Scene } from "../schema";
 import { validateScene } from "../validate";
@@ -16,6 +16,10 @@ function expand(name: keyof typeof TEMPLATES, data: unknown, variant = VARIANTS[
 
 describe("physical templates", () => {
   it("keeps the guide within its prompt budget", () => expect(GUIDE.length).toBeLessThanOrEqual(600));
+  it("podium puts the winner in the middle: runner-up, winner, third", () => {
+    expect(podiumSlots([3, 1, 2])).toEqual([2, 1, 0]);
+    expect(podiumSlots([1, 2])).toEqual([1, 0]);
+  });
   for (const name of Object.keys(TEMPLATES) as (keyof typeof TEMPLATES)[]) for (const v of VARIANTS[name]) it(`${name}/${v} validates and visibly moves`, () => {
     const scene = expand(name, SAMPLES[name], v);
     expect(validateScene(scene)).toEqual([]);

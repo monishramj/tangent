@@ -4,7 +4,7 @@ export const MIN_FONT = 18;
 const LH = 1.15; // line height factor
 const PAD = 0.05; // outer margin, fraction of h
 export type Measure = (s: string, size: number, bold: boolean) => number;
-export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown; size?: number; maxW?: number; weight?: string; variant?: string };
+export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown; size?: number; maxW?: number; maxH?: number; weight?: string; variant?: string };
 /** x,y: centre as stage fractions. auto: renderer-owned position (no explicit x/y). Text items also get wrapped text + fontSize (px). */
 export type Placed = { x: number; y: number; auto: boolean; text?: string; fontSize?: number; /** visual cell size (px) */ cw?: number; ch?: number };
 
@@ -56,7 +56,7 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   const base = (i: LItem, f: number) => (i.size ? i.size : isTitle(i) ? 0.12 : 0.045) * h * f;
   const fitOne = (i: LItem, f: number) => {
     const text = stack(i) ? (i.text ?? "").split(/\s+/).join("\n") : i.text ?? "";
-    return fit(text, base(i, f), bold(i), (i.maxW ?? 0.8) * w, (stack(i) ? 0.5 : i.size ? 0.6 : isTitle(i) ? 0.3 : 0.18) * h, m);
+    return fit(text, base(i, f), bold(i), (i.maxW ?? 0.8) * w, (i.maxH ?? (stack(i) ? 0.5 : i.size ? 0.6 : isTitle(i) ? 0.3 : 0.18)) * h, m);
   };
 
   // explicit-y texts: fitted but outside the flow

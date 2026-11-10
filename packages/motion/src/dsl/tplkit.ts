@@ -36,8 +36,8 @@ export type C = ReturnType<typeof ctx>;
 export const spread = (n: number, from = 0, to = .7) => Array.from({ length: n }, (_, i) => n === 1 ? from : from + (to - from) * i / (n - 1));
 
 export function visualAt(c: C, base: string, v: { icon?: string; emoji?: string }, x: number, y: number, size: number, when: string, label?: string) {
-  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "pop" });
-  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "pop" });
+  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "bounce", duration: .55 });
+  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "bounce", duration: .55 });
   return undefined;
 }
 

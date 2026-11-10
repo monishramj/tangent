@@ -20,40 +20,57 @@ const AR = 9 / 16; // stage width per stage height
 const text = (c: C, base: string, t: string, x: number, y: number, size: number, when: string, o: Record<string, unknown> = {}) =>
   c.add({ id: c.id(base), type: "text", text: t, x, y, size, ...o }, when, { style: "type" });
 
-/** Iceberg geometry (stage fractions; y may run below 1 in "pan", where the camera follows). cams[i] = camera y when layer i lands. */
+/** Iceberg geometry (stage fractions; y runs below 1 in "pan", where the camera follows). The submerged mass is a tall
+ * hexagon (flat top at the waterline, half as wide as its middle) with the tip a triangle on that flat top, so the two read
+ * as one berg. Layer labels sit inside the mass; maxW is the berg's width at that depth. cams[i] = camera y when layer i
+ * lands; end = the pull-back camera that shows the whole berg (pan). */
 export function icebergLayout(n: number, v: string) {
-  const pan = v === "pan", water = pan ? .5 : .3, tipH = pan ? .2 : .16;
-  const pitch = pan ? .28 : Math.min(.24, (.95 - water - .04) / n), h = pitch - .03;
-  const layers = Array.from({ length: n }, (_, i) => ({ y: water + (pan ? .2 : .04 + pitch / 2) + i * pitch, h, w: Math.min(.84, .3 + (pan ? .16 : .14) * i) }));
-  const cams = layers.map(l => pan ? Math.max(.5, l.y - .3) : .5);
-  return { water, tip: { y: water - tipH / 2, h: tipH, w: tipH * 1.4 * AR }, layers, cams, depth: layers[n - 1].y + h / 2 + .1 - water };
+  const pan = v === "pan", water = pan ? .5 : .3, tipH = pan ? .22 : .2, W = pan ? .62 : .54;
+  const depth = pan ? .3 * n + .08 : .65, wAt = (u: number) => W / 2 * (2 - Math.abs(2 * u - 1)); // berg width at depth fraction u
+  const layers = Array.from({ length: n }, (_, i) => { const u = pan ? (.04 + .3 * (i + .5)) / depth : (i + .5) / n; return { y: water + u * depth, maxW: wAt(u) * .82 }; });
+  const strata = Array.from({ length: n - 1 }, (_, i) => { const y = (layers[i].y + layers[i + 1].y) / 2, u = (y - water) / depth; return { y, w: wAt(u) * .8 }; });
+  const cams = layers.map(l => pan ? Math.max(.5, l.y - .22) : .5);
+  const top = water - tipH - .06, bottom = water + depth + .05, zoom = Math.min(1, 1 / (bottom - top));
+  return { water, tip: { y: water - tipH / 2, h: tipH, w: W / 2 }, mass: { y: water + depth / 2, h: depth, w: W }, layers, strata, cams, depth,
+    end: { y: zoom < 1 ? (top + bottom) / 2 : Math.max(.5, bottom - .5), zoom } };
 }
 
 /** Claim text size (stage heights) shrinks with length so 120 chars still fit the card in 3-4 lines. */
 export const claimSize = (len: number) => len <= 30 ? .066 : len <= 60 ? .054 : .044;
-/** Stamp border around a bold all-caps word at font size `size` (stage heights); width in stage widths. */
 /** Card face text size (stage heights) from the longer face, so 90 chars fit the card in <= 4 lines. */
 export const faceSize = (len: number) => len <= 24 ? .07 : len <= 50 ? .056 : .045;
+/** Stamp border around a bold all-caps word at font size `size` (stage heights); width in stage widths. */
 export const stampBox = (word: string, size: number) => ({ w: word.length * size * .68 * AR + .07, h: size * 1.5 });
 
 export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => void } = {
   iceberg(c, d, v) {
-    const L = icebergLayout(d.below.length, v), pan = v === "pan";
-    c.add({ id: c.id("ice_sea"), type: "shape", shape: "rect", ghost: true, x: .5, y: L.water + L.depth / 2, width: 1.2, height: L.depth }, frac(0), { style: "slide", edge: "bottom" });
-    c.add({ id: c.id("ice_water"), type: "line", from: [-.02, L.water], to: [1.02, L.water] }, frac(0), { style: "draw", duration: .7 });
-    const [tTip, tBob] = orderedAnchors(c.say, [.04, .14], []);
+    const L = icebergLayout(d.below.length, v), pan = v === "pan", ts = pan ? .05 : .042;
+    c.add({ id: c.id("ice_sea"), type: "shape", shape: "rect", ghost: true, x: .5, y: L.water + 1, width: 3, height: 2 }, frac(0), { style: "slide", edge: "bottom" });
+    c.add({ id: c.id("ice_water"), type: "line", from: [-1, L.water], to: [2, L.water] }, frac(0), { style: "draw", duration: .7 });
+    const [tTip, tBob, tLook] = orderedAnchors(c.say, [.04, .14, .2], []);
     const tip = c.add({ id: c.id("ice_tip"), type: "shape", shape: "triangle", filled: true, x: .5, y: L.tip.y, width: L.tip.w, height: L.tip.h }, tTip, { style: "pop" });
-    if (tBob !== tTip) c.act({ at: tBob, do: "move", target: tip, path: [[.5, L.tip.y], [.5, L.tip.y - .02], [.5, L.tip.y]], duration: 1.4, easing: "inOutSine" }); // a slow bob
-    const ty = L.tip.y - L.tip.h * .1;
-    visualAt(c, "ice_top_v", d.top, .5 - L.tip.w / 2 - .06, ty, pan ? .12 : .1, frac(.08));
-    text(c, "ice_top", d.top.text, .5 + L.tip.w / 2 + .03, ty, pan ? .05 : .044, frac(.08), { weight: "bold", opacity: 1, align: "left", maxW: .3 });
-    if (!pan) c.add({ id: c.id("ice_depth"), type: "arrow", from: [.07, L.water + .05], to: [.07, .94], dashed: true }, frac(.2), { style: "draw", duration: 2.5 });
-    const when = orderedAnchors(c.say, spread(L.layers.length, .25, .85), d.below.map(b => b.at)), ids: string[] = [];
+    // pan: a tiny climber stands on the summit (feet on the apex, bobbing with the tip) and is thrown when the hidden mass
+    // appears. cutaway's apex sits too close to the frame top for a readable figure, so it has none.
+    const fh = .1, fy = L.tip.y - L.tip.h / 2 - fh / 2;
+    const climber = pan ? c.add({ id: c.id("ice_person"), type: "person", pose: "stand", facing: "right", x: .5, y: fy, size: fh }, tTip, { style: "pop" }) : undefined;
+    if (tBob !== tTip) for (const [id, y] of [[tip, L.tip.y], [climber, fy]] as const)
+      if (id) c.act({ at: tBob, do: "move", target: id, path: [[.5, y], [.5, y - .015], [.5, y]], duration: 1.4, easing: "inOutSine" }); // a slow bob
+    if (climber && tLook !== tBob && tLook !== tTip) c.act({ at: tLook, do: "pose", target: climber, to: "confused" });
+    const ty = L.tip.y + L.tip.h * .15;
+    visualAt(c, "ice_top_v", d.top, .5 - L.tip.w / 2 - .07, ty, pan ? .12 : .1, frac(.08));
+    text(c, "ice_top", d.top.text, .5 + L.tip.w / 2 + .03, ty, ts * 1.1, frac(.08), { weight: "bold", opacity: 1, align: "left", maxW: .28 });
+    // the hidden mass traces in under the waterline: the "oh, it's huge" moment
+    c.add({ id: c.id("ice_mass"), type: "shape", shape: "hexagon", ghost: true, x: .5, y: L.mass.y, width: L.mass.w, height: L.mass.h }, frac(.16), { style: "draw", duration: pan ? 1.6 : 1.2 });
+    if (!pan) c.add({ id: c.id("ice_depth"), type: "arrow", from: [.1, L.water + .05], to: [.1, .94], dashed: true }, frac(.2), { style: "draw", duration: 2.5 });
+    const when = orderedAnchors(c.say, spread(L.layers.length, .24, .72), d.below.map(b => b.at)), last = L.layers.length - 1;
+    L.strata.forEach((st, i) => c.add({ id: c.id(`ice_strata${i}`), type: "line", from: [.5 - st.w / 2, st.y], to: [.5 + st.w / 2, st.y], dashed: true }, when[i + 1], { style: "draw", duration: .5 }));
     L.layers.forEach((l, i) => {
-      ids.push(c.add({ id: c.id(`ice_layer${i}`), type: "shape", shape: "rect", label: d.below[i].text, x: .5, y: l.y, width: l.w, height: l.h }, when[i], { style: "slide", edge: "bottom", duration: .5 }));
+      const id = text(c, `ice_layer${i}`, d.below[i].text, .5, l.y, ts, when[i], { weight: i === last ? "bold" : "normal", opacity: 1, maxW: l.maxW, ...(i === last ? { color: ACCENT } : {}) });
+      if (i === last) c.key(id);
       if (pan && L.cams[i] !== (i ? L.cams[i - 1] : .5)) c.act({ at: when[i], do: "camera", y: L.cams[i], duration: .8, easing: "inOutCubic" });
     });
-    c.key(ids[ids.length - 1]);
+    const tEnd = orderedAnchors(c.say, [...spread(L.layers.length, .24, .72), .84], [...d.below.map(b => b.at), undefined])[L.layers.length];
+    if (pan && (L.end.zoom < 1 || L.end.y !== L.cams[last])) c.act({ at: tEnd, do: "camera", y: L.end.y, zoom: L.end.zoom, duration: 1, easing: "inOutCubic" }); // pull back: the whole berg
   },
   stamp(c, d, v) {
     const word = VERDICTS[d.verdict], bad = d.verdict === "false" || d.verdict === "myth" || d.verdict === "wrong", slam = v === "slam";
@@ -71,6 +88,12 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     c.key(c.add({ id: c.id("stamp_word"), type: "text", text: word, x: sx, y: sy, size: ss, weight: "bold", opacity: 1, color: ACCENT, rotation: rot }, tStamp, { style: "stamp", duration: .45 }));
     c.act({ at: tStamp, do: "camera", shake: slam ? .03 : .02, duration: .45 });
     if (bad) c.add({ id: c.id("stamp_strike"), type: "mark", target: claimId, mark: "strike" }, tMark, { style: "draw", duration: .45 });
+    // slam: once the claim has moved up, a figure beside the stamp reacts to the verdict
+    if (slam) {
+      const react = bad ? "confused" : "celebrate", later = tFix !== tMark; // short narration: no room to react, start in the pose
+      const me = c.add({ id: c.id("stamp_person"), type: "person", pose: later ? "stand" : react, facing: "right", x: .2, y: .66, size: .26 }, tMark, { style: "pop" });
+      if (later) c.act({ at: tFix, do: "pose", target: me, to: react });
+    }
     if (d.correction) text(c, "stamp_fix", `${bad ? "→" : "✓"} ${d.correction}`, .5, slam ? .86 : .84, .046, tFix, { opacity: .9, maxW: .8 });
   },
   flipcard(c, d, v) {

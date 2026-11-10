@@ -1,6 +1,6 @@
 import type { SceneObject } from "../dsl/schema";
-export type Ease = "outCubic" | "outBack" | "inOutQuad" | "outQuart" | "outExpo" | "inOutCubic" | "inOutExpo" | "inExpo" | "inOutSine";
-export type Style = "draw" | "pop" | "type" | "slide" | "stagger" | "stamp" | "flip";
+export type Ease = "outCubic" | "outBack" | "inOutQuad" | "outQuart" | "outExpo" | "inOutCubic" | "inOutExpo" | "inExpo" | "inOutSine" | "inCubic" | "linear";
+export type Style = "draw" | "pop" | "bounce" | "type" | "slide" | "stagger" | "stamp" | "flip" | "grow";
 export const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
 export const progress = (t: number, start: number, end: number) => end <= start ? Number(t >= start) : clamp01((t - start) / (end - start));
 // Penner curves (pure; no ticker: every value is a function of the audio clock). outBack overshoots: use it only for punches.
@@ -9,6 +9,8 @@ const EASES: Record<Ease, (p: number) => number> = {
   outQuart: p => 1 - (1 - p) ** 4,
   outExpo: p => 1 - 2 ** (-10 * p),
   inExpo: p => 2 ** (10 * p - 10),
+  linear: p => p,
+  inCubic: p => p ** 3, // gravity: slow start, fast at the end (a topple that stops on contact)
   outBack: p => 1 + 2.70158 * (p - 1) ** 3 + 1.70158 * (p - 1) ** 2,
   inOutQuad: p => p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2,
   inOutCubic: p => p < .5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2,

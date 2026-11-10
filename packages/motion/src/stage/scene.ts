@@ -13,6 +13,7 @@ export type ObjState = {
   y: number;
   scale: number;
   sx?: number; // extra horizontal scale (card flips); 1 when absent
+  sy?: number; // extra vertical scale (grow); 1 when absent
   reveal?: number;
   style?: Style;
   gap?: number;
@@ -136,6 +137,16 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
         o.scale = 1 + 1.4 * (1 - ease(p, "outBack")); o.opacity = clamp01(p * 5); o.rotation = rot * (1 + .6 * (1 - ease(p, "outCubic")));
       }
       else if (style === "flip") { o.opacity = p < .5 ? 0 : 1; o.sx = ease(window01(p, .5, 1), "outCubic"); } // the old face shrinks first
+      else if (style === "grow") { o.opacity = 1; if ((def as { pivot?: string }).pivot === "left") o.sx = k; else o.sy = k; }
+      else if (style === "bounce") {
+        const settle = Math.sin(p * Math.PI * 3) * (1 - p) ** 2;
+        o.scale = .35 + .65 * ease(p, "outBack");
+        o.rotation = settle ? -.2 * settle : 0;
+        if (def.type === "emoji") {
+          o.sx = 1 + .24 * settle; o.sy = 1 - .24 * settle;
+          o.y -= .035 * Math.sin(Math.PI * p) * (1 - p);
+        }
+      }
       else if (style === "pop") o.scale = .6 + .4 * ease(p, easing ?? "outBack");
       else if (style === "slide") {
         const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(p, easing ?? "outExpo"));

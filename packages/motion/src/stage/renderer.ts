@@ -10,7 +10,7 @@ import { layoutScene, type Placed } from "./layout";
 import { buildVisual, fitText } from "./visuals";
 import { buildCounter, buildEmoji, buildGif, buildIcon, buildPerson } from "./extras";
 import { buildDistribution, buildGraph, buildMatrix, buildNumberline, buildSeq, buildTexture } from "./vocab";
-import { LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
+import { clipBelow, LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
 import { ease, pathPoint, staggerProgress, strokeW, window01, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
@@ -65,7 +65,7 @@ export class SceneRenderer {
       node.visible = s.visible;
       node.alpha = s.opacity;
       node.position.set(s.x * w, s.y * h);
-      node.scale.set(s.scale * (s.sx ?? 1), s.scale);
+      node.scale.set(s.scale * (s.sx ?? 1), s.scale * (s.sy ?? 1));
       node.rotation = s.rotation ?? 0;
       node.tint = s.color ?? 0xffffff;
     };
@@ -151,10 +151,13 @@ export class SceneRenderer {
           const wide = o.shape === "rect" || o.shape === "pill" || o.shape === "parallelogram";
           const width = Math.min((o.width ?? (wide ? .36 : .24 * h / w)) * w, cell?.cw ? cell.cw * .88 : Infinity);
           const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
-          if (o.pivot === "bottom") { c.pivot.y = height / 2; c.y += height / 2 * s.scale; }
+          if (o.pivot) { // the layout position stays the centre; the pivot point is fixed in place while the shape rotates/scales
+            const px = o.pivot === "left" ? -width / 2 : o.pivot === "corner" ? width / 2 : 0, py = o.pivot === "left" ? 0 : o.pivot === "top" ? -height / 2 : height / 2;
+            c.pivot.set(px, py); c.x += px * s.scale; c.y += py * s.scale;
+          }
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
-            out = smoothOutline(o.shape, bw, bh, o.tail, h * .025);
+            out = smoothOutline(o.shape, bw, bh, o.tail, o.radius !== undefined ? o.radius * h : h * .025, o.radius !== undefined);
             const [fw, fh, dx, dy] = LABEL_BOX[o.shape] ?? LABEL_BOX.rect, cy = bh * dy;
             fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .045);
             sub.visible = !!o.sublabel;
@@ -163,6 +166,15 @@ export class SceneRenderer {
               label.y = cy - lines(sub) / 2; sub.y = cy + lines(label) / 2;
             } else label.y = cy;
             label.x = sub.x = bw * dx;
+          }
+          if (o.points) {
+            const pts = o.points.map(([x, y]) => [x * width, y * height] as Point);
+            const k = s.style === "grow" ? s.sy ?? 1 : 1;
+            const fill = clipBelow(pts, height * (.5 - k));
+            out = { pts: fill.length ? [...fill, fill[0]] : [], fill, sym: false };
+            // Reveal the fixed polygon instead of squashing its taper with the grow transform.
+            c.scale.y = s.scale; c.y = s.y * h;
+            if (o.pivot) c.y += height / 2 * s.scale;
           }
           // Outline traces first (both ways from the top, meeting at the bottom), then the fill, detail strokes and label fade in.
           const r = s.style === "draw" ? s.reveal ?? 1 : 1, fillA = s.style === "draw" ? window01(r, .7, 1) : 1, sw = strokeW(h);
@@ -177,6 +189,10 @@ export class SceneRenderer {
           else if (r > 0) { const part = out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, out.open && out.extra ? Math.min(1, r * 2) : r); if (part.length > 1) g.poly(part.flat(), false).stroke(tick); }
           const xr = out.open ? window01(r, .5, 1) : window01(r, .55, 1);
           if (xr > 0) for (const x of o.shape === "gear" && o.label ? [] : out.extra ?? []) { const part = partialPath(x, xr); if (part.length > 1) g.poly(part.flat(), false).stroke(o.filled ? { ...tick, color: this.bg } : tick); }
+          if (o.typing) { // three dots bouncing in turn (looping on the object's age; the whole bubble stays still)
+            const r = bh * .1, age = s.age ?? 0;
+            for (let i = 0; i < 3; i++) g.circle((i - 1) * r * 3.2, -Math.max(0, Math.sin(age * 8 - i * 1.1)) * bh * .16, r).fill({ color: o.filled ? this.bg : this.fg, alpha: fillA });
+          }
           this.ext.set(o.id, [bw / 2 * s.scale, bh / 2 * s.scale]);
           label.style.fill = sub.style.fill = o.filled ? this.bg : this.fg;
           label.alpha = s.style === "draw" ? window01(r, .35, .9) : 1; sub.alpha = label.alpha * .65;
@@ -196,7 +212,7 @@ export class SceneRenderer {
           const a0 = pt(o.from), b0 = pt(o.to);
           g.clear(); lbl.visible = false;
           if (!a0 || !b0) return; // endpoint missing or hidden: draw nothing rather than a line to the centre
-          const full = routePoints(a0, b0, o.route), len = pathLength(full);
+          const full = o.type === "line" && o.points ? o.points.map(p => pt(p)!) : routePoints(a0, b0, o.route), len = pathLength(full);
           const trim = (p: string | [number, number], dir: Point) => {
             if (Array.isArray(p)) return 0;
             const [hw, hh] = this.ext.get(p) ?? [.04 * h, .04 * h];
