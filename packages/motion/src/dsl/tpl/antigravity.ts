@@ -154,7 +154,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     visualAt(c, "fill_icon", d, cx, bar ? .22 : .27, .09, frac(.04));
     if (overflow > 0) { // T: the moment the liquid reaches the brim
       const wall = x + w / 2, sx = wall + .008, lipY = bar ? y - h / 2 : brimY;
-      const line = floor + (bar ? .006 : .004), pool = line - .003, puddleW = bar ? .065 : .12;
+      const line = floor + (bar ? .006 : .004), pool = line - .003, puddleW = bar ? .1 : .16;
       c.act({ at: F, do: "highlight", target: counter, delay: T }); // the number punches as it passes 100%
       // Sample a cubic over the rim, then follow the outside wall into the puddle.
       const start: Pt = [wall - pad - .008, lipY], bend: Pt = [sx, lipY + .035];
@@ -170,10 +170,10 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
         points.push([u ** 3 * bend[0] + 3 * u * u * t * sx + 3 * u * t * t * (foot[0] - .012) + t ** 3 * foot[0],
           u ** 3 * bend[1] + 3 * u * u * t * (pool - .05) + 3 * u * t * t * pool + t ** 3 * pool]);
       }
-      c.add({ id: c.id("fill_stream"), type: "line", color: ACCENT, from: start, to: foot, points }, F,
+      c.add({ id: c.id("fill_stream"), type: "line", color: ACCENT, from: start, to: foot, points, thick: 2.6 }, F,
         { style: "draw", delay: T, duration: .65, easing: "inOutCubic" });
       c.add({ id: c.id("fill_puddle"), type: "shape", shape: "circle", filled: true, color: ACCENT, pivot: "left",
-        x: foot[0] - .012 + puddleW / 2, y: pool, width: puddleW, height: .006 }, F,
+        x: foot[0] - .012 + puddleW / 2, y: pool, width: puddleW, height: .018 }, F,
         { style: "grow", delay: T + .6, duration: 1.2, easing: "outCubic" });
       c.add({ id: c.id("fill_overflow"), type: "text", text: `+${Number(overflow.toPrecision(5))}${d.unit ? " " + d.unit : ""} overflow`, color: ACCENT, opacity: 1,
         x: Math.min(.95 - .11, sx + puddleW / 2), y: line + .05, size: .03, maxW: .22 }, F, { style: "type", delay: T + .7 });

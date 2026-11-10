@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-05): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
+> Status (2026-11-10): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (10 new human templates, stick figure, the Tangenter). Next: dogfood on real CS 251 chapters and fix what breaks; sources-first homepage is in progress on the `homepage` branch (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -245,8 +245,17 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 
 - (2026-11-10) Optional beat `tangenter:{pose,poseTo?,says?,thinks?,at?}` adds the recurring stickman presenter at a consistent 22% stage height. Conservative bounds pick a clear bottom corner or omit him/bubbles; dense or unknown component geometry is intentionally skipped. He walks in from the nearest edge, breathes, points at the key visual, blends poses on narration anchors and persists across consecutive eligible beats. Generation requests roughly one appearance per 3–4 beats, never on gifs/figures; no signature cap (owner preferred the plain stickman).
 
+**2026-11-10 picture templates (less flowchart):**
+- 10 picture-first templates in `packages/motion/src/dsl/tpl/{codex,antigravity,claude}.ts` (one file per original author, wired into TEMPLATES/VARIANTS/EXPAND/GUIDE and the sample fixtures): scale (tip|balance), race (lanes|podium), gauge (dial|meter), fill (glass|battery|bar), pictograph (grid|sweep), dominoes (row|grow), chat (phone|bubbles), iceberg (pan|cutaway), stamp (card|slam), flipcard (card|duo). Every derived number (tilt, finish order, needle angle, fill %, overflow, pictograph %, domino resting angles) is computed and tested.
+- Stick figure inside templates: race runners (walk gait, winner celebrates), scale/gauge bystanders, iceberg climber (pan), stamp reaction (slam), dominoes flicker, chat parties. Plus the Tangenter beat extra (below).
+- Scene prompt (`src/gen/scene.ts`): picture templates first, `diagram` is a last resort, and `checkTemplateScene` rejects more than one diagram beat per scene.
+- Icons: whole-word/curated matching (a 635-noun audit has zero generic fallbacks), more emoji packs; icons/emoji enter with a `bounce` style (overshoot + tilt, emoji squash-and-stretch) via `tplkit.visualAt`.
+- Engine additions (additive): action `delay`; eases `inCubic`/`linear`; create styles `stamp`, `flip`, `grow`, `bounce`; ObjState `sx`/`sy`; shape `pivot` (bottom|left|corner|top), `radius`, `typing` dots; text `maxH`; `line.thick`. Validator's same-word conflict key includes `delay`.
+- Dev reel: `/src/dev/showcase.html?reel=1[&only=a,b]` plays every template × variant (+ a Tangenter beat) with prev/pause/next, ←/→/space/r, stopping at the end. `?reel` also works in the app window (`src/main.tsx`).
+- TEMPLATE_GUIDE budget raised to < 8500 chars (now ~8.2k).
+
 **Open issues:**
-- **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
+- **Not yet run end-to-end on a real chapter with the new templates** (incl. the 10 picture templates and the Tangenter). Known low-severity gaps from review: points+pivot offset only handles `bottom`; compile `delay` isn't counted in the per-object time limit (no template hits either). Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
 - Beat/scene gaps (0.45 s / 0.6 s) are untuned; listen on a real chapter.
@@ -309,4 +318,5 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage; **script stage on `sonnet`** (2026-11-05) for script quality.
 - Retaking a check replaces the earlier answer; Escape closes the speed menu and the side panel together (2026-11-05).
+- Picture templates over flowcharts (2026-11-10): at most one diagram per scene; the recurring Tangenter appears ~1 in 3–4 beats; colour comes from full-colour emoji + the one accent (icons stay white line art). Dominoes stays only if it stays good.
 - Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Projects = NotebookLM-style with notes. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.

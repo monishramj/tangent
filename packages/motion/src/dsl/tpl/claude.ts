@@ -30,8 +30,9 @@ export function icebergLayout(n: number, v: string) {
   const layers = Array.from({ length: n }, (_, i) => { const u = pan ? (.04 + .3 * (i + .5)) / depth : (i + .5) / n; return { y: water + u * depth, maxW: wAt(u) * .82 }; });
   const strata = Array.from({ length: n - 1 }, (_, i) => { const y = (layers[i].y + layers[i + 1].y) / 2, u = (y - water) / depth; return { y, w: wAt(u) * .8 }; });
   const cams = layers.map(l => pan ? Math.max(.5, l.y - .22) : .5);
-  const top = water - tipH - .06, bottom = water + depth + .05, zoom = Math.min(1, 1 / (bottom - top));
-  return { water, tip: { y: water - tipH / 2, h: tipH, w: W / 2 }, mass: { y: water + depth / 2, h: depth, w: W }, layers, strata, cams, depth,
+  const climber = pan ? .1 : 0; // pan: a tiny figure stands on the apex (height in stage heights)
+  const top = water - tipH - climber - .06, bottom = water + depth + .05, zoom = Math.min(1, 1 / (bottom - top));
+  return { water, tip: { y: water - tipH / 2, h: tipH, w: W / 2 }, mass: { y: water + depth / 2, h: depth, w: W }, layers, strata, cams, depth, climber,
     end: { y: zoom < 1 ? (top + bottom) / 2 : Math.max(.5, bottom - .5), zoom } };
 }
 
@@ -49,9 +50,9 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     c.add({ id: c.id("ice_water"), type: "line", from: [-1, L.water], to: [2, L.water] }, frac(0), { style: "draw", duration: .7 });
     const [tTip, tBob, tLook] = orderedAnchors(c.say, [.04, .14, .2], []);
     const tip = c.add({ id: c.id("ice_tip"), type: "shape", shape: "triangle", filled: true, x: .5, y: L.tip.y, width: L.tip.w, height: L.tip.h }, tTip, { style: "pop" });
-    // pan: a tiny climber stands on the summit (feet on the apex, bobbing with the tip) and is thrown when the hidden mass
+    // pan: a tiny climber stands on the summit (feet on the apex, bobbing with the tip) and looks confused as the hidden mass
     // appears. cutaway's apex sits too close to the frame top for a readable figure, so it has none.
-    const fh = .1, fy = L.tip.y - L.tip.h / 2 - fh / 2;
+    const fh = L.climber, fy = L.tip.y - L.tip.h / 2 - fh / 2;
     const climber = pan ? c.add({ id: c.id("ice_person"), type: "person", pose: "stand", facing: "right", x: .5, y: fy, size: fh }, tTip, { style: "pop" }) : undefined;
     if (tBob !== tTip) for (const [id, y] of [[tip, L.tip.y], [climber, fy]] as const)
       if (id) c.act({ at: tBob, do: "move", target: id, path: [[.5, y], [.5, y - .015], [.5, y]], duration: 1.4, easing: "inOutSine" }); // a slow bob

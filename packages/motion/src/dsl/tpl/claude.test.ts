@@ -22,7 +22,7 @@ describe("claude templates", () => {
         if (i) expect(pan.cams[i]).toBeGreaterThanOrEqual(pan.cams[i - 1]); // the camera only goes down
       });
       const half = .5 / pan.end.zoom; // visible half-height at the end camera
-      expect(pan.end.y - half).toBeLessThanOrEqual(pan.tip.y - pan.tip.h / 2 - .02);
+      expect(pan.end.y - half).toBeLessThanOrEqual(pan.tip.y - pan.tip.h / 2 - pan.climber - .03); // apex + climber (and its bob) in view
       expect(pan.end.y + half).toBeGreaterThanOrEqual(pan.mass.y + pan.mass.h / 2);
       const cut = icebergLayout(n, "cutaway");
       expect(cut.cams.every(y => y === .5)).toBe(true);
