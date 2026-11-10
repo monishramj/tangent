@@ -49,6 +49,15 @@ describe("generateGroupScene", () => {
     expect(r.errors).toHaveLength(2);
   });
 
+  it("keeps the recurring presenter occasional", () => {
+    const crowded = TemplateScene.parse({ beats: good.beats.map(b => ({ ...b, tangenter: { pose: "point" } })) });
+    expect(checkTemplateScene(crowded, beats).map(e => e.message).join(" ")).toContain("tangenter on at most half");
+    crowded.beats[1].tangenter = undefined;
+    expect(checkTemplateScene(crowded, beats).some(e => e.message.includes("tangenter"))).toBe(true);
+    crowded.beats[2].tangenter = undefined;
+    expect(checkTemplateScene(crowded, beats)).toEqual([]);
+  });
+
   it("quality gate: variety, gifs, figure srcs", () => {
     const same = { objects: [], beats: beats.map(b => ({ say: b.say, template: "callout" as const, variant: "box", data: { text: "x" } })) };
     const msgs = checkTemplateScene(same, beats).map(e => e.message).join(" ");

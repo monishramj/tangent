@@ -69,7 +69,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), pivot: z.literal("bottom").optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
   obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
   obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
-  obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
+  obj("person", { tangenter: z.boolean().optional(), aim: num2.optional(), pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
   obj("gif", { query: z.string().optional(), src: z.string().optional(), caption: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }),
   obj("chart", { kind: z.enum(["bar", "line"]).default("bar"), labels: z.array(z.string()).min(1), values: z.array(z.number()).min(1), max: z.number().positive().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }).superRefine((o, ctx) => {
     if (o.labels.length !== o.values.length) ctx.addIssue({ code: "custom", message: "chart needs one label per value" });
@@ -142,7 +142,7 @@ export const Action = z.discriminatedUnion("do", [
   act("indicate", {}),
   act("camera", { x: z.number().optional(), y: z.number().optional(), zoom: z.number().positive().optional(), shake: z.number().min(0).max(.1).optional() }, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose
   act("wait", {}, false),
-  act("pose", { to: Pose }), // person: animate to a new pose
+  act("pose", { to: Pose, aim: num2.optional() }), // person: animate to a new pose
   act("pulse", {}), // arrow/line: a dot travels from -> to (signal flow)
   act("op", { op: z.string(), args: z.array(z.unknown()).default([]) }),
 ]);

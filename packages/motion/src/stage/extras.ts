@@ -6,7 +6,7 @@ import type { ObjState } from "./scene";
 import { FONT, strokePath } from "./visuals";
 import { counterValue, formatCount } from "./geometry";
 import { iconSvg, resolveIcon } from "./icons";
-import { PERSON_PARTS, jointsAt, personParts } from "./person";
+import { PERSON_PARTS, jointsAt, personParts, tangenterJoints } from "./person";
 import { ease, staggerProgress } from "./motion";
 
 type Cell = { cw?: number; ch?: number } | undefined;
@@ -88,11 +88,14 @@ export function buildCounter(o: O<"counter">, fg: string, cell: () => Cell) {
 export function buildPerson(o: O<"person">, fg: string, cell: () => Cell) {
   const node = new Container(), g = new Graphics(), q = txt(node, "?", fg, true), label = txt(node, o.label ?? "", fg);
   node.addChildAt(g, 0);
-  return { node, draw(s: ObjState, _w: number, h: number): Ext {
+  return { node, draw(s: ObjState, w: number, h: number): Ext {
     const H = cap((o.size ?? .38) * h, cell(), .9, o.label ? .85 : .95), dir = o.facing === "left" ? -1 : 1, age = s.age ?? 0, k = s.poseP ?? 1;
-    const { parts, head, headR } = personParts(jointsAt(s.pose, s.poseFrom, k, age), H, o.facing);
+    const aim: [number, number] | undefined = s.aim && [(s.aim[0] - s.x) * w * dir, (s.aim[1] - s.y) * h + H * .25];
+    const joints = o.tangenter ? tangenterJoints(s.pose, s.poseFrom, k, age, aim) : jointsAt(s.pose, s.poseFrom, k, age);
+    const { parts, head, headR } = personParts(joints, H, o.facing);
+    if (o.tangenter) node.x += -dir * ((dir > 0 ? s.x : 1 - s.x) * w + H * .4) * (1 - ease(age / .45));
     const has = (name: string) => Math.min(1, (s.pose === name ? k : 0) + (s.poseFrom === name ? 1 - k : 0));
-    const draw = s.style === "draw", lw = .012 * h;
+    const draw = s.style === "draw", lw = o.tangenter ? H * .025 : .012 * h;
     g.clear(); g.y = Math.sin(age * 2) * H * .004;
     parts.forEach((p, i) => strokePath(g, p, draw ? staggerProgress(s.reveal ?? 1, i, PERSON_PARTS, .12) : 1, fg, lw, 1, true));
     if (!draw || (s.reveal ?? 1) >= 1) g.circle(head[0] + dir * headR * .35, head[1] - headR * .1, headR * .1).fill({ color: fg });

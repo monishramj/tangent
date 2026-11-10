@@ -49,6 +49,7 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
   const [top, most] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
   if (raw.beats.length >= 3 && most > raw.beats.length / 2) errs.push(err("beats", `"${top}" is ${most} of ${raw.beats.length} beats; no template may fill more than half a scene`));
   if (raw.beats.filter(b => b.template === "diagram").length > 1) errs.push(err("beats", "at most one diagram beat per scene; show the other beats with a picture template (dominoes, chat, scale, race, iceberg...)"));
+  if (raw.beats.length > 1 && raw.beats.filter(b => b.tangenter).length > raw.beats.length / 2) errs.push(err("beats", "tangenter on at most half the beats; aim for one in 3-4"));
   if (raw.beats.filter(b => b.accent).length > 1) errs.push(err("beats", "accent:true on at most one beat per scene"));
   return errs;
 }

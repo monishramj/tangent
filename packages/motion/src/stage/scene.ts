@@ -30,6 +30,8 @@ export type ObjState = {
   snap?: unknown; snapFrom?: unknown; snapP?: number; // computed components: current snapshot, previous one, blend 0..1
   keyHl?: Record<string, number>; // Stack/Queue/LinkedList: highlight by item key (follows the item as it moves)
   pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
+  tangenter?: boolean;
+  aim?: Point;
   pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
   born?: number; // start time of the create event (transitions tell incoming objects from outgoing ones)
   exitFrom?: number; // opacity just before a transition's clear faded it out
@@ -61,7 +63,7 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     if (o.type === "Tree" || o.type === "Graph") s.valHl = {};
     if (o.type === "Stack" || o.type === "Queue" || o.type === "LinkedList") { s.snap = { items: seqItems(o) }; s.keyHl = {}; }
     if (o.type === "Graph") s.snap = { visited: [], frontier: [], tree: [] };
-    if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; }
+    if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; s.aim = o.aim; s.tangenter = o.tangenter; }
     objects.set(o.id, s);
   }
   const kind = new Map(scene.objects.map((o) => [o.id, o]));
@@ -186,7 +188,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       break;
     }
     case "pulse": if (p < 1) o.pulse = p; break;
-    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; break;
+    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break;
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
   }
 }
@@ -219,6 +221,7 @@ function applyTransition(st: SceneState, type: string, p: number, start: number,
   const out = -e, inc = 1 - e;
   if (whip) st.camera!.stretch = 1 + .5 * Math.sin(Math.PI * p) ** 2; // a horizontal smear that peaks with the speed
   for (const o of st.objects.values()) {
+    if (o.tangenter) continue;
     if (exiting.has(o.id)) {
       if (o.exitFrom !== undefined) o.opacity = o.exitFrom;
       if (whip) o.opacity *= 1 - .7 * e;
