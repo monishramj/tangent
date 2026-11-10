@@ -151,6 +151,7 @@ export class SceneRenderer {
           const wide = o.shape === "rect" || o.shape === "pill" || o.shape === "parallelogram";
           const width = Math.min((o.width ?? (wide ? .36 : .24 * h / w)) * w, cell?.cw ? cell.cw * .88 : Infinity);
           const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
+          if (o.pivot === "bottom") { c.pivot.y = height / 2; c.y += height / 2 * s.scale; }
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
             out = smoothOutline(o.shape, bw, bh, o.tail, h * .025);
