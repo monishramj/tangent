@@ -69,3 +69,6 @@ export async function sectionsText(ir: IR, ids: string[]): Promise<string> {
 const uniq = <T extends { id: string }>(xs: T[]) => xs.filter((x, i) => xs.findIndex(y => y.id === x.id) === i);
 export const sectionsFigures = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionFigures(ir, id)));
 export const sectionsExercises = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionExercises(ir, id)));
+
+export const pdfPreview = (path: string) => call<{ pages: number; thumbnailUrl?: string }>("pdf_info", { path, preview: true });
+export const originalPdf = (path: string) => call<string>("original_pdf", { path });
