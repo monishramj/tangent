@@ -30,7 +30,7 @@ describe("generateGroupScene", () => {
     expect(r.attempts).toBe(1);
     expect(validateScene(r.scene)).toEqual([]);
     const p = provider.complete.mock.calls[0][0];
-    expect(TEMPLATE_GUIDE.length).toBeLessThan(7000); // prompt budget
+    expect(TEMPLATE_GUIDE.length).toBeLessThan(8500); // prompt budget
     for (const t of ["Code Report", "versus", "diagram", "datapath", "verbatim", "siftDown"]) expect(p).toContain(t);
   });
 

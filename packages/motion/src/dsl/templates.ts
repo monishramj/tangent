@@ -5,6 +5,10 @@ import { z } from "zod";
 import { MARKS, Pose, SceneObject, Transition, type Scene } from "./schema";
 import { C, Op, TRANSITIONS, at, ctx, frac, occurrences, s, spread, visual, visualAt } from "./tplkit";
 import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
+import * as tCodex from "./tpl/codex";
+import * as tAgy from "./tpl/antigravity";
+import * as tClaude from "./tpl/claude";
+const HUMAN = [tCodex, tAgy, tClaude] as const;
 import { ACCENT, MOTION } from "../stage/motion";
 import { ICON_GUIDE, EMOJI_GUIDE } from "../stage/icons";
 const Item = z.object({ text: s, ...visual, ...at });
@@ -29,14 +33,14 @@ export const TEMPLATES = {
   gif: z.object({ query: s, caption: s.optional() }),
   callout: z.object({ text: s, sub: s.optional() }),
   table: z.object({ headers: z.array(s).min(1).max(5), rows: z.array(z.array(z.string())).min(1).max(6), highlightRows: z.array(z.number().int().min(0)).optional() }),
-  ...VOCAB_TEMPLATES,
+  ...VOCAB_TEMPLATES, ...tCodex.TEMPLATES, ...tAgy.TEMPLATES, ...tClaude.TEMPLATES,
 } as const;
 export type TemplateName = keyof typeof TEMPLATES;
 export const VARIANTS: Record<TemplateName, string[]> = {
   title: ["slam", "punch", "words", "stack"], stat: ["center", "side"], versus: ["split", "cards"], list: ["column", "grid", "steps"],
   character: ["left", "right", "duo"], diagram: ["flow-h", "flow-v", "cycle", "hub", "datapath", "layers"], math: ["derive", "focus"],
   code: ["walk"], array: ["default"], tree: ["default"], chart: ["bars", "line"], figure: ["kenburns"], gif: ["full", "center"],
-  callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS,
+  callout: ["underline", "box", "punch"], table: ["default"], ...VOCAB_VARIANTS, ...tCodex.VARIANTS, ...tAgy.VARIANTS, ...tClaude.VARIANTS,
 };
 /** The variant a beat actually gets: the requested one if valid, else a rotation by beat index. */
 export const resolveVariant = (template: TemplateName, variant: string | undefined, b: number) =>
@@ -260,7 +264,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     if (v === "punch") c.act({ at: frac(.3), do: "camera", zoom: 1.08, duration: 2 });
     if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .04, opacity: .6 }, frac(.5), { style: "type" });
   },
-  ...VOCAB_EXPAND,
+  ...VOCAB_EXPAND, ...tCodex.EXPAND, ...tAgy.EXPAND, ...tClaude.EXPAND,
   table(c, d) {
     const cols = d.headers.length, rows = d.rows.map(r => Array.from({ length: cols }, (_, i) => r[i] ?? ""));
     const id = c.add({ id: c.id("table"), type: "table", headers: d.headers, rows, x: .5, y: .5, width: .8, height: Math.min(.75, (rows.length + 1) * .1) }, frac(0), { style: "stagger" });
@@ -361,7 +365,7 @@ export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.da
 - gif {query} full|center. The gif alone, no text. A real GIPHY clip that SHOWS what this beat's narration is saying: an analogy made literal (a cache -> "post it notes", a deadlock -> "traffic jam", a pipeline -> "assembly line", a race condition -> "two people grab same door"), a pop-culture or meme moment ("this is fine", "confused math lady", "galaxy brain"), or a reaction ("mind blown", "wait what"). query = 2-4 concrete words naming the exact scene to show (the thing happening, not a mood: "traffic jam" not "frustrated"); someone watching it with the narration must see the link instantly, else pick another template. full fills the frame (default).
 - callout {text, sub?} underline|box|punch. The key idea, the takeaway, "here's the catch".
 - table {headers, rows, highlightRows?}.
-${VOCAB_GUIDE}
+${VOCAB_GUIDE}${HUMAN.map(h => h.GUIDE ? `\n${h.GUIDE}` : "").join("")}
 Icons (any simple noun works; e.g.) ${ICON_GUIDE}.
 Emoji packs: ${EMOJI_GUIDE}.
 Beat extras: emphasis:[{text|target, mark:"underline"|"circle"|"strike"|"marker", at?}] (<=2; text = a phrase that is ON SCREEN, e.g. in a callout); energy:"calm"|"punchy"; texture:"dots"|"grid"|"scanlines" (rarely); accent:true (at most one beat per scene: tints its key element); keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;
