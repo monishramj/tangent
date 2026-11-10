@@ -22,7 +22,7 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
     { id: "math", type: "Math", tex: "x^2" },
     { id: "arrow", type: "arrow", from: [.1, .1], to: [.9, .9] },
     { id: "elbow", type: "arrow", from: "shape", to: "icon", label: "data", route: "elbow", dashed: true },
-    { id: "curve", type: "line", from: "shape", to: "person", route: "curve" },
+    { id: "curve", type: "line", from: "shape", to: "person", route: "curve", color: "#ffb224" },
     { id: "icon", type: "icon", name: "laptop", label: "Laptop" },
     { id: "emoji", type: "emoji", char: "🔥", label: "hot" },
     { id: "person", type: "person", pose: "think", label: "Me" },
@@ -57,6 +57,7 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
   expect(app.render).toHaveBeenCalled();
   expect(layer.children).toHaveLength(2); // Math + gif
   const root = app.stage.children[0] as Container;
+  expect((root.children[1] as Container).tint).toBe(0xffb224);
   const box = root.children[9] as Container; // bg layer first, then the 3 connectors (inserted at index 1), then the rect shape
   const label = box.children[1] as Text;
   expect(label.text.split("\n").length * Number(label.style.fontSize) * 1.15).toBeLessThanOrEqual(800*.24*.84);
