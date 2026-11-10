@@ -43,6 +43,20 @@ export function jointsAt(pose: string | undefined, from: string | undefined, p: 
   return blendPose(animate(poseJoints(from), from ?? "stand", age, 1 - k), animate(poseJoints(pose), pose ?? "stand", age, k), k);
 }
 
+/** Presenter motion uses the same walk, breathing and pose blend as the full-size stickman. */
+export function tangenterJoints(pose: string | undefined, from: string | undefined, p: number, age: number, aim?: Point): Joints {
+  let joints = jointsAt(pose, from, p, age);
+  if (aim) {
+    const k = clamp01(p);
+    const pointing = (name: string | undefined) => name === "point" || name === "explain";
+    const weight = (pointing(pose) ? k : 0) + (pointing(from) ? 1 - k : 0);
+    const angle = Math.atan2(aim[0], aim[1]) / (Math.PI / 180);
+    joints[2] += (angle - joints[2]) * weight; joints[3] *= 1 - weight;
+  }
+  if (age < .45) joints = blendPose(jointsAt("walk", "walk", 1, age * 3), joints, 1 - (1 - clamp01(age / .45)) ** 3);
+  return joints;
+}
+
 export const PERSON_PARTS = 6; // head, torso, arm1, arm2, leg1, leg2 (draw order)
 const rad = Math.PI / 180;
 

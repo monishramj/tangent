@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blendPose, jointsAt, personParts, poseJoints, POSE_JOINTS } from "./person";
+import { blendPose, jointsAt, personParts, poseJoints, POSE_JOINTS, tangenterJoints } from "./person";
 import { POSES } from "../dsl/schema";
 
 describe("person", () => {
@@ -17,6 +17,18 @@ describe("person", () => {
   });
   it("walk swings legs over time", () => {
     expect(jointsAt("walk", "walk", 1, .1)[6]).not.toBeCloseTo(jointsAt("walk", "walk", 1, .5)[6]);
+  });
+  it("presenter blends toward its target, walks in, then breathes deterministically", () => {
+    const from = tangenterJoints("point", "stand", 0, 1, [1, -1]);
+    const to = tangenterJoints("point", "stand", 1, 1, [1, -1]);
+    const mid = tangenterJoints("point", "stand", .5, 1, [1, -1]);
+    expect(from).toEqual(jointsAt("stand", "stand", 1, 1));
+    expect(to[2]).toBeCloseTo(135);
+    expect(mid[2]).toBeGreaterThan(from[2]); expect(mid[2]).toBeLessThan(to[2]);
+    expect(tangenterJoints("point", "stand", 1, 0, [1, -1])).toEqual(jointsAt("walk", "walk", 1, 0));
+    expect(tangenterJoints("stand", "stand", 1, .1)[6]).not.toBeCloseTo(tangenterJoints("stand", "stand", 1, .3)[6]);
+    expect(tangenterJoints("stand", "stand", 1, 2)[0]).not.toBeCloseTo(tangenterJoints("stand", "stand", 1, 3)[0]);
+    expect(tangenterJoints("point", "stand", .5, 1, [1, -1])).toEqual(mid);
   });
   it("figure spans about H and mirrors when facing left", () => {
     const H = 100, r = personParts(POSE_JOINTS.stand, H, "right"), l = personParts(POSE_JOINTS.stand, H, "left");

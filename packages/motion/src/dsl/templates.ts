@@ -2,6 +2,7 @@
 // objects and word-anchored actions. Layout, sizing and timing live here, so a weak model can't make a clunky frame.
 // Positions are stage fractions on a 16:9 stage. Anchors: a phrase from `say` if it occurs exactly once, else "@f".
 import { z } from "zod";
+import { Tangenter, addTangenter, type Presenter } from "./tangenter";
 import { MARKS, Pose, SceneObject, Transition, type Scene } from "./schema";
 import { C, Op, TRANSITIONS, at, ctx, frac, occurrences, s, spread, visual, visualAt } from "./tplkit";
 import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
@@ -54,6 +55,7 @@ export const TemplateBeat = z.object({
   data: z.unknown().optional(),
   keep: z.boolean().optional(), // keep the previous beat's objects on screen (build on them with actions)
   sticker: Sticker.optional(),
+  tangenter: Tangenter.optional(),
   camera: z.enum(["drift", "zoom", "shake"]).optional(),
   emphasis: z.array(z.object({ text: s.optional(), target: s.optional(), mark: z.enum(MARKS), ...at }).refine(e => e.text || e.target, "emphasis needs text or target")).max(3).optional(),
   energy: z.enum(["calm", "punchy"]).optional(), // calm: slower entrances + slow drift; punchy: faster entrances + a camera punch
@@ -314,6 +316,7 @@ export function expandTemplates(raw: unknown): { scene: Scene | null; errors: Ex
   for (const o of parsed.data.objects) { const id = (o as { id?: unknown })?.id; if (typeof id === "string") ids.add(id); objects.push(o); }
   let onScreen: string[] = [];
   let cleared = 0;
+  let presenter: Presenter | undefined;
   const beats = parsed.data.beats.map((beat, b) => {
     const c = ctx(b, beat.say, ids);
     const raws = (beat.objects ?? []).map(o => { const id = (o as { id?: unknown })?.id; if (typeof id === "string") ids.add(id); return o; });
@@ -337,10 +340,23 @@ export function expandTemplates(raw: unknown): { scene: Scene | null; errors: Ex
     }
     if (beat.sticker) visualAt(c, "sticker", beat.sticker, .87, .2, .12, c.anchor(.5, beat.sticker.at));
     decorate(c, beat, onScreen, objects, errors);
+    const previous = presenter;
+    const content = [...(beat.keep ? objects.filter(o => onScreen.includes((o as SceneObject).id) && (o as SceneObject).id !== previous?.id) : []), ...c.objects, ...raws] as SceneObject[];
+    presenter = beat.tangenter && beat.template !== "gif" && beat.template !== "figure"
+      ? addTangenter(c, beat.tangenter, content, previous) : undefined;
+    if (presenter && previous) {
+      for (let i = c.actions.length - 1; i >= 0; i--) {
+        const a = c.actions[i] as { do?: string; target?: string };
+        if (a.do === "fade" && a.target === presenter.id) c.actions.splice(i, 1);
+      }
+    }
+    if (previous && !presenter && !c.actions.some(a => (a as { do?: string; target?: string }).do === "fade" && (a as { target?: string }).target === previous.id))
+      c.act({ at: "@0", do: "fade", target: previous.id, to: 0, duration: .15 });
     if (beat.camera === "drift") c.act({ at: "@0.05", do: "camera", zoom: 1.06, duration: 4 });
     if (beat.camera === "zoom") c.act({ at: "@0.4", do: "camera", zoom: 1.15, duration: .8, easing: "outExpo" });
     if (beat.camera === "shake") c.act({ at: "@0.3", do: "camera", shake: .02, duration: .4 });
     objects.push(...c.objects, ...raws);
+    if (presenter && previous && !onScreen.includes(presenter.id)) onScreen.push(presenter.id);
     onScreen.push(...c.objects.map(o => o.id), ...raws.map(o => String((o as { id?: unknown }).id)));
     return { say: beat.say, actions: [...c.actions, ...(beat.actions ?? [])], cite: beat.cite, transition };
   });
@@ -368,4 +384,5 @@ export const TEMPLATE_GUIDE = `Templates (beat.template + beat.variant + beat.da
 ${VOCAB_GUIDE}${HUMAN.map(h => h.GUIDE ? `\n${h.GUIDE}` : "").join("")}
 Icons (any simple noun works; e.g.) ${ICON_GUIDE}.
 Emoji packs: ${EMOJI_GUIDE}.
+tangenter:{pose,poseTo?,says?,thinks?,at?}: the recurring explainer stick figure; ~1 in 3-4 beats; reactions, the viewer’s question, pointing at the key element; never on gif/figure beats.
 Beat extras: emphasis:[{text|target, mark:"underline"|"circle"|"strike"|"marker", at?}] (<=2; text = a phrase that is ON SCREEN, e.g. in a callout); energy:"calm"|"punchy"; texture:"dots"|"grid"|"scanlines" (rarely); accent:true (at most one beat per scene: tints its key element); keep:true keeps the previous beat's objects and lets you add "actions" on them (highlight/indicate/pulse/op/pose/transform by id; diagram node ids and array/tree ids are kept as given, edges are e_<from>_<to>, the stick figure is "person"); sticker:{emoji|icon, at?} pops a small sticker in the corner; camera:"drift"|"zoom"|"shake"; transition:"whip"|"push"|"cut".`;

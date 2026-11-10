@@ -243,6 +243,8 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Sidecar: PDF embedded outline (pypdfium2) defines the top section levels; Roman/letter headings nest; font sizes read from the PDF when there's no outline or dotted numbering.
 - Invalid-script errors now list the first violations.
 
+- (2026-11-10) Optional beat `tangenter:{pose,poseTo?,says?,thinks?,at?}` adds the recurring stickman presenter at a consistent 22% stage height. Conservative bounds pick a clear bottom corner or omit him/bubbles; dense or unknown component geometry is intentionally skipped. He walks in from the nearest edge, breathes, points at the key visual, blends poses on narration anchors and persists across consecutive eligible beats. Generation requests roughly one appearance per 3–4 beats, never on gifs/figures; no signature cap (owner preferred the plain stickman).
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
