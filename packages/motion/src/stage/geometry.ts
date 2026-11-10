@@ -219,3 +219,26 @@ export function clipBelow(points: Point[], top: number): Point[] {
     return out;
   });
 }
+
+/** The hand: a fixed, low-frequency wobble along a path's normal (amplitude `amp` px, wavelength ~`wave` px), fading to
+ * zero at both ends so joins stay exact. Static per seed (never animated): the line is imperfect, not alive. */
+export function handPath(p: Point[], amp: number, wave: number, seed = 0): Point[] {
+  const total = pathLength(p);
+  if (p.length < 2 || amp <= 0 || total < wave * .3) return p;
+  const step = wave / 8, out: Point[] = [];
+  let d = 0;
+  const f = 2 * Math.PI / wave, ph = seed * 40;
+  const push = (x: number, y: number, nx: number, ny: number, at: number) => {
+    const taper = Math.min(1, at / (wave * .25), (total - at) / (wave * .25));
+    const k = amp * taper * (Math.sin(at * f + ph) + .3 * Math.sin(at * f * 2.3 + ph * 1.7)) / 1.3;
+    out.push([x + nx * k, y + ny * k]);
+  };
+  for (let i = 1; i < p.length; i++) {
+    const [ax, ay] = p[i - 1], [bx, by] = p[i], len = Math.hypot(bx - ax, by - ay);
+    if (!len) continue;
+    const nx = -(by - ay) / len, ny = (bx - ax) / len, n = Math.max(1, Math.ceil(len / step));
+    for (let j = i === 1 ? 0 : 1; j <= n; j++) push(ax + (bx - ax) * j / n, ay + (by - ay) * j / n, nx, ny, d + len * j / n);
+    d += len;
+  }
+  return out;
+}

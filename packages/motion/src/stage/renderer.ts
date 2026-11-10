@@ -1,5 +1,6 @@
 // Pixi v8 drawing of SceneState. Display objects are built once per scene object and mutated per frame; no clocks here.
-import { CanvasTextMetrics, Container, Graphics, Text, TextStyle, type Application } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, Sprite, Text, TextStyle, type Application } from "pixi.js";
+import { backdropTexture, BODY, litRuns, overlayTexture, SHADOW } from "./look";
 import katex from "katex";
 import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
 import { fromLevel } from "../dsl/trees/shared";
@@ -10,8 +11,8 @@ import { layoutScene, type Placed } from "./layout";
 import { buildVisual, fitText } from "./visuals";
 import { buildCounter, buildEmoji, buildGif, buildIcon, buildPerson } from "./extras";
 import { buildDistribution, buildGraph, buildMatrix, buildNumberline, buildSeq, buildTexture } from "./vocab";
-import { clipBelow, LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
-import { ease, pathPoint, staggerProgress, strokeW, window01, type Point } from "./motion";
+import { clipBelow, handPath, LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
+import { ease, pathPoint, RADIUS, seedOf, staggerProgress, strokeW, window01, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -20,6 +21,8 @@ type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) =>
 export class SceneRenderer {
   private root = new Container();
   private bgLayer = new Container(); // textures: under everything, connectors included
+  private backdrop?: Sprite; // soft tonal background (drifts a little against camera moves)
+  private overlay?: Sprite; // film grain + vignette over everything
   private draws = new Map<string, { node: Container | HTMLElement; draw: Drawer }>();
   private reaction: Text;
   private fg: string;
@@ -39,6 +42,8 @@ export class SceneRenderer {
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
     this.bg = css("--bg");
+    const back = backdropTexture(), over = overlayTexture();
+    if (back) { this.backdrop = new Sprite(back); this.backdrop.anchor.set(.5); app.stage.addChild(this.backdrop); }
     app.stage.addChild(this.root);
     this.root.addChild(this.bgLayer);
     for (const o of scene.objects) {
@@ -49,6 +54,7 @@ export class SceneRenderer {
     this.reaction = this.text("", 64, "bold");
     this.reaction.anchor.set(0.5);
     this.root.addChild(this.reaction);
+    if (over) { this.overlay = new Sprite(over); app.stage.addChild(this.overlay); }
     app.stage.addChild(this.annG); // above root so transitions don't move marks
   }
 
@@ -157,7 +163,9 @@ export class SceneRenderer {
           }
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
-            out = smoothOutline(o.shape, bw, bh, o.tail, o.radius !== undefined ? o.radius * h : h * .025, o.radius !== undefined);
+            out = smoothOutline(o.shape, bw, bh, o.tail, o.radius !== undefined ? o.radius * h : h * RADIUS, o.radius !== undefined);
+            // the hand: a fixed slight wobble on outlines big enough to show it (small marks, pivots and computed polygons stay exact)
+            if (out.sym && !o.pivot && !o.points && Math.min(bw, bh) > h * .07) { const pts = handPath(out.pts, strokeW(h) * .4, h * .3, seedOf(o.id)); out = { ...out, pts, fill: pts.slice(0, -1) }; }
             const [fw, fh, dx, dy] = LABEL_BOX[o.shape] ?? LABEL_BOX.rect, cy = bh * dy;
             fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .045);
             sub.visible = !!o.sublabel;
@@ -178,15 +186,23 @@ export class SceneRenderer {
           }
           // Outline traces first (both ways from the top, meeting at the bottom), then the fill, detail strokes and label fade in.
           const r = s.style === "draw" ? s.reveal ?? 1 : 1, fillA = s.style === "draw" ? window01(r, .7, 1) : 1, sw = strokeW(h);
-          const stroke = { width: sw, color: this.fg, alpha: .75 + .25 * s.hl, cap: "round", join: "round" } as const;
+          const stroke = { width: sw, color: this.fg, alpha: .9 + .1 * s.hl, cap: "round", join: "round" } as const;
           const tick = o.shape === "check" || o.shape === "cross" ? { ...stroke, width: sw * 2.2 } : stroke;
           g.clear();
+          // A body: flat hard shadow down-right, a grey surface, a dim rim with the lit (top-left) side picked out in white.
+          const solid = !out.open && !o.ghost && !o.pivot && !o.rotation && Math.min(bw, bh) > h * .07;
           if (fillA > 0 && !out.open) {
+            const d = h * SHADOW;
+            if (solid) g.poly(out.fill.flatMap(([x, y]) => [x + d * .75, y + d])).fill({ color: 0x000000, alpha: BODY.shadow * fillA });
             if (!o.ghost) g.poly(out.fill.flat()).fill({ color: this.bg, alpha: fillA });
-            g.poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .92 * fillA } : { color: this.fg, alpha: ((o.ghost ? .1 : .07) + .15 * s.hl) * fillA });
+            g.poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .92 * fillA } : { color: this.fg, alpha: ((o.ghost ? .1 : solid ? BODY.fill : .04) + .15 * s.hl) * fillA });
           }
-          if (r >= 1 && out.sym) g.poly(out.pts.slice(0, -1).flat(), true).stroke(stroke);
-          else if (r > 0) { const part = out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, out.open && out.extra ? Math.min(1, r * 2) : r); if (part.length > 1) g.poly(part.flat(), false).stroke(tick); }
+          const rim = solid && !o.filled, edge = rim ? { ...stroke, alpha: BODY.rimDark + (1 - BODY.rimDark) * s.hl } : stroke;
+          const part = r >= 1 && out.sym ? out.pts : r > 0 ? out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, out.open && out.extra ? Math.min(1, r * 2) : r) : [];
+          if (part.length > 1) {
+            if (r >= 1 && out.sym) g.poly(out.pts.slice(0, -1).flat(), true).stroke(edge); else g.poly(part.flat(), false).stroke(out.sym ? edge : tick);
+            if (rim) for (const run of litRuns(part, bw / 2, bh / 2)) g.poly(run.flat(), false).stroke(stroke);
+          }
           const xr = out.open ? window01(r, .5, 1) : window01(r, .55, 1);
           if (xr > 0) for (const x of o.shape === "gear" && o.label ? [] : out.extra ?? []) { const part = partialPath(x, xr); if (part.length > 1) g.poly(part.flat(), false).stroke(o.filled ? { ...tick, color: this.bg } : tick); }
           if (o.typing) { // three dots bouncing in turn (looping on the object's age; the whole bubble stays still)
@@ -220,15 +236,18 @@ export class SceneRenderer {
           };
           const ta = Math.min(trim(o.from, pathDir(full, false)), len / 2 - 1), tb = Math.min(trim(o.to, pathDir(full, true)), len / 2 - 1);
           if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
-          const path = trimPath(full, ta, tb);
-          if (path.length < 2) return;
+          const cut = trimPath(full, ta, tb);
+          if (cut.length < 2) return;
+          // long free lines get the hand wobble (tapered to zero at both ends); lines joining objects (beams, needles) stay exact
+          const free = Array.isArray(o.from) && Array.isArray(o.to) && pathLength(cut) > h * .2;
+          const path = free ? handPath(cut, strokeW(h) * .4, h * .3, seedOf(o.id)) : cut;
           const p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = strokeW(h, 1), head = o.type === "arrow" ? sw * 3.2 : 0;
           // the shaft stops short of the tip so the filled head stays sharp; the head rides the drawing front
           const part = partialPath(path, p), tip = part[part.length - 1], dir = part.length > 1 ? pathDir(part, true) : [1, 0];
           const shaft = head && p > 0 ? trimPath(part, 0, Math.min(head * .8, pathLength(part))) : part;
           if (shaft.length > 1) {
             for (const d of o.dashed ? dashPolylines(shaft, sw * 4, sw * 2.6) : [shaft]) g.poly(d.flat(), false);
-            g.stroke({ width: sw, color: this.fg, alpha: .85, cap: "round", join: "round" });
+            g.stroke({ width: sw, color: this.fg, alpha: .9, cap: "round", join: "round" });
           }
           if (head && p > 0 && part.length > 1) {
             const k = head * Math.min(1, p * 4), [ux, uy] = dir, [x2, y2] = tip;
@@ -439,6 +458,12 @@ export class SceneRenderer {
     const tx = w/2 + (camera.stretch ?? 1) * (-camera.x*w*camera.zoom + camera.shake*w);
     const ty = h/2 - camera.y*h*camera.zoom + (camera.shakeY ?? camera.shake)*h;
     this.root.scale.set(sx, camera.zoom); this.root.position.set(tx, ty); this.root.alpha = 1;
+    if (this.backdrop) { // parallax: the backdrop moves and zooms a quarter as much as the content
+      const k = 1.12 * (1 + (camera.zoom - 1) * .25);
+      this.backdrop.width = w * k; this.backdrop.height = h * k;
+      this.backdrop.position.set(w / 2 - (camera.x - .5) * w * .25, h / 2 - (camera.y - .5) * h * .25);
+    }
+    if (this.overlay) { this.overlay.width = w; this.overlay.height = h; }
     this.mathLayer.style.transformOrigin = "0 0";
     this.mathLayer.style.transform = `matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
     this.mathLayer.style.opacity = String(this.root.alpha);
@@ -477,7 +502,7 @@ export class SceneRenderer {
     this.annTexts.forEach((x) => x.destroy());
     this.draws.forEach((d) => d.node instanceof HTMLElement && d.node.remove());
     this.lastState = undefined;
-    this.annG.destroy();
+    this.annG.destroy(); this.backdrop?.destroy(); this.overlay?.destroy();
     this.mathLayer.style.transform = ""; this.mathLayer.style.opacity = "";
     this.root.destroy({ children: true });
   }

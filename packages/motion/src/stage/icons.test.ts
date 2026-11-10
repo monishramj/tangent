@@ -122,13 +122,15 @@ describe("visual entrances", () => {
   const scene = Scene.parse({ scene: "entrances", objects: c.objects, beats: [{ say: "hello", actions: c.actions }] });
   const tl = compile(scene, [{ words: [{ word: "hello", start: 0, end: 1 }], duration: 2 }]);
   const state = (t: number, id: string) => applyEventsAt(scene, tl, t).objects.get(id)!;
-  it("uses bounce and settles with no residual motion, including after seeking", () => {
-    expect(c.actions.every(a => (a as { style: string }).style === "bounce")).toBe(true);
+  it("icons draw on, emoji land with a soft settle; no tilt or squash, no residual motion, seek-stable", () => {
+    expect(c.actions.map(a => (a as { style: string }).style)).toEqual(["draw", "pop"]);
     const mid = state(.2, "emoji");
-    expect(mid.sy).not.toBe(mid.sx);
-    expect(mid.y).toBeLessThan(.5);
-    expect(state(.2, "icon").rotation).not.toBe(0);
-    expect(state(.35, "icon").scale).toBeGreaterThan(1);
+    expect(mid.sx).toBeUndefined();
+    expect(mid.rotation).toBe(0);
+    expect(mid.scale).toBeGreaterThan(.82);
+    expect(Math.max(...[.1, .15, .2, .25, .3].map(t => state(t, "emoji").scale))).toBeLessThan(1.07); // soft overshoot only
+    expect(state(.2, "icon")).toMatchObject({ scale: 1, rotation: 0 });
+    expect(state(.2, "icon").reveal).toBeLessThan(1);
     for (const id of ["icon", "emoji"]) {
       expect(state(1, id)).toMatchObject({ x: id === "icon" ? .3 : .7, y: .5, scale: 1, rotation: 0, opacity: 1 });
       expect(state(8, id)).toMatchObject({ y: .5, scale: 1, rotation: 0, opacity: 1 });

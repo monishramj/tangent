@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Pose, type Action, type SceneObject } from "./schema";
 import { expandOp } from "./ops";
 import { area, numberlineX, type Dist } from "./stats";
-import { type C, Op, at, frac, ident, orderedAnchors, s, spread, visual, visualAt } from "./tplkit";
+import { type C, Op, at, frac, heading, ident, orderedAnchors, s, spread, visual, visualAt } from "./tplkit";
 
 const Visual = z.object({ label: s, ...visual });
 const Ops = z.array(Op).max(4).default([]);
@@ -51,7 +51,7 @@ export const VOCAB_VARIANTS: Record<keyof V, string[]> = {
 const AR = 9 / 16; // a width that is d stage-heights wide, as a fraction of stage width: d * AR
 const text = (c: C, base: string, t: string, x: number, y: number, size: number, when: string, o: Record<string, unknown> = {}) =>
   c.add({ id: c.id(base), type: "text", text: t, x, y, size, ...o }, when, { style: "type" });
-const head = (c: C, title: string | undefined, y = .1) => title ? c.key(text(c, "title", title, .5, y, .05, frac(0), { weight: "bold", opacity: 1, maxW: .8 })) : undefined;
+const head = (c: C, title: string | undefined, y = .1) => title ? c.key(heading(c, "title", title, y)) : undefined;
 const dot = (c: C, base: string, x: number, y: number, d: number, when: string, filled = true, label?: string) =>
   c.add({ id: c.id(base), type: "shape", shape: "circle", x, y, width: d * AR, height: d, filled, label }, when, { style: "pop" });
 const opLabel = (o: { op: string; args: unknown[] }) => `${o.op}(${o.args.map(a => typeof a === "string" ? a : String(a)).join(", ")})`;
@@ -95,7 +95,7 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
       const x = x0 + gap * i, up = n > 4 && i % 2 === 1, mw = Math.min(.26, gap * (n > 4 ? 1.8 : .95));
       dot(c, `tl_dot${i}`, x, y, .036, when[i]);
       text(c, `tl_date${i}`, e.date, x, up ? y + .08 : y - .08, .045, when[i], { weight: "bold", opacity: 1, maxW: mw });
-      text(c, `tl_text${i}`, e.text, x, up ? y + .17 : y + .1, .034, when[i], { maxW: mw, opacity: .8 });
+      text(c, `tl_text${i}`, e.text, x, up ? y + .17 : y + .1, .038, when[i], { maxW: mw, opacity: .85 });
       visualAt(c, `tl_v${i}`, e, x, up ? y - .14 : y - .2, .09, when[i]);
     });
   },
@@ -142,17 +142,17 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "line", from: ids[i - 1], to: ids[i] }, when[i], { style: "draw", duration: .3 });
       } else if (v === "ladder") {
         const x = .17 + .66 * i / Math.max(1, n - 1), y = .78 - .5 * i / Math.max(1, n - 1);
-        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", label: st.text, sublabel: st.sub, x, y, width: Math.min(.2, .62 / n), height: .14 }, when[i], { style: "draw", duration: .5 }));
-        c.add({ id: c.id(`step${i}_n`), type: "text", text: String(i + 1), x, y: y - .12, size: .05, weight: "bold", opacity: .55 }, when[i], { style: "pop" });
+        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", label: st.text, sublabel: st.sub, x, y, width: Math.min(.22, .7 / n), height: .17 }, when[i], { style: "draw", duration: .45 }));
+        c.add({ id: c.id(`step${i}_n`), type: "text", text: String(i + 1), x, y: y - .135, size: .055, weight: "bold", opacity: .6 }, when[i], { style: "pop" });
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: ids[i - 1], to: ids[i], route: "elbow" }, when[i], { style: "draw", duration: .35 });
       } else {
         const cw = Math.min(.21, .86 / n - .025), x = .5 + (i - (n - 1) / 2) * (cw + .025), y = .56;
-        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", x, y, width: cw, height: .5 }, when[i], { style: "draw", duration: .5 }));
+        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", x, y, width: cw, height: .56 }, when[i], { style: "draw", duration: .45 }));
         const vis = !!(st.icon || st.emoji);
-        c.add({ id: c.id(`step${i}_n`), type: "KineticText", text: String(i + 1), variant: "punch", x, y: y - .15, size: .1 }, when[i]);
-        visualAt(c, `step${i}_v`, st, x, y - .03, .07, when[i]);
-        text(c, `step${i}_t`, st.text, x, y + (vis ? .08 : .04), .036, when[i], { maxW: cw * .86, opacity: 1, weight: "bold" });
-        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .17 : .15), .028, when[i], { maxW: cw * .86, opacity: .6 });
+        c.add({ id: c.id(`step${i}_n`), type: "KineticText", text: String(i + 1), variant: "punch", x, y: y - .17, size: .11 }, when[i]);
+        visualAt(c, `step${i}_v`, st, x, y - .035, .085, when[i]);
+        text(c, `step${i}_t`, st.text, x, y + (vis ? .09 : .04), .042, when[i], { maxW: cw * .86, opacity: 1, weight: "bold" });
+        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .19 : .15), .032, when[i], { maxW: cw * .86, opacity: .6 });
       }
     });
     c.key(ids[n - 1]);
@@ -166,11 +166,11 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     cols.forEach(([label, items, x, mark], side) => {
       const t0 = frac(when[k++]);
       if (v === "cards") c.add({ id: c.id(`pc_card${side}`), type: "shape", shape: "rect", x, y: (top + .9) / 2 + .02, width: .42, height: .9 - top + .08 }, t0, { style: "draw", duration: .6 });
-      text(c, `pc_head${side}`, label, x, top + .03, .045, t0, { weight: "bold", opacity: 1 });
+      text(c, `pc_head${side}`, label, x, top + .03, .052, t0, { weight: "bold", opacity: 1 });
       items.forEach((it, i) => {
         const y = top + .15 + i * Math.min(.15, .56 / items.length), t = frac(when[k++]);
         c.add({ id: c.id(`pc_m${side}_${i}`), type: "shape", shape: mark, x: x - .16, y, width: .035 * AR * 1.4, height: .045 }, t, { style: "draw", duration: .35 });
-        text(c, `pc_i${side}_${i}`, it, x - .12, y, .038, t, { align: "left", maxW: .3, opacity: .9 });
+        text(c, `pc_i${side}_${i}`, it, x - .12, y, .044, t, { align: "left", maxW: .3, opacity: .95 });
       });
     });
   },
@@ -183,7 +183,7 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     }
     c.add({ id: c.id("q_mark"), type: "text", text: "“", x: .5, y: .24, size: .26, weight: "bold", opacity: .3 }, frac(0), { style: "pop" });
     c.key(c.add({ id: c.id("q_text"), type: "KineticText", text: d.text, variant: "words", x: .5, y: .52, size: .07, maxW: .76 }, frac(.05)));
-    if (d.by) text(c, "q_by", `— ${d.by}`, .5, .8, .036, frac(.6), { opacity: .6 });
+    if (d.by) text(c, "q_by", `— ${d.by}`, .5, .8, .042, frac(.6), { opacity: .65 });
   },
   hook(c, d, v) {
     if (v === "character") {

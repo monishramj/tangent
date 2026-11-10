@@ -16,7 +16,8 @@ export function contentBoxes(objects: SceneObject[]): Box[] {
     if (["texture", "mark"].includes(o.type)) return [];
     if (o.type === "arrow" || o.type === "line") {
       const endpoint = (v: unknown) => typeof v === "string" ? objects.find(o => o.id === v) : undefined;
-      const a = endpoint(o.from), b = endpoint(o.to);
+      const pt = (v: unknown) => Array.isArray(v) ? { x: v[0], y: v[1] } : endpoint(v); // fixed endpoints have a known box
+      const a = pt(o.from), b = pt(o.to);
       if (!a || !b) return [{ x: .5, y: .5, w: 1, h: 1 }];
       const ax = Number(a.x ?? .5), ay = Number(a.y ?? .5), bx = Number(b.x ?? .5), by = Number(b.y ?? .5);
       const pad = o.route === "curve" ? .25 : .06;

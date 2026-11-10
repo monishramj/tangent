@@ -76,6 +76,9 @@ function Reel({ only }: { only?: string[] }) {
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+    // frame capture: __reel.at(i, dt) pauses at beat i + dt seconds
+    (window as unknown as { __reel?: unknown }).__reel = { starts, total: tl.totalSec, names: reel.map(b => `${b.template}-${b.variant}`),
+      at: (i: number, dt: number) => { clock.current = { playing: false, base: Math.min(tl.totalSec, starts[i] + dt), at: performance.now() }; setPlaying(false); } };
     const key = (e: KeyboardEvent) => {
       if (e.key === " ") { e.preventDefault(); toggle(); }
       else if (e.key === "ArrowRight") jump(1);

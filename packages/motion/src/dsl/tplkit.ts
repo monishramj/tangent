@@ -1,6 +1,7 @@
 // Shared template helpers: slot fragments, the expansion context (ids, anchors, objects/actions), reveal spreading.
 import { z } from "zod";
 import { Transition, type SceneObject } from "./schema";
+import { TYPE } from "../stage/motion";
 
 export const s = z.string().min(1);
 export const visual = { icon: s.optional(), emoji: s.max(16).optional() };
@@ -25,7 +26,9 @@ export function ctx(b: number, say: string, ids: Set<string>): Ctx & {
     ...c,
     id(base) { let id = base, n = 2; while (ids.has(id)) id = `${base}_${n++}`; ids.add(id); return id; },
     anchor(f, phrase) { return phrase && occurrences(say, phrase) === 1 ? phrase : frac(f); },
-    add(o, when, create = {}) { c.objects.push(o as SceneObject); c.actions.push({ at: when, do: "create", target: o.id, ...create }); return o.id as string; },
+    add(o, when, create = {}) {
+      if (o.type === "text" && typeof o.size === "number" && o.size < TYPE.caption) o.size = TYPE.caption; // type-scale floor: nothing smaller than a caption
+      c.objects.push(o as SceneObject); c.actions.push({ at: when, do: "create", target: o.id, ...create }); return o.id as string; },
     act(a) { c.actions.push(a); },
     key(id) { if (!this.keyId) this.keyId = id; return id; }, keyId: undefined as string | undefined,
     get objects() { return c.objects; }, get actions() { return c.actions; },
@@ -36,8 +39,9 @@ export type C = ReturnType<typeof ctx>;
 export const spread = (n: number, from = 0, to = .7) => Array.from({ length: n }, (_, i) => n === 1 ? from : from + (to - from) * i / (n - 1));
 
 export function visualAt(c: C, base: string, v: { icon?: string; emoji?: string }, x: number, y: number, size: number, when: string, label?: string) {
-  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "bounce", duration: .55 });
-  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "bounce", duration: .55 });
+  // icons are drawn on stroke by stroke (pen pace); colour emoji can't be traced, so they land with the soft settle
+  if (v.emoji) return c.add({ id: c.id(base), type: "emoji", char: v.emoji, x, y, size, label }, when, { style: "pop" });
+  if (v.icon) return c.add({ id: c.id(base), type: "icon", name: v.icon, x, y, size, label }, when, { style: "draw", duration: .5 });
   return undefined;
 }
 
@@ -54,4 +58,12 @@ export function orderedAnchors(say: string, fs: number[], phrases: (string | und
     prev = w;
     return frac((w + .5) / n);
   });
+}
+
+/** Frame heading in the title size, with the house detail under it: a short hand-drawn tick, drawn on after the words. */
+export function heading(c: C, base: string, title: string, y = .1, o: Record<string, unknown> = {}) {
+  const id = c.add({ id: c.id(base), type: "text", text: title, x: .5, y, size: TYPE.title, weight: "bold", opacity: 1, maxW: .84, ...o }, frac(0), { style: "type" });
+  const ty = y + TYPE.title * .78;
+  c.add({ id: c.id(`${base}_tick`), type: "line", from: [.468, ty], to: [.532, ty], points: [[.468, ty + .003], [.489, ty - .002], [.511, ty + .002], [.532, ty - .003]] }, frac(0), { style: "draw", duration: .3 });
+  return id;
 }

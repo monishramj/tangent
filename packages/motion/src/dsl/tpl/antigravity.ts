@@ -1,6 +1,6 @@
 // Picture-first templates. Geometry and quantities are computed here, never supplied by the scene model.
 import { z } from "zod";
-import { type C, at, frac, orderedAnchors, s, spread, visual, visualAt } from "../tplkit";
+import { type C, at, frac, heading, orderedAnchors, s, spread, visual, visualAt } from "../tplkit";
 import { ACCENT, MOTION } from "../../stage/motion";
 
 const Party = z.object({ name: s, ...visual });
@@ -112,7 +112,7 @@ export function dominoLabel(text: string, chars: number) {
 export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => void } = {
   pictograph(c, d, v) {
     const { cols, rows, cell } = pictographGrid(d.n), times = spread(d.k, .2, .76), pct = d.k / d.n * 100;
-    text(c, "pic_label", d.label, .5, .1, .052, frac(0), { weight: "bold" });
+    heading(c, "pic_label", short(d.label), .1);
     for (let i = 0; i < d.n; i++) { // a waffle grid: every row aligned to the same columns
       const row = Math.floor(i / cols), col = i % cols;
       const x = .5 + (col - (cols - 1) / 2) * cell * AR, y = .47 + (row - (rows - 1) / 2) * cell;
@@ -132,7 +132,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     // Side view of real dominoes, each tipping about its bottom-right corner. The angles are solved (dominoStages), so a
     // domino comes to rest leaning on the next one and never cuts through it; the last one falls flat with a camera punch.
     // A stick figure flicks the first one and celebrates at the end. "grow": each domino bigger than the last.
-    if (d.title) text(c, "dom_title", d.title, .5, .1, .05, frac(0), { weight: "bold" });
+    if (d.title) heading(c, "dom_title", short(d.title), .1);
     const n = d.items.length, L = dominoLayout(n, v === "grow"), { P, W, H, FLOOR } = L, stages = dominoStages(P, W, H);
     const A = orderedAnchors(c.say, spread(n + 1, .2, .86), [...d.items.map(it => it.at), undefined]);
     c.add({ id: c.id("dom_floor"), type: "line", from: [.05, FLOOR], to: [.95, FLOOR] }, frac(0), { style: "draw" });

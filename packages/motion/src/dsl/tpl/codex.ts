@@ -1,6 +1,6 @@
 // Physical comparisons: the model supplies labels/data; geometry and outcomes are computed here.
 import { z } from "zod";
-import { type C, at, frac, orderedAnchors, s, visual, visualAt } from "../tplkit";
+import { type C, at, frac, heading, orderedAnchors, s, visual, visualAt } from "../tplkit";
 import { ACCENT, ease, MOTION, type Point } from "../../stage/motion";
 import { formatCount } from "../../stage/geometry";
 
@@ -28,7 +28,7 @@ const shape = (c: C, id: string, kind: string, x: number, y: number, width: numb
   c.add({ id: c.id(id), type: "shape", shape: kind, x, y, width, height, ...extra }, when, { style: "draw", duration: MOTION.punchSec });
 const line = (c: C, id: string, from: Point | string, to: Point | string, when: string, extra: Record<string, unknown> = {}) =>
   c.add({ id: c.id(id), type: "line", from, to, ...extra }, when, { style: "draw", duration: MOTION.punchSec });
-const head = (c: C, title?: string) => title && text(c, "title", title, .5, .1, .052, frac(0), { weight: "bold", maxW: .86 }, true);
+const head = (c: C, title?: string) => title && heading(c, "title", title, .1, { maxW: .86 });
 
 /** Normalising first avoids overflow for large, finite weights. Positive means the right pan drops. */
 export function scaleAngle(left: number, right: number) {

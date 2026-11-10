@@ -3,7 +3,9 @@ export type Ease = "outCubic" | "outBack" | "inOutQuad" | "outQuart" | "outExpo"
 export type Style = "draw" | "pop" | "bounce" | "type" | "slide" | "stagger" | "stamp" | "flip" | "grow";
 export const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
 export const progress = (t: number, start: number, end: number) => end <= start ? Number(t >= start) : clamp01((t - start) / (end - start));
-// Penner curves (pure; no ticker: every value is a function of the audio clock). outBack overshoots: use it only for punches.
+// Penner curves (pure; no ticker: every value is a function of the audio clock). outBack is the house "settle": a soft
+// ~5% overshoot (Penner's default is 10%), for objects only, never text.
+const BACK = 1.2;
 const EASES: Record<Ease, (p: number) => number> = {
   outCubic: p => 1 - (1 - p) ** 3,
   outQuart: p => 1 - (1 - p) ** 4,
@@ -11,7 +13,7 @@ const EASES: Record<Ease, (p: number) => number> = {
   inExpo: p => 2 ** (10 * p - 10),
   linear: p => p,
   inCubic: p => p ** 3, // gravity: slow start, fast at the end (a topple that stops on contact)
-  outBack: p => 1 + 2.70158 * (p - 1) ** 3 + 1.70158 * (p - 1) ** 2,
+  outBack: p => 1 + (BACK + 1) * (p - 1) ** 3 + BACK * (p - 1) ** 2,
   inOutQuad: p => p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2,
   inOutCubic: p => p < .5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2,
   inOutExpo: p => p < .5 ? 2 ** (20 * p - 10) / 2 : (2 - 2 ** (-20 * p + 10)) / 2,
@@ -22,8 +24,22 @@ export function ease(p: number, name: Ease = "outCubic") {
   if (p === 0 || p === 1) return p;
   return (EASES[name] ?? EASES.outCubic)(p);
 }
+/** The house line (fractions of stage height): hair = axes/grids/guides, line = every outline and connector,
+ * bold = stick figure and key marks. Round caps and joins everywhere. */
+export const STROKE = { hair: .0025, line: .0055, bold: .008 };
+/** Type scale (fractions of stage height). Nothing on screen is smaller than caption. */
+export const TYPE = { display: .16, headline: .075, title: .058, body: .042, caption: .032 };
+/** One corner radius (fraction of stage height) for cards and panels. */
+export const RADIUS = .022;
+/** The only curves templates use. settle = soft overshoot (objects only); impact = slam/stamp/flip; linear only for counters. */
+export const EASE = { enter: "outQuart", draw: "inOutSine", settle: "outBack", move: "inOutCubic", exit: "inCubic", impact: "outExpo" } as const;
 /** Motion tokens (seconds / stage fractions) shared by the state and the renderer, so every entrance feels the same. */
 export const MOTION = {
+  in: .32, // entrance transform (scale/slide/fade) length, however long the reveal itself runs
+  draw: .45, // pen pace for one outline
+  out: .18, // exits
+  stagger: .06, // gap between elements that enter on the same narration word (reading order)
+  staggerMax: .3,
   rise: .025, // text/word entrances rise this much (fraction of stage height) while fading in
   slide: .06, // "slide" entrances travel this far (fraction of stage width), not across the whole stage
   punchSec: .35, // highlight punch: a single scale bump, then hold (no looping wobble)
@@ -34,7 +50,7 @@ export const MOTION = {
 /** The one restrained accent colour (beat.accent: true tints only that beat's key element). Everything else stays monochrome. */
 export const ACCENT = "#ffb224";
 /** Stroke width (px) for a stage of height h: one scale for shapes, connectors, components and charts. */
-export const strokeW = (h: number, k = 1) => Math.max(1.5, h * .0036 * k);
+export const strokeW = (h: number, k = 1) => Math.max(1.5, h * STROKE.line * k);
 /** 0..1 sub-window of a progress value: window(p, .6, 1) is 0 until p = .6, then ramps to 1 at p = 1. */
 export const window01 = (p: number, a: number, b: number) => clamp01((p - a) / (b - a));
 export const defaultStyle = (o: SceneObject): Style => {
@@ -87,3 +103,5 @@ export function focusAt(boxes: Focus[] = DEFAULT_FOCUS, p: number): Focus {
   const i = Math.floor(step), a = boxes[i], b = boxes[Math.min(i+1, boxes.length-1)], k = ease(step-i, "inOutQuad");
   return [a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, a[3]+(b[3]-a[3])*k];
 }
+/** Stable 0..1 hash of an id: seeds the hand wobble so each object keeps its own line. */
+export function seedOf(id: string) { let h = 2166136261; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619); return (h >>> 0) / 4294967296; }

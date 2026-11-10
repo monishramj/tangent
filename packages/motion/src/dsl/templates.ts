@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { Tangenter, addTangenter, type Presenter } from "./tangenter";
 import { MARKS, Pose, SceneObject, Transition, type Scene } from "./schema";
-import { C, Op, TRANSITIONS, at, ctx, frac, occurrences, s, spread, visual, visualAt } from "./tplkit";
+import { C, Op, TRANSITIONS, at, ctx, frac, heading, occurrences, s, spread, visual, visualAt } from "./tplkit";
 import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
 import * as tCodex from "./tpl/codex";
 import * as tAgy from "./tpl/antigravity";
@@ -104,7 +104,7 @@ export function layers(nodes: { id: string }[], edges: { from: string; to: strin
 const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v: string) => void } = {
   title(c, d, v) {
     const size = d.text.length > 18 ? .12 : d.text.length > 10 ? .16 : .2, y = d.icon || d.emoji ? .45 : .5;
-    if (d.kicker) c.add({ id: c.id("kicker"), type: "text", text: d.kicker.toUpperCase(), x: .5, y: y - size * .5 - .07, size: .038, opacity: .55 }, frac(0), { style: "type" });
+    if (d.kicker) c.add({ id: c.id("kicker"), type: "text", text: d.kicker.toUpperCase(), x: .5, y: y - size * .5 - .075, size: .04, opacity: .6 }, frac(0), { style: "type" });
     const id = c.add({ id: c.id("title"), type: "KineticText", text: d.text, variant: v, x: .5, y, size, maxW: .84 }, frac(.05));
     if (v === "punch") c.act({ at: frac(.05), do: "camera", shake: .02, duration: .4 });
     visualAt(c, "title_v", d, .5, y + size * .5 + .13, .13, frac(.45));
@@ -114,16 +114,16 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     const side = v === "side";
     visualAt(c, "stat_v", d, side ? .27 : .5, side ? .5 : .2, side ? .32 : .13, frac(0));
     c.add({ id: c.id("stat"), type: "counter", from: 0, to: d.value, prefix: d.prefix, suffix: d.suffix, decimals: d.decimals ?? 0, x: side ? .66 : .5, y: side ? .42 : .47, size: .22 }, frac(.1), { duration: 1.2 });
-    c.add({ id: c.id("stat_label"), type: "text", text: d.label, x: side ? .66 : .5, y: side ? .64 : .7, size: .05, maxW: side ? .5 : .8 }, frac(.4), { style: "type" });
+    c.add({ id: c.id("stat_label"), type: "text", text: d.label, x: side ? .66 : .5, y: side ? .64 : .7, size: .054, maxW: side ? .5 : .8 }, frac(.4), { style: "type" });
   },
   versus(c, d, v) {
     const sides = [[d.left, .25, "left", .05], [d.right, .75, "right", .5]] as const;
     for (const [side, x, edge, f] of sides) {
       const when = frac(f), slide = v === "cards" ? { style: "slide", edge } : { style: "pop" };
-      if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .36, height: .7 }, when, { style: "draw", duration: .6 });
-      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .27, size: .055, maxW: .32, opacity: 1 }, when, slide);
-      visualAt(c, `${edge}_v`, side, x, .46, .15, when);
-      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .63 + i * .07, size: .033, maxW: .3, opacity: .75 }, frac(f + .12 + i * .08), { style: "type" }));
+      if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .36, height: .7 }, when, { style: "draw", duration: MOTION.draw });
+      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .27, size: .064, maxW: .32, opacity: 1 }, when, slide);
+      visualAt(c, `${edge}_v`, side, x, .45, .17, when);
+      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .62 + i * .075, size: .04, maxW: .31, opacity: .8 }, frac(f + .12 + i * .08), { style: "type" }));
     }
     c.add({ id: c.id("vs"), type: "KineticText", text: "VS", variant: "punch", x: .5, y: .5, size: .08 }, frac(.38));
   },
@@ -135,19 +135,21 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
       if (v === "grid") {
         const cols = n <= 3 ? n : Math.ceil(n / 2), row = Math.floor(i / cols), col = i % cols, inRow = Math.min(cols, n - row * cols);
         const x = .5 + (col - (inRow - 1) / 2) * .29, y = (n <= 3 ? .55 : .42 + row * .32) + (d.title ? .03 : 0);
-        c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw", duration: .6 });
-        visualAt(c, `card${i}_v`, it, x, y - .05, .1, when[i]);
-        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .04, maxW: .21, opacity: .9 }, when[i], { style: "type" });
+        c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw", duration: MOTION.draw });
+        visualAt(c, `card${i}_v`, it, x, y - .06, .12, when[i]);
+        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .046, maxW: .21, opacity: .95 }, when[i], { style: "type" });
       } else if (v === "steps") {
         const x = .5 + (i - (n - 1) / 2) * Math.min(.24, .86 / n);
-        const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .52, width: .09, height: .16, filled: i === n - 1 }, when[i], { style: "draw", duration: .5 });
+        const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .52, width: .1, height: .178, filled: i === n - 1 }, when[i], { style: "draw", duration: .5 });
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: `${c.objects.find(o => o.id.startsWith(`step${i - 1}`))?.id}`, to: dot }, when[i], { style: "draw" });
         visualAt(c, `step${i}_v`, it, x, .33, .09, when[i]);
-        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .7, size: .036, maxW: Math.min(.21, .82 / n), opacity: .85 }, when[i], { style: "type" });
+        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .71, size: .042, maxW: Math.min(.22, .84 / n), opacity: .9 }, when[i], { style: "type" });
       } else {
-        const y = top + i * Math.min(.14, .62 / n);
-        visualAt(c, `item${i}_v`, it.icon || it.emoji ? it : { icon: "checkmark-circle" }, .2, y, .075, when[i]);
-        c.add({ id: c.id(`item${i}`), type: "text", text: it.text, x: .26, y, size: .045, maxW: .64, align: "left", opacity: .9 }, when[i], { style: "slide", edge: "right" });
+        // the block (icon + longest line) is centred on its estimated width, not pinned to the left
+        const size = .052, tw = Math.min(.62, Math.max(...d.items.map(x => x.text.length)) * size * .5 * 9 / 16), x0 = .5 - (tw + .07) / 2;
+        const y = top + .02 + i * Math.min(.15, .64 / n);
+        visualAt(c, `item${i}_v`, it.icon || it.emoji ? it : { icon: "checkmark-circle" }, x0 + .02, y, .085, when[i]);
+        c.add({ id: c.id(`item${i}`), type: "text", text: it.text, x: x0 + .07, y, size, maxW: .62, align: "left", opacity: .95 }, when[i], { style: "slide", edge: "right" });
       }
     });
   },
@@ -174,7 +176,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     const nodes = d.nodes, ids = new Set(nodes.map(n => n.id));
     const edges = d.edges.filter(e => ids.has(e.from) && ids.has(e.to));
     const top = d.title ? .2 : .1, bottom = .9, n = nodes.length;
-    if (d.title) c.add({ id: c.id("diagram_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .1, size: .05, opacity: 1 }, frac(0), { style: "type" });
+    if (d.title) heading(c, "diagram_title", d.title);
     const place = new Map<string, [number, number]>();
     let w = .16, h = .13, layered: ReturnType<typeof layers> | undefined;
     if (v === "cycle" || v === "hub") {
@@ -227,23 +229,23 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     (d.notes ?? []).slice(0, 1).forEach(nt => c.add({ id: c.id("note"), type: "text", text: nt.text, x: .5, y: .88, size: .035 }, c.anchor(.6, nt.at), { style: "type" }));
   },
   code(c, d) {
-    if (d.title) c.add({ id: c.id("code_title"), type: "text", text: d.title, weight: "bold", mono: true, x: .5, y: .12, size: .05, opacity: 1 }, frac(0), { style: "type" });
+    if (d.title) heading(c, "code_title", d.title, .11, { mono: true });
     const id = c.add({ id: c.id("code"), type: "code", lines: d.lines, x: .5, y: .55, width: .76, height: Math.min(.7, .06 + d.lines.length * .075) }, frac(0), { style: "type" });
     const hl = (d.highlight ?? []).filter(([a, b]) => a <= b && b < d.lines.length);
     spread(hl.length, .3, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, range: hl[i] }));
   },
   array(c, d) {
-    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .3, size: .04, opacity: .7 }, frac(0), { style: "type" });
+    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .3, size: .046, opacity: .75 }, frac(0), { style: "type" });
     const id = c.add({ id: c.id(d.id), type: "Array", init: d.values, heap: d.heap ?? "max", x: .5, y: .55 }, frac(0), { style: "stagger" });
     spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
   },
   tree(c, d) {
-    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .1, size: .04, opacity: .7 }, frac(0), { style: "type" });
+    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .1, size: .046, opacity: .75 }, frac(0), { style: "type" });
     const id = c.add({ id: c.id(d.id), type: "Tree", kind: d.kind, init: d.init, x: .5, y: .55 }, frac(0), { style: "stagger" });
     spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
   },
   chart(c, d, v) {
-    if (d.title) c.add({ id: c.id("chart_title"), type: "text", text: d.title, weight: "bold", x: .5, y: .12, size: .05, opacity: 1 }, frac(0), { style: "type" });
+    if (d.title) heading(c, "chart_title", d.title, .11);
     const n = Math.min(d.labels.length, d.values.length);
     const id = c.add({ id: c.id("chart"), type: "chart", kind: v === "line" ? "line" : "bar", labels: d.labels.slice(0, n), values: d.values.slice(0, n), x: .5, y: .56, width: .72, height: .6 }, frac(.05), { style: v === "line" ? "draw" : "stagger", duration: 1.2 });
     if (d.highlight !== undefined && d.highlight < n) c.act({ at: frac(.75), do: "highlight", target: id, col: d.highlight });
@@ -264,7 +266,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     c.add({ id: c.id("callout"), type: v === "punch" ? "KineticText" : "text", text: d.text, variant: "punch", weight: "bold", x: .5, y, size: .085, maxW: .76, opacity: 1 }, frac(0), v === "punch" ? {} : { style: "type" });
     if (v === "underline") c.add({ id: c.id("callout_line"), type: "line", from: [.2, y + .1], to: [.8, y + .1] }, frac(.4), { style: "draw", duration: .5 });
     if (v === "punch") c.act({ at: frac(.3), do: "camera", zoom: 1.08, duration: 2 });
-    if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .04, opacity: .6 }, frac(.5), { style: "type" });
+    if (d.sub) c.add({ id: c.id("callout_sub"), type: "text", text: d.sub, x: .5, y: y + .19, size: .044, opacity: .65 }, frac(.5), { style: "type" });
   },
   ...VOCAB_EXPAND, ...tCodex.EXPAND, ...tAgy.EXPAND, ...tClaude.EXPAND,
   table(c, d) {
@@ -274,6 +276,21 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     spread(hl.length, .35, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, row: hl[i] }));
   },
 };
+
+/** Reading order: elements a template creates on the same narration word enter MOTION.stagger apart (container, heading,
+ * picture, detail: the order templates add them), never all at once. The whole cascade stays under MOTION.staggerMax. */
+export function staggerCreates(actions: unknown[]) {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const a of actions as Record<string, unknown>[]) {
+    if (a.do !== "create" || a.delay !== undefined) continue;
+    if ((actions as Record<string, unknown>[]).some(b => b !== a && b.target === a.target && b.at === a.at)) continue; // another action on it on this word: leave its timing alone
+    const g = groups.get(String(a.at)) ?? []; g.push(a); groups.set(String(a.at), g);
+  }
+  for (const g of groups.values()) {
+    const step = Math.min(MOTION.stagger, MOTION.staggerMax / Math.max(1, g.length - 1));
+    g.forEach((a, i) => { if (i) a.delay = Math.round(i * step * 1000) / 1000; });
+  }
+}
 
 /** Per-beat customization on top of the template: emphasis marks, energy, texture, accent. */
 function decorate(c: C, beat: TemplateBeat, onScreen: string[], prior: unknown[], errors: ExpandError[]) {
@@ -338,6 +355,7 @@ export function expandTemplates(raw: unknown): { scene: Scene | null; errors: Ex
         catch (e) { errors.push({ path: `beats[${b}].data`, message: `${beat.template}: ${e instanceof Error ? e.message : String(e)}`, beat: b }); }
       }
     }
+    staggerCreates(c.actions);
     if (beat.sticker) visualAt(c, "sticker", beat.sticker, .87, .2, .12, c.anchor(.5, beat.sticker.at));
     decorate(c, beat, onScreen, objects, errors);
     const previous = presenter;

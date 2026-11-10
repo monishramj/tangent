@@ -77,7 +77,7 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     if (e.start > t) break;
     const p = progress(t, e.start, e.end);
     if (e.verb === "camera") {
-      const camera = st.camera!, k = ease(p, e.args.easing as Ease ?? "inOutQuad");
+      const camera = st.camera!, k = ease(p, e.args.easing as Ease ?? "inOutCubic");
       camera.x = lerp(camera.x, num(e.args.x, camera.x), k);
       camera.y = lerp(camera.y, num(e.args.y, camera.y), k);
       camera.zoom = lerp(camera.zoom, num(e.args.zoom, camera.zoom), k);
@@ -129,10 +129,12 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start; o.born = e.start;
       // type/stagger reveal linearly (the renderer staggers words/children with its own curve); draw traces at an even pace
       o.reveal = (style === "type" || style === "stagger") && !easing ? p : style === "draw" && !easing ? ease(p, "inOutSine") : clamp01(k);
-      o.visible = true; o.opacity = clamp01(p * 3);
+      // Entrance transforms (fade, scale, slide) run for a fixed MOTION.in however long the reveal (count-up, trace) takes.
+      const q = progress(t, e.start, Math.min(e.end, e.start + MOTION.in)), isText = def.type === "text" || def.type === "KineticText";
+      o.visible = true; o.opacity = clamp01(q * 3);
       const variant = def.type === "KineticText" && e.args.style === undefined && def.style === undefined ? def.variant : undefined;
       if (variant === "slam") { o.scale = 1 + .6 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // big -> 1x, no bounce
-      else if (variant === "punch") o.scale = 1 + .5 * (1 - ease(p, "outBack")); // hits, dips just under 1x, settles
+      else if (variant === "punch") { o.scale = 1 + .45 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // hits and sits still: text never overshoots
       else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer reveals each word at its share
       else if (style === "stamp") { // slams down from big, squashes just under 1x, settles into its tilt
         const rot = num((def as { rotation?: unknown }).rotation, 0);
@@ -140,18 +142,10 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       }
       else if (style === "flip") { o.opacity = p < .5 ? 0 : 1; o.sx = ease(window01(p, .5, 1), "outCubic"); } // the old face shrinks first
       else if (style === "grow") { o.opacity = 1; if ((def as { pivot?: string }).pivot === "left") o.sx = k; else o.sy = k; }
-      else if (style === "bounce") {
-        const settle = Math.sin(p * Math.PI * 3) * (1 - p) ** 2;
-        o.scale = .35 + .65 * ease(p, "outBack");
-        o.rotation = settle ? -.2 * settle : 0;
-        if (def.type === "emoji") {
-          o.sx = 1 + .24 * settle; o.sy = 1 - .24 * settle;
-          o.y -= .035 * Math.sin(Math.PI * p) * (1 - p);
-        }
-      }
-      else if (style === "pop") o.scale = .6 + .4 * ease(p, easing ?? "outBack");
+      // pop / bounce: the house landing. Objects settle with the soft overshoot; text only eases in. No tilt, no squash.
+      else if (style === "pop" || style === "bounce") { if (!o.tangenter) o.scale = (style === "pop" ? .82 : .6) + (style === "pop" ? .18 : .4) * ease(q, easing ?? (isText ? "outQuart" : "outBack")); }
       else if (style === "slide") {
-        const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(p, easing ?? "outExpo"));
+        const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(q, easing ?? "outQuart"));
         if (edge === "left" || edge === "right") o.x += edge === "left" ? -d : d;
         else o.y += edge === "top" ? -d : d;
       }

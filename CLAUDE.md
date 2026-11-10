@@ -262,6 +262,10 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Dev reel: `/src/dev/showcase.html?reel=1[&only=a,b]` plays every template × variant (+ a Tangenter beat) with prev/pause/next, ←/→/space/r, stopping at the end. `?reel` also works in the app window (`src/main.tsx`).
 - TEMPLATE_GUIDE budget raised to < 8500 chars (now ~8.2k).
 
+**2026-11-10 motion identity (in progress, `docs/motion-identity.md`):**
+- Vision: one person drawing an explanation on a black board while talking (Kurzgesagt cohesion + CrashCourse warmth + MinutePhysics draw-on; mono + one accent). Landed so far: tokens in `stage/motion.ts` (STROKE/TYPE/RADIUS/EASE, soft 5% outBack), static seeded hand wobble (`geometry.ts handPath`), icons drawn on as strokes, fixed-length entrances, same-word 60 ms stagger, type-scale floor, headings with a hand-drawn underline tick, `stage/look.ts` (grey ramp, backdrop, grain/vignette, shaded shape bodies).
+- Not done yet: filled character + pose anticipation (person.ts/extras.ts), leader lines from labels to what they name, shading for Array/Tree/Graph cells, bigger body type in grid/card layouts, 480 px text-fit pass, after-frames. Unverified in the reel beyond 8 templates.
+
 **Open issues:**
 - **Not yet run end-to-end on a real chapter with the new templates** (incl. the 10 picture templates and the Tangenter). Known low-severity gaps from review: points+pivot offset only handles `bottom`; compile `delay` isn't counted in the per-object time limit (no template hits either). Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.

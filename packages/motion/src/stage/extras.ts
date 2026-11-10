@@ -1,13 +1,13 @@
 // Builders for icon / emoji / counter / person (Pixi) and gif (HTML overlay). Each returns {node, draw}; draw may return
 // the drawn half-extents (px, unscaled) so the renderer can trim arrows and size tutor annotations.
-import { CanvasTextMetrics, Container, Graphics, Text, TextStyle } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, GraphicsPath, Text, TextStyle } from "pixi.js";
 import type { SceneObject } from "../dsl/schema";
 import type { ObjState } from "./scene";
 import { FONT, strokePath } from "./visuals";
 import { counterValue, formatCount } from "./geometry";
-import { iconSvg, resolveIcon } from "./icons";
+import { iconSvg, resolveIcon, type IconDef } from "./icons";
 import { PERSON_PARTS, jointsAt, personParts, tangenterJoints } from "./person";
-import { ease, staggerProgress } from "./motion";
+import { ease, staggerProgress, strokeW, type Point } from "./motion";
 
 type Cell = { cw?: number; ch?: number } | undefined;
 type O<T extends string> = Extract<SceneObject, { type: T }>;
@@ -24,15 +24,43 @@ function caption(t: Text, text: string, size: number, y: number, alpha: number) 
   t.style.fontSize = size; t.position.set(0, y); t.alpha = alpha * .6;
 }
 
+/** An icon as pen strokes on its 24-unit grid (so it can be drawn on), or null when it has filled/transformed parts. */
+function iconStrokes(icon: IconDef): Point[][] | null {
+  const out: Point[][] = [], n = (v: string | undefined) => Number(v ?? 0);
+  const oval = (cx: number, cy: number, rx: number, ry: number): Point[] => Array.from({ length: 25 }, (_, i) => [cx + Math.cos(i / 24 * 2 * Math.PI - Math.PI / 2) * rx, cy + Math.sin(i / 24 * 2 * Math.PI - Math.PI / 2) * ry]);
+  for (const [tag, a] of icon) {
+    if ((a.fill && a.fill !== "none") || a.transform) return null;
+    if (tag === "circle") out.push(oval(n(a.cx), n(a.cy), n(a.r), n(a.r)));
+    else if (tag === "ellipse") out.push(oval(n(a.cx), n(a.cy), n(a.rx), n(a.ry)));
+    else if (tag === "rect") { const x = n(a.x), y = n(a.y), w = n(a.width), h = n(a.height); out.push([[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]); }
+    else if (tag === "path") for (const prim of new GraphicsPath(a.d).shapePath.shapePrimitives) {
+      const sh = prim.shape as { points?: number[]; closePath?: boolean };
+      if (!sh.points || sh.points.length < 4) return null;
+      const pts: Point[] = []; for (let i = 0; i < sh.points.length; i += 2) pts.push([sh.points[i], sh.points[i + 1]]);
+      if (sh.closePath) pts.push(pts[0]);
+      out.push(pts);
+    }
+    else return null;
+  }
+  return out.length ? out : null;
+}
+
 export function buildIcon(o: O<"icon">, fg: string, cell: () => Cell) {
   const node = new Container(), g = new Graphics(), label = txt(node, o.label ?? "", fg);
   node.addChildAt(g, 0);
-  try { g.svg(iconSvg(resolveIcon(o.name), fg)); }
-  catch { g.clear(); g.circle(12, 12, 9).stroke({ color: fg, width: 1.5 }); }
+  // Line icons are drawn on stroke by stroke in the house line; the few filled ones fall back to the stock SVG.
+  let strokes: Point[][] | null = null;
+  try { strokes = iconStrokes(resolveIcon(o.name)); if (!strokes) g.svg(iconSvg(resolveIcon(o.name), fg)); }
+  catch { strokes = [Array.from({ length: 25 }, (_, i) => [12 + Math.cos(i / 24 * 2 * Math.PI) * 9, 12 + Math.sin(i / 24 * 2 * Math.PI) * 9] as Point)]; }
   g.pivot.set(12, 12);
   return { node, draw(s: ObjState, _w: number, h: number): Ext {
     const S = cap((o.size ?? .14) * h, cell(), .9, o.label ? .7 : .9), r = s.style === "draw" ? s.reveal ?? 1 : 1;
-    g.scale.set(S / 24 * (.8 + .2 * ease(r))); g.alpha = r;
+    g.scale.set(S / 24);
+    if (strokes) {
+      const width = Math.min(strokeW(h, 1.45), Math.max(strokeW(h, .8), S * .0625)) * 24 / S; // icon weight follows the house line
+      g.clear();
+      strokes.forEach((pts, i) => { const p = staggerProgress(r, i, strokes!.length, .14); if (p > 0) strokePath(g, pts, p, fg, width, 1, true); });
+    } else g.alpha = r;
     caption(label, o.label ?? "", Math.max(10, S * .22), S * .72, r);
     return [S / 2, S / 2];
   } };
@@ -95,7 +123,7 @@ export function buildPerson(o: O<"person">, fg: string, cell: () => Cell) {
     const { parts, head, headR } = personParts(joints, H, o.facing);
     if (o.tangenter) node.x += -dir * ((dir > 0 ? s.x : 1 - s.x) * w + H * .4) * (1 - ease(age / .45));
     const has = (name: string) => Math.min(1, (s.pose === name ? k : 0) + (s.poseFrom === name ? 1 - k : 0));
-    const draw = s.style === "draw", lw = o.tangenter ? H * .025 : .012 * h;
+    const draw = s.style === "draw", lw = Math.min(strokeW(h, 1.45), Math.max(strokeW(h, .8), H * .026)); // house line, scaled with the figure
     g.clear(); g.y = Math.sin(age * 2) * H * .004;
     parts.forEach((p, i) => strokePath(g, p, draw ? staggerProgress(s.reveal ?? 1, i, PERSON_PARTS, .12) : 1, fg, lw, 1, true));
     if (!draw || (s.reveal ?? 1) >= 1) g.circle(head[0] + dir * headR * .35, head[1] - headR * .1, headR * .1).fill({ color: fg });
