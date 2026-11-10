@@ -64,3 +64,26 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
   expect(layer.children).toHaveLength(0);
   expect(app.stage.children).toHaveLength(0);
 });
+
+it("rotates a bottom-pivot shape around its planted foot at any stage size", () => {
+  vi.spyOn(CanvasTextMetrics, "measureText").mockImplementation((text, style) => ({ width: text.length * Number(style.fontSize) * .6 }) as ReturnType<typeof CanvasTextMetrics.measureText>);
+  const scene = Scene.parse({ scene: "domino", objects: [{ id: "d", type: "shape", shape: "rect", pivot: "bottom", x: .4, y: .5, width: .03, height: .2 }], beats: [] });
+  const app = { stage: new Container(), screen: { width: 1280, height: 720 }, render: vi.fn() };
+  const renderer = new SceneRenderer(app as unknown as Application, scene, document.createElement("div"), n => n === "--bg" ? "#000000" : "#ffffff");
+  const timeline = { totalSec: 3, insertedSilences: [], events: [
+    { start: 0, end: .1, verb: "create" as const, target: "d", args: { style: "draw" }, beat: 0 },
+    { start: 1, end: 2, verb: "transform" as const, target: "d", args: { rotate: 1.4 }, beat: 0 },
+  ] };
+  for (const height of [720, 360]) {
+    app.screen.height = height;
+    for (const time of [.5, 1.5, 2.5]) {
+      renderer.draw(applyEventsAt(scene, timeline, time));
+      const node = (app.stage.children[0] as Container).children[1] as Container;
+      expect(node.pivot.y).toBeCloseTo(height * .1);
+      const foot = node.toGlobal({ x: 0, y: height * .1 });
+      expect(foot.x).toBeCloseTo(app.screen.width * .4);
+      expect(foot.y).toBeCloseTo(height * .6);
+    }
+  }
+  renderer.destroy();
+});

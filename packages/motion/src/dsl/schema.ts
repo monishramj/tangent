@@ -66,7 +66,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), opacity: unit.optional() }),
   obj("KineticText", { text: z.string(), variant: z.string().optional(), size, maxW: unit.optional() }), // variant: slam | punch | words | stack
   obj("Math", { tex: z.string(), size }), // KaTeX
-  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
+  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), pivot: z.literal("bottom").optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
   obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
   obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
   obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
