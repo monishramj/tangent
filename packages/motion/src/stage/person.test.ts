@@ -33,9 +33,17 @@ describe("person", () => {
   it("figure spans about H and mirrors when facing left", () => {
     const H = 100, r = personParts(POSE_JOINTS.stand, H, "right"), l = personParts(POSE_JOINTS.stand, H, "left");
     const ys = r.parts.flat().map(p => p[1]);
-    expect(Math.max(...ys) - Math.min(...ys) + r.headR).toBeGreaterThan(H * .85);
-    expect(Math.max(...ys) - Math.min(...ys) + r.headR).toBeLessThan(H * 1.1);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(H * .9); // head ring is in parts, so this is the full height
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(H * 1.06);
+    expect(r.body.length).toBeGreaterThan(12); // the filled bean body
     expect(l.parts[2][2][0]).toBeCloseTo(-r.parts[2][2][0]);
     expect(r.parts).toHaveLength(6);
   });
+});
+it("gesture winds up, overshoots a little and lands exactly", async () => {
+  const { gesture } = await import("./person");
+  expect(gesture(0)).toBe(0); expect(gesture(1)).toBeCloseTo(1);
+  expect(gesture(.08)).toBeLessThan(0); expect(gesture(.08)).toBeGreaterThan(-.1);
+  const peak = Math.max(...Array.from({ length: 50 }, (_, i) => gesture(i / 49)));
+  expect(peak).toBeGreaterThan(1.02); expect(peak).toBeLessThan(1.09);
 });

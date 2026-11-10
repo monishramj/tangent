@@ -258,7 +258,7 @@ export class SceneRenderer {
             let nx = -(y1 - y0), ny = x1 - x0; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
             if (ny > 0) { nx = -nx; ny = -ny; }
             const lx = mx + nx * fs * 1.1, ly = my + ny * fs * 1.1, tw = this.measure(o.label, fs, false) + fs;
-            g.roundRect(lx - tw / 2, ly - fs * .75, tw, fs * 1.5, 4).fill({ color: this.bg });
+            g.roundRect(lx - tw / 2, ly - fs * .75, tw, fs * 1.5, fs * .4).fill({ color: 0x141414, alpha: .92 }); // a soft chip, not a black hole in the backdrop
             lbl.visible = true; lbl.text = o.label; lbl.style.fontSize = fs; lbl.position.set(lx, ly); lbl.alpha = Math.min(1, (p - .5) * 4);
           }
           if (s.pulse !== undefined) { // signal dot travelling from -> to
@@ -294,9 +294,10 @@ export class SceneRenderer {
             const slot = s.slots![i];
             const x = x0 + (slot.to === undefined ? i : i + (slot.to - i) * slot.p) * step;
             const lift = (slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35) + (1 - ease(enter, "outExpo")) * size * .25; // hop so swaps read
-            g.clear().roundRect(-size / 2, -size / 2, size, size, size * 0.16)
+            g.clear().roundRect(-size / 2 + h * SHADOW * .75, -size / 2 + h * SHADOW, size, size, size * 0.16).fill({ color: 0x000000, alpha: BODY.shadow })
+              .roundRect(-size / 2, -size / 2, size, size, size * 0.16)
               .fill({ color: this.bg }).roundRect(-size / 2, -size / 2, size, size, size * 0.16)
-              .fill({ color: this.fg, alpha: .07 + .85 * slot.hl })
+              .fill({ color: this.fg, alpha: BODY.fill + .8 * slot.hl })
               .stroke({ width: strokeW(h), color: this.fg, alpha: 0.75, join: "round" });
             if (slot.ring) g.circle(0, 0, size*(.6+.25*slot.ring)).stroke({ color: this.fg, width: strokeW(h), alpha: 1-slot.ring });
             g.position.set(x, lift);
@@ -331,7 +332,7 @@ export class SceneRenderer {
         const depth = Math.max(1, ...nodes.map((p) => p.y + 1));
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
-          const r = Math.min(0.05 * h, (w * 0.8) / (2.4 * Math.max(1, nodes.length))), dx = r * 2.4, dy = Math.min(0.14 * h, (0.5 * h) / depth);
+          const r = Math.min(0.075 * h, (w * 0.8) / (2.6 * Math.max(1, nodes.length))), dx = r * 2.6, dy = Math.min(0.22 * h, (0.58 * h) / depth);
           const at = (i: number): [number, number] => [(nodes[i].x - (nodes.length - 1) / 2) * dx, nodes[i].y * dy - ((depth - 1) * dy) / 2];
           g.clear();
           nodes.forEach(({ n }, i) => {
@@ -345,7 +346,7 @@ export class SceneRenderer {
             const hl = s.valHl?.[n.keys[0]] ?? 0, [x, y] = at(i);
             const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
             const rr = r * (.6 + .4 * ease(reveal, "outBack"));
-            if (reveal > 0) g.circle(x, y, rr).fill({ color: this.bg }).circle(x, y, rr).fill({ color: this.fg, alpha: .07 + .85 * hl }).stroke({ width: strokeW(h), color: this.fg, alpha: 0.75 * Math.min(1, reveal * 3) });
+            if (reveal > 0) g.circle(x + h * SHADOW * .75, y + h * SHADOW, rr).fill({ color: 0x000000, alpha: BODY.shadow * Math.min(1, reveal * 3) }).circle(x, y, rr).fill({ color: this.bg }).circle(x, y, rr).fill({ color: this.fg, alpha: BODY.fill + .8 * hl }).stroke({ width: strokeW(h), color: this.fg, alpha: 0.75 * Math.min(1, reveal * 3) });
             labels[i].position.set(x, y);
             labels[i].alpha = reveal;
             if (labels[i].label !== String(r)) { fitText(labels[i], n.keys.join(","), r*1.4, r*1.4, r*.9); labels[i].label = String(r); }

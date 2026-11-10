@@ -7,6 +7,7 @@ import { NL_SPAN, density, domain, peak, type Dist } from "../dsl/stats";
 import type { ObjState } from "./scene";
 import { FONT, MONO, box, fitText, fmtNum, strokePath } from "./visuals";
 import { clamp01, ease, staggerProgress, strokeW, window01, type Point } from "./motion";
+import { BODY, SHADOW } from "./look";
 
 type Cell = { cw?: number; ch?: number } | undefined;
 type O<T extends string> = Extract<SceneObject, { type: T }>;
@@ -76,8 +77,9 @@ export function buildSeq(o: O<"Stack" | "Queue" | "LinkedList">, fg: string, bg:
       if (alpha <= 0) continue;
       const lift = (1 - ease(e, "outExpo")) * S * .25, x = p[0], y = p[1] + lift, r = S * .16;
       g.visible = t.visible = true; g.alpha = t.alpha = alpha;
-      g.clear().roundRect(x - iw / 2, y - ih / 2, iw, ih, r).fill({ color: bg }).roundRect(x - iw / 2, y - ih / 2, iw, ih, r)
-        .fill({ color: fg, alpha: .07 + .85 * hl }).stroke({ width: sw, color: fg, alpha: .8, join: "round" });
+      g.clear().roundRect(x - iw / 2 + h * SHADOW * .75, y - ih / 2 + h * SHADOW, iw, ih, r).fill({ color: 0x000000, alpha: BODY.shadow })
+        .roundRect(x - iw / 2, y - ih / 2, iw, ih, r).fill({ color: bg }).roundRect(x - iw / 2, y - ih / 2, iw, ih, r)
+        .fill({ color: fg, alpha: BODY.fill + .8 * hl }).stroke({ width: sw, color: fg, alpha: .8, join: "round" });
       if (list) g.moveTo(x + iw / 2 - S * .42, y - ih / 2).lineTo(x + iw / 2 - S * .42, y + ih / 2).stroke({ width: sw, color: hl > .5 ? bg : fg, alpha: .5 })
         .circle(x + iw / 2 - S * .21, y, S * .07).fill({ color: hl > .5 ? bg : fg });
       fitOnce(t, String(v), (list ? iw - S * .5 : iw) * .82, ih * .7, S * .42);
@@ -167,7 +169,7 @@ export function buildGraph(o: O<"Graph">, fg: string, bg: string, cell: () => Ce
       const visited = mix(g => g.visited.includes(nd.id)), cur = mix(g => g.current === nd.id), fr = mix(g => g.frontier.includes(nd.id) && !g.visited.includes(nd.id));
       const hl = Math.max(visited, s.valHl?.[nd.id] ?? 0), rr = r * (.6 + .4 * e) * (1 + .14 * cur);
       if (p > 0) {
-        dots.circle(x, y, rr).fill({ color: bg }).circle(x, y, rr).fill({ color: fg, alpha: .07 + .85 * hl })
+        dots.circle(x + h * SHADOW * .75, y + h * SHADOW, rr).fill({ color: 0x000000, alpha: BODY.shadow * Math.min(1, p * 3) }).circle(x, y, rr).fill({ color: bg }).circle(x, y, rr).fill({ color: fg, alpha: BODY.fill + .8 * hl })
           .stroke({ width: sw * (1 + fr), color: fg, alpha: .8 * Math.min(1, p * 3) });
         if (fr > 0) dots.circle(x, y, rr + sw * 3).stroke({ width: sw * .8, color: fg, alpha: .5 * fr });
         if (cur > 0) dots.circle(x, y, rr + sw * 4.5).stroke({ width: sw * 1.4, color: fg, alpha: cur });

@@ -10,7 +10,7 @@ export const LIGHT: Point = [.6, .8];
 /** Flat drop-shadow offset (fractions of stage height) along the light direction. */
 export const SHADOW = .011;
 /** Surface fill strength over black for an unlit body (≈ TONE.low) and its lit rim / shadow rim strengths. */
-export const BODY = { fill: .1, rimLit: 1, rimDark: .42, shadow: .6 };
+export const BODY = { fill: .15, rimLit: 1, rimDark: .42, shadow: .6 };
 
 /** Runs of consecutive segments on the lit (top-left) side of a shape centred on 0,0 with half-size (a, b). */
 export function litRuns(pts: Point[], a: number, b: number): Point[][] {
@@ -48,9 +48,9 @@ export function backdropTexture() {
       g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(1, "rgba(255,255,255,0)");
       x.fillStyle = g; x.fillRect(0, 0, 640, 360);
     }
-    const ground = x.createLinearGradient(0, 262, 0, 360); // ground plane under a faint horizon
-    ground.addColorStop(0, "rgba(255,255,255,.045)"); ground.addColorStop(1, "rgba(255,255,255,0)");
-    x.fillStyle = ground; x.fillRect(0, 262, 640, 98);
+    const ground = x.createLinearGradient(0, 215, 0, 360); // ground plane: light pooling low in the frame, no hard horizon
+    ground.addColorStop(0, "rgba(255,255,255,0)"); ground.addColorStop(.55, "rgba(255,255,255,.04)"); ground.addColorStop(1, "rgba(255,255,255,.015)");
+    x.fillStyle = ground; x.fillRect(0, 215, 640, 145);
   });
 }
 /** Film grain + vignette, drawn once (seeded noise: the same frame always looks the same). */

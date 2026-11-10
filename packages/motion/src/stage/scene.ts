@@ -2,6 +2,7 @@
 import { parseTarget, type Scene } from "../dsl/schema";
 import type { Timeline, TimelineEvent } from "../dsl/compile";
 import { seqItems, type SeqSnap } from "../dsl/components";
+import { gesture } from "./person";
 import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01, window01 } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`
@@ -193,7 +194,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       break;
     }
     case "pulse": if (p < 1) o.pulse = p; break;
-    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break;
+    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = e.args.easing ? k : gesture(p); if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break; // gesture: wind up, react, settle
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
   }
 }

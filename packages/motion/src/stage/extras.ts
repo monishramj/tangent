@@ -6,7 +6,8 @@ import type { ObjState } from "./scene";
 import { FONT, strokePath } from "./visuals";
 import { counterValue, formatCount } from "./geometry";
 import { iconSvg, resolveIcon, type IconDef } from "./icons";
-import { PERSON_PARTS, jointsAt, personParts, tangenterJoints } from "./person";
+import { PERSON_PARTS, WALK_IN, jointsAt, personParts, tangenterJoints } from "./person";
+import { BODY, litRuns } from "./look";
 import { ease, staggerProgress, strokeW, type Point } from "./motion";
 
 type Cell = { cw?: number; ch?: number } | undefined;
@@ -120,12 +121,27 @@ export function buildPerson(o: O<"person">, fg: string, cell: () => Cell) {
     const H = cap((o.size ?? .38) * h, cell(), .9, o.label ? .85 : .95), dir = o.facing === "left" ? -1 : 1, age = s.age ?? 0, k = s.poseP ?? 1;
     const aim: [number, number] | undefined = s.aim && [(s.aim[0] - s.x) * w * dir, (s.aim[1] - s.y) * h + H * .25];
     const joints = o.tangenter ? tangenterJoints(s.pose, s.poseFrom, k, age, aim) : jointsAt(s.pose, s.poseFrom, k, age);
-    const { parts, head, headR } = personParts(joints, H, o.facing);
-    if (o.tangenter) node.x += -dir * ((dir > 0 ? s.x : 1 - s.x) * w + H * .4) * (1 - ease(age / .45));
-    const has = (name: string) => Math.min(1, (s.pose === name ? k : 0) + (s.poseFrom === name ? 1 - k : 0));
-    const draw = s.style === "draw", lw = Math.min(strokeW(h, 1.45), Math.max(strokeW(h, .8), H * .026)); // house line, scaled with the figure
+    const { parts, head, headR, body } = personParts(joints, H, o.facing);
+    if (o.tangenter) node.x += -dir * ((dir > 0 ? s.x : 1 - s.x) * w + H * .4) * (1 - ease(age / WALK_IN, "inOutSine"));
+    const kc = Math.max(0, Math.min(1, k)), has = (name: string) => Math.min(1, (s.pose === name ? kc : 0) + (s.poseFrom === name ? 1 - kc : 0));
+    const draw = s.style === "draw", lw = Math.min(strokeW(h, 1.6), Math.max(strokeW(h, .8), H * .03)); // house line, scaled with the figure
     g.clear(); g.y = Math.sin(age * 2) * H * .004;
-    parts.forEach((p, i) => strokePath(g, p, draw ? staggerProgress(s.reveal ?? 1, i, PERSON_PARTS, .12) : 1, fg, lw, 1, true));
+    // The character: far limbs, then a filled bean body and head (greys, lit from the top-left), then the near limbs.
+    const rv = (i: number) => draw ? staggerProgress(s.reveal ?? 1, i, PERSON_PARTS, .12) : 1, [ring, , arm1, arm2, leg1, leg2] = parts;
+    const solid = (pts: Point[], cx: number, cy: number, tone: number, p: number) => {
+      if (p <= 0) return;
+      const fillA = Math.max(0, Math.min(1, (p - .6) / .4)), loop = [...pts, pts[0]];
+      if (fillA > 0) g.poly(pts.flat()).fill({ color: 0x000000, alpha: fillA }).poly(pts.flat()).fill({ color: fg, alpha: tone * fillA });
+      strokePath(g, loop, p, fg, lw * .75, BODY.rimDark, true);
+      if (p >= 1) for (const run of litRuns(loop.map(([x, y]) => [x - cx, y - cy] as Point), 1, 1)) strokePath(g, run.map(([x, y]) => [x + cx, y + cy] as Point), 1, fg, lw * .75, 1, true);
+    };
+    const feet = Math.max(leg1[2][1], leg2[2][1]);
+    g.ellipse(0, feet + lw * .5, H * .17, H * .018).fill({ color: 0x000000, alpha: .45 * rv(4) }); // contact shadow
+    strokePath(g, arm2, rv(3), fg, lw, .7, true); strokePath(g, leg2, rv(5), fg, lw, .7, true); strokePath(g, leg1, rv(4), fg, lw, 1, true);
+    const bc = body.reduce((a, p) => [a[0] + p[0] / body.length, a[1] + p[1] / body.length], [0, 0]);
+    solid(body, bc[0], bc[1], .3, rv(1));
+    strokePath(g, arm1, rv(2), fg, lw, 1, true);
+    solid(ring.slice(0, -1), head[0], head[1], .16, rv(0));
     if (!draw || (s.reveal ?? 1) >= 1) g.circle(head[0] + dir * headR * .35, head[1] - headR * .1, headR * .1).fill({ color: fg });
     const think = has("think");
     if (think > 0) [[1.5, -1.5, .14], [2.1, -2.2, .22], [2.9, -3.1, .4]].forEach(([dx, dy, r]) =>

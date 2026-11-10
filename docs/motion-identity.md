@@ -1,6 +1,6 @@
 # Motion identity: design revision (for approval)
 
-Status: approved 2026-11-10 with additions (icons and axes draw on, leader lines from labels, the tonal Look in section 3b). Implementation in progress. Before-frames (all 93 reel beats, 4 times each, 1072×603):
+Status: approved 2026-11-10 with additions (icons and axes draw on, leader lines from labels, the tonal Look in section 3b). Implemented 2026-11-10 except the items listed under "Not done" in CLAUDE.md (pen-loop overshoot, leader ticks beyond the iceberg label, charts as shaded bodies, per-frame background variation). The backdrop has a soft ground glow rather than a horizon line (the hard edge read as banding). Before-frames (all 93 reel beats, 4 times each, 1072×603):
 `/private/tmp/claude-501/-Users-monishramj-Documents-Code-orca-workspaces-tangent-expand-videos/c26fa369-b59a-48d0-9164-cde7a1a7950c/scratchpad/before/` (`sheet_NN.png` = 6 beats per contact sheet, `NN_<template>-<variant>_<dt>.png` = single frames).
 
 ## 1. Diagnosis (grouped by root cause)

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { Pose } from "../schema";
 import { ACCENT, MOTION } from "../../stage/motion";
-import { type C, at, frac, orderedAnchors, s, spread, visual, visualAt } from "../tplkit";
+import { type C, at, frac, leader, orderedAnchors, s, spread, visual, visualAt } from "../tplkit";
 
 const VERDICTS = { true: "TRUE", false: "FALSE", myth: "MYTH", fact: "FACT", wrong: "WRONG" } as const;
 const short = (n: number) => s.max(n);
@@ -59,7 +59,8 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     if (climber && tLook !== tBob && tLook !== tTip) c.act({ at: tLook, do: "pose", target: climber, to: "confused" });
     const ty = L.tip.y + L.tip.h * .15;
     visualAt(c, "ice_top_v", d.top, .5 - L.tip.w / 2 - .07, ty, pan ? .12 : .1, frac(.08));
-    text(c, "ice_top", d.top.text, .5 + L.tip.w / 2 + .03, ty, ts * 1.1, frac(.08), { weight: "bold", opacity: 1, align: "left", maxW: .28 });
+    text(c, "ice_top", d.top.text, .5 + L.tip.w / 2 + .05, ty, ts * 1.1, frac(.08), { weight: "bold", opacity: 1, align: "left", maxW: .26 });
+    leader(c, "ice_top_lead", [.5 + L.tip.w / 2 + .04, ty], [.5 + L.tip.w * .3, ty + .005], frac(.08));
     // the hidden mass traces in under the waterline: the "oh, it's huge" moment
     c.add({ id: c.id("ice_mass"), type: "shape", shape: "hexagon", ghost: true, x: .5, y: L.mass.y, width: L.mass.w, height: L.mass.h }, frac(.16), { style: "draw", duration: pan ? 1.6 : 1.2 });
     if (!pan) c.add({ id: c.id("ice_depth"), type: "arrow", from: [.1, L.water + .05], to: [.1, .94], dashed: true }, frac(.2), { style: "draw", duration: 2.5 });

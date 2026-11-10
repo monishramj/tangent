@@ -124,7 +124,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       o.values.forEach((v, i) => {
         const p = line ? rv >= i / Math.max(1, n - 1) ? 1 : 0 : staggerProgress(rv, i, n, s.gap), [x, y] = pts[i];
         const bar = (base - y) * ease(p, "outQuart"), on = hc === i ? s.hl : 0, dim = hc === undefined ? 1 : 1 - .6 * s.hl, r = Math.min(h * RADIUS * .5, slot * .12);
-        if (!line && bar > 0) ink.roundRect(x - slot * .3, base - bar, slot * .6, bar, Math.min(r, bar / 2)).fill({ color: fg, alpha: (.14 + .8 * on) * dim }).stroke({ color: fg, width: sw, alpha: .9 * dim, join: "round" });
+        if (!line && bar > 0) ink.roundRect(x - slot * .3, base - bar, slot * .6, bar, Math.min(r, bar / 2)).fill({ color: fg, alpha: (.22 + .72 * on) * dim }).stroke({ color: fg, width: sw, alpha: .9 * dim, join: "round" });
         vals[i].position.set(x, (line ? y : base - bar) - h * .04); vals[i].alpha = p * dim;
         if (vals[i].text !== fmtNum(v)) vals[i].text = fmtNum(v);
         cats[i].position.set(x, base + h * .045); cats[i].alpha = (line ? ax : p) * dim * .75;
