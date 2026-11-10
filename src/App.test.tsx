@@ -27,23 +27,13 @@ const vid: VideoBundle = { id: "v1", title: "Heaps", createdAt: 5, complete: tru
   scenes: [{ sceneId: "s1", scene, timeline, audioFile: "/a.wav", durationSec: timeline.totalSec }] };
 const provider = { complete: vi.fn() };
 
-it("home is the barebones start screen: no projects, a drop zone, saved videos and the demo", async () => {
+it("home is the barebones start screen: no projects, a drop zone, saved videos, no demo", async () => {
   render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([vid])} />);
   expect(screen.getByRole("heading", { name: "Tangent" })).toBeTruthy();
   expect(screen.getByTestId("dropzone")).toBeTruthy();
   expect(screen.queryByText(/project/i)).toBeNull();
   expect(await screen.findByRole("list", { name: "Your videos" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Heapify demo" })).toBeTruthy();
-});
-
-it("the demo link opens the player titled Heapify, and Back returns home", async () => {
-  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Heapify demo" }));
-  expect(await screen.findByRole("heading", { name: "Heapify" })).toBeTruthy();
-  expect(screen.getByTestId("video").className).toContain("aspect-video");
-  expect(await screen.findByRole("button", { name: /^(Play|Pause)$/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByRole("button", { name: "Heapify demo" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /demo/i })).toBeNull();
 });
 
 it("opening a saved video plays it under its title; Back returns home", async () => {

@@ -27,12 +27,10 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-it("shows empty recents and the demo entry, which opens the demo player", () => {
-  const onDemo = vi.fn();
-  render(<Home onDemo={onDemo} />);
+it("shows empty recents and no demo entry", () => {
+  render(<Home />);
   expect(screen.getByText(/no recent videos/i)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /heapify demo/i }));
-  expect(onDemo).toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: /demo/i })).toBeNull();
 });
 
 it("ingests a chosen PDF, shows loading, then nested sections with pages; picking calls onStart", async () => {
@@ -60,11 +58,16 @@ it("records a recent video when a section starts", async () => {
   expect(JSON.parse(localStorage.getItem("tangent.recent")!)[0]).toMatchObject({ sectionId: "s1", title: "Heaps", path: "/x/book.pdf" });
 });
 
-it("lists recents from localStorage", () => {
-  localStorage.setItem("tangent.recent", JSON.stringify([{ path: "/a.pdf", sectionId: "s1", title: "Heaps" }]));
-  render(<Home />);
-  const list = screen.getByRole("list", { name: /recent videos/i });
-  expect(within(list).getByText("Heaps")).toBeTruthy();
+it("lists only recents that have a saved video, opens it on click and prunes the rest", async () => {
+  localStorage.setItem("tangent.recent", JSON.stringify([{ path: "/x/book.pdf", sectionId: "s1", title: "Heaps" }, { path: "/gone.pdf", sectionId: "s9", title: "Ghost" }]));
+  const onOpenVideo = vi.fn(), onStart = vi.fn();
+  render(<Home store={fakeVideoStore([vid()])} onOpenVideo={onOpenVideo} onStart={onStart} />);
+  const list = await screen.findByRole("list", { name: /recent videos/i });
+  expect(within(list).queryByText("Ghost")).toBeNull();
+  fireEvent.click(within(list).getByText("Heaps"));
+  expect(onOpenVideo).toHaveBeenCalledWith(expect.objectContaining({ id: "v1" }));
+  expect(onStart).not.toHaveBeenCalled();
+  await waitFor(() => expect(JSON.parse(localStorage.getItem("tangent.recent")!)).toHaveLength(1));
 });
 
 it("shows an error when ingest fails and allows retry", async () => {

@@ -247,7 +247,6 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **Not yet run end-to-end on a real chapter with the new templates.** Expect prompt tuning (template choice, variety) after the first dogfood.
 - `src/stage/icons.ts` imports the whole Hugeicons namespace for loose name matching (bundle size). Fine for desktop; revisit if it matters.
 - PDF ingest progress is an estimate (pages × learned sec/page); Docling has no progress callback.
-- The Heapify demo WAV (`public/demo/heapify.wav`) is not in the repo, so the demo only plays where that file exists.
 - Beat/scene gaps (0.45 s / 0.6 s) are untuned; listen on a real chapter.
 - **Objects accumulate only in raw-DSL beats.** Template beats clear the previous frame (unless `keep:true`); escape-hatch objects still rely on the model to fade them.
 - **Slow first scene.** Was ~3 min with Haiku; the planning call is gone and scene 1 is 3 beats now, but it is not re-measured yet.
@@ -255,6 +254,12 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **Transitions are basic.** Within a scene, beat transitions slide or dip only the incoming layer. Between scenes there is a hard swap, but the Pixi app persists.
 - **Old `main` work was mostly superseded** (branch replaced main on 2026-11-05; old work kept in `backup/main-uncommitted-2026-11-04`). Ported: Docling on MPS (`TANGENT_DEVICE` overrides) and section cleanup (captions/help text/watermark titles are not sections, page spans rebuilt after reparenting). Not ported: real Docling progress events, so PDF progress is still an estimate.
 - GlassSurface's SVG refraction needs backdrop-filter `url()`, which WKWebView lacks, so the side panel and paused play button fall back to a plain blur.
+
+**Recently fixed (2026-11-10), don't regress:**
+- Recent videos only lists entries that have a saved bundle and opens it directly (never regenerates); recents without a bundle are pruned from localStorage once the saved list loads. Regenerate = open the PDF and pick the section.
+- Heapify demo removed from the app (Home button + App "demo" screen). `@motion/stage/demo` stays as a test fixture.
+- Scrollbars hidden app-wide (`src/index.css`); scrolling still works.
+- App icon: macOS-style rounded square (white logo on black) built from `assets/tangent-icon.png` by `scripts/mkicon.py` -> `assets/app-icon.png` -> `bunx tauri icon`. Icons are compiled into the binary: after changing them run `cargo clean -p tangent` before `tauri dev`.
 
 **Recently fixed (2026-11-05), don't regress:**
 - **Side panel:** always docks beside the video (width `min(400px,45vw)`, never overlays) and grows open (width keyframe, `.panel-open`) so the video eases smaller. `main` is `overflow-clip`, not `hidden`: the Ask box's autofocus scrolled the overflow-hidden player sideways while the panel slid in (the jagged jump on open). Glass tint via `backgroundOpacity` + `color-scheme: dark`. Header and controls are pinned to the video **column's** top/bottom (window edges), not the video.
@@ -282,7 +287,8 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Double-check work; be precise and rigorous. Push back on bad or suboptimal ideas.
 - Prefer the smallest thing that de-risks the next unknown; no speculative abstractions.
 - The speech-first script, word-anchored timing, and computed visuals are non-negotiable quality bars.
-- Subagents: use `worker` (Sonnet) for implementation and spikes, `util` (Haiku, read-only) for review/verify/search. Never pass `model: opus` unless Monish asks for it in that message.
+- **Agentic work goes through Orca, not native subagents** (Monish, 2026-11-10). Use the `orchestration` skill (`orca orchestration worker-start --agent codex|claude ...`) for implementation, polish, review and any parallel work, so every worker has its own visible terminal, task record and worktree (`--worktree new-child` for parallel branches). Don't use the native Agent tool (general-purpose/worker/util subagents) for this. Implementation defaults to Codex; Claude workers for review/polish when asked. Never pass `--model opus` unless Monish asks for it in that message.
+- Visual checks: never run headless Chrome in parallel (it pegged the CPU). Open one normal browser window per worker and capture it with `screencapture -x -o -l <windowid>`.
 
 ## Packaging: one downloadable app
 - Goal: a single installer. Nothing the user must install or hunt for (no brew, no separate Python, no ollama).

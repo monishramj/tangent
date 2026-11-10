@@ -94,3 +94,7 @@ body {
 /* Tutor answers: KaTeX at text size; display math scrolls instead of overflowing the bubble. */
 .rich .katex { font-size: 1.05em; }
 .rich .katex-display { margin: 0.4em 0; overflow-x: auto; overflow-y: hidden; }
+
+/* No visible scrollbars anywhere; scrolling (wheel, trackpad, keyboard) still works. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }

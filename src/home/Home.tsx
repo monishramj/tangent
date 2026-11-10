@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { File02Icon, PlayIcon, Upload04Icon } from "@hugeicons/core-free-icons";
+import { File02Icon, Upload04Icon } from "@hugeicons/core-free-icons";
 import AnimatedList from "@/components/AnimatedList";
 import Icon from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
@@ -53,13 +53,14 @@ const isTauri = () => "__TAURI_INTERNALS__" in window;
 const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
 const notPdf = "That isn't a PDF. Choose a .pdf file.";
 
-export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore }: {
-  onStart?: (sectionIds: string[], ir: IR, meta: StartMeta) => void; onDemo?: () => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
+export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore }: {
+  onStart?: (sectionIds: string[], ir: IR, meta: StartMeta) => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
 }) {
   const [videos, setVideos] = useState<VideoBundle[]>([]);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [choice, setChoice] = useState<{ saved: VideoBundle; title: string; regenerate: () => void } | null>(null);
-  useEffect(() => { let live = true; store.list().then(v => live && setVideos(v), () => {}); return () => { live = false; }; }, [store]);
+  const [listed, setListed] = useState(false); // recents are shown (and pruned) only once the saved videos are known
+  useEffect(() => { let live = true; store.list().then(v => { if (live) { setVideos(v); setListed(true); } }, () => {}); return () => { live = false; }; }, [store]);
   const remove = async (id: string) => {
     setConfirm(null);
     try { await store.remove(id); setVideos(v => v.filter(x => x.id !== id)); } catch (e) { setState({ s: "error", msg: `Couldn't delete: ${e}` }); }
@@ -121,21 +122,13 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
     const saved = savedFor(path, sectionId);
     if (saved) setChoice({ saved, title, regenerate: go }); else go();
   };
-  const reopen = async (r: Recent) => {
-    const regenerate = async () => {
-      setChoice(null);
-      try { onStart(r.sectionId.split("+"), await ingest(r.path, r.title), { pdfPath: r.path, title: r.title, detail }); }
-      catch (e) { setState({ s: "error", msg: String(e) }); }
-    };
-    const saved = savedFor(r.path, r.sectionId);
-    if (saved) return setChoice({ saved, title: r.title, regenerate });
-    try {
-      const ir = await ingest(r.path, r.title);
-      onStart(r.sectionId.split("+"), ir, { pdfPath: r.path, title: r.title, detail });
-    } catch (e) {
-      setState({ s: "error", msg: String(e) });
-    }
-  };
+  // A recent entry is only a shortcut to a saved video: entries without one are dropped, and clicking never regenerates.
+  const shownRecent = listed ? recent.filter(r => savedFor(r.path, r.sectionId)) : [];
+  useEffect(() => {
+    if (!listed || shownRecent.length === recent.length) return;
+    setRecent(shownRecent);
+    try { localStorage.setItem(KEY, JSON.stringify(shownRecent)); } catch { /* per-viewer convenience only */ }
+  }, [listed, videos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main className="h-screen overflow-y-auto bg-bg px-8 py-12">
@@ -291,13 +284,13 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
 
         <section aria-labelledby="recent" className="flex flex-col gap-3">
           <h2 id="recent" className="text-lg font-semibold">Recent videos</h2>
-          {recent.length === 0 ? (
+          {shownRecent.length === 0 ? (
             <p className="text-sm text-subtle">No recent videos yet.</p>
           ) : (
             <ul aria-label="Recent videos" className="flex flex-col gap-1">
-              {recent.map((r) => (
+              {shownRecent.map((r) => (
                 <li key={r.path + r.sectionId}>
-                  <button type="button" onClick={() => reopen(r)} className="flex min-h-11 w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
+                  <button type="button" onClick={() => onOpenVideo(savedFor(r.path, r.sectionId)!)} className="flex min-h-11 w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
                     <span className="text-fg">{r.title}</span>
                     <span className="text-xs text-subtle">{r.path.split("/").pop()}</span>
                   </button>
@@ -305,10 +298,6 @@ export default function Home({ onStart = () => {}, onDemo = () => {}, onOpenVide
               ))}
             </ul>
           )}
-          <button type="button" onClick={onDemo} className={`${btn} self-start`}>
-            <Icon icon={PlayIcon} size={20} className="fill-current" />
-            Heapify demo
-          </button>
         </section>
       </div>
     </main>

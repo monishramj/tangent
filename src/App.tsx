@@ -10,30 +10,21 @@ import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
 import { devlog } from "./devlog";
-import { AUDIO_URL, scene, timeline } from "@motion/stage/demo";
 
 type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta };
 type Screen =
   | { s: "home" }
   | { s: "generate"; args: GenerateArgs; attempt: number }
-  | { s: "watch"; video: VideoBundle }
-  | { s: "demo" };
-
-/** The hand-made Heapify scene as a one-scene bundle: one player path for everything. */
-const demoBundle = (): VideoBundle => ({
-  id: "demo", title: "Heapify", createdAt: 0, complete: true, source: { pdfPath: "", sectionId: "", sectionTitle: "Heapify" },
-  scenes: [{ sceneId: "demo", scene, timeline, audioFile: new URL(AUDIO_URL, location.href).href, durationSec: timeline.totalSec }],
-});
+  | { s: "watch"; video: VideoBundle };
 
 export default function App({ provider, store = tauriJsonStore, videoStore = tauriVideoStore, initial = { s: "home" } }: { provider?: LLMProvider; store?: JsonStore; videoStore?: VideoStore; initial?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
   const home = () => setScreen({ s: "home" });
   switch (screen.s) {
-    case "demo": return <Watch video={demoBundle()} provider={provider} store={store} onBack={home} />;
     case "watch": return <Watch video={screen.video} provider={provider} store={store} onBack={home} />;
     case "generate": return <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
       onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={home} />;
-    default: return <Home store={videoStore} jsonStore={store} onDemo={() => setScreen({ s: "demo" })}
+    default: return <Home store={videoStore} jsonStore={store}
       onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0 })}
       onOpenVideo={video => setScreen({ s: "watch", video })} />;
   }
@@ -42,7 +33,7 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
 function Watch({ video, provider, store, onBack }: { video: VideoBundle; provider?: LLMProvider; store: JsonStore; onBack: () => void }) {
   const stream = useMemo(() => replayStream(video), [video]);
   return <PlayerScreen stream={stream} title={video.title} kicker={video.source.sectionTitle !== video.title ? video.source.sectionTitle : "Tangent"}
-    videoId={video.id === "demo" ? undefined : video.id} section={video.title} provider={provider} store={store} autoPlay onBack={onBack} />;
+    videoId={video.id} section={video.title} provider={provider} store={store} autoPlay onBack={onBack} />;
 }
 
 /** Read the section, start the pipeline, record it into a bundle, and play it as it streams. */
