@@ -260,6 +260,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Heapify demo removed from the app (Home button + App "demo" screen). `@motion/stage/demo` stays as a test fixture.
 - Scrollbars hidden app-wide (`src/index.css`); scrolling still works.
 - App icon: macOS-style rounded square (white logo on black) built from `assets/tangent-icon.png` by `scripts/mkicon.py` -> `assets/app-icon.png` -> `bunx tauri icon`. Icons are compiled into the binary: after changing them run `cargo clean -p tangent` before `tauri dev`.
+- The binary is `Tangent` (`[[bin]]` in Cargo.toml + `mainBinaryName`) so the dev build shows "Tangent" in the Dock/menu bar; the crate stays `tangent`.
 
 **Recently fixed (2026-11-05), don't regress:**
 - **Side panel:** always docks beside the video (width `min(400px,45vw)`, never overlays) and grows open (width keyframe, `.panel-open`) so the video eases smaller. `main` is `overflow-clip`, not `hidden`: the Ask box's autofocus scrolled the overflow-hidden player sideways while the panel slid in (the jagged jump on open). Glass tint via `backgroundOpacity` + `color-scheme: dark`. Header and controls are pinned to the video **column's** top/bottom (window edges), not the video.
