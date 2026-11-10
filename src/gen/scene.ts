@@ -48,6 +48,7 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
   for (const b of raw.beats) if (b.template) counts.set(b.template, (counts.get(b.template) ?? 0) + 1);
   const [top, most] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
   if (raw.beats.length >= 3 && most > raw.beats.length / 2) errs.push(err("beats", `"${top}" is ${most} of ${raw.beats.length} beats; no template may fill more than half a scene`));
+  if (raw.beats.filter(b => b.template === "diagram").length > 1) errs.push(err("beats", "at most one diagram beat per scene; show the other beats with a picture template (dominoes, chat, scale, race, iceberg...)"));
   if (raw.beats.filter(b => b.accent).length > 1) errs.push(err("beats", "accent:true on at most one beat per scene"));
   return errs;
 }
@@ -62,7 +63,8 @@ Tree kinds and ops: ${JSON.stringify(Object.fromEntries(Object.entries(TREE_OPS)
 
 Rules:
 - Exactly ${beats.length} beats, one per narrated beat, "say" copied verbatim from the <narration> block.
-- Pick the template that SHOWS the beat's meaning (a comparison -> versus, a number -> stat, a process or architecture -> diagram, an algorithm on data -> array/tree with real ops, a takeaway -> callout, a question or confusion -> character). Never put the narration on screen.
+- Pick the template that SHOWS the beat's meaning as a picture (a comparison -> versus/scale, a speed or growth rate -> race, a level or load -> gauge/fill, a proportion -> pictograph, cause and effect -> dominoes, a protocol or exchange -> chat, hidden depth -> iceberg, a misconception -> stamp, a quick quiz -> flipcard, a number -> stat, an algorithm on data -> array/tree with real ops, a takeaway -> callout, a question or confusion -> character). Never put the narration on screen.
+- diagram is a last resort: at most ONE diagram beat per scene, only for real architecture (datapath, layers) or a branching process no picture template can show.
 - Variety: never repeat the same template+variant on consecutive beats, and no template on more than half the beats; mix variants, icons, emoji and stickers. Build on a diagram/array with keep:true + actions when the narration keeps talking about it.${recent.length ? `\n- Recently used (avoid repeating; the last two are not allowed): ${recent.map(u => `${u.template}/${u.variant}`).join(", ")}.` : ""}
 - Gifs, like The Code Report: cut to a gif whenever a beat is an analogy, a relatable situation, a joke, a surprise or a common mistake. A gif that literally shows the situation beats another box diagram, but only if it clearly matches what that beat says; a vague or generic gif is worse than none. Break up runs of diagrams/lists/text with one; aim for 1 gif per scene (2 in long ones), never two in a row, never in the middle of a step-by-step derivation or trace.
 - Computed visuals (array/tree/stack/queue/linkedlist/graph) use ops, never hand-traced states; matrix products and distribution areas are computed for you, never write them yourself.

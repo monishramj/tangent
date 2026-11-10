@@ -58,6 +58,8 @@ describe("generateGroupScene", () => {
     const gif = (say: string) => ({ say, template: "gif" as const, data: { query: "traffic jam" } });
     expect(checkTemplateScene({ objects: [], beats: [gif(beats[0].say), gif(beats[1].say)] }, beats.slice(0, 2)).map(e => e.message)).toContain("no two gif beats in a row");
     expect(checkTemplateScene(fig, beats.slice(0, 1), [{ id: "f", caption: "", src: "y.png" }])[0].message).toContain("figure src");
+    const dia = (say: string, variant: string) => ({ say, template: "diagram" as const, variant, data: {} });
+    expect(checkTemplateScene({ objects: [], beats: [dia(beats[0].say, "flow-h"), dia(beats[1].say, "cycle")] }, beats.slice(0, 2)).map(e => e.message).join(" ")).toContain("at most one diagram");
   });
 });
 
