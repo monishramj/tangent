@@ -274,3 +274,18 @@ def original_pdf(params):
     if not data[:1024].lstrip().startswith(b"%PDF-"):
         raise ValueError("path must contain a PDF")
     return base64.b64encode(data).decode("ascii")
+
+
+def repair_sections(params):
+    """Upgrade flat cached outlines when the PDF has a bookmark tree."""
+    import copy
+    from .postprocess import pdf_outline, postprocess
+    list_sections(params)
+    if not isinstance(params.get("path"), str):
+        raise ValueError("path must be a PDF path")
+    ir = params["ir"]
+    if any(n.get("children") for n in ir["sections"]) or not pdf_outline(params["path"]):
+        return {**ir, "outline_version": 1}
+    result = postprocess(copy.deepcopy(ir), params["path"])
+    list_sections({"ir": result})
+    return result

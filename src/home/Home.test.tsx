@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.mocked(loadIr).mockResolvedValue(ir);
   vi.mocked(listSections).mockResolvedValue(flat);
   vi.mocked(pdfPreview).mockResolvedValue({ pages: 8, thumbnailUrl: 'data:image/png;base64,abc' });
-  provider.complete.mockResolvedValue('["Heaps", "Heapify"]');
+  provider.complete.mockResolvedValue('{"s1":"Heaps", "s2":"Heapify"}');
 });
 afterEach(cleanup);
 function setup(options: Partial<Parameters<typeof Home>[0]> = {}) {
@@ -125,7 +125,7 @@ it('falls back to parser titles after cleanup failure and offers retry', async (
   provider.complete.mockRejectedValueOnce(new Error('offline'));
   const { container } = setup(); await upload(container);
   expect(screen.getByText('Heaps')).toBeTruthy();
-  provider.complete.mockResolvedValue('["Clean heaps", "Clean heapify"]');
+  provider.complete.mockResolvedValue('{"s1":"Clean heaps", "s2":"Clean heapify"}');
   fireEvent.click(screen.getByRole('button', { name: 'Retry section titles' }));
   expect(await screen.findByText('Clean heaps')).toBeTruthy();
 });
@@ -201,4 +201,25 @@ it('shows honest progress while ingest is pending', async () => {
   fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [{ name: 'book.pdf', path: '/book.pdf' }] } });
   expect((await screen.findByRole('status')).textContent).toContain('Reading 12 pages · ~8 s');
   expect((screen.getByRole('progressbar') as HTMLProgressElement).value).toBe(.4);
+});
+
+it('shows parser titles while tidying, retains partial success and retries only missing titles', async () => {
+  let finish!: (value: string) => void;
+  provider.complete.mockImplementationOnce(() => new Promise<string>(resolve => { finish = resolve; }));
+  const { container, jsonStore } = setup();
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [{ name: 'book.pdf', path: '/book.pdf' }] } });
+  expect(await screen.findByText('Tidying section titles…')).toBeTruthy();
+  expect(screen.getByText('Heaps')).toBeTruthy();
+  expect(screen.getByText('Heapify')).toBeTruthy();
+  await act(async () => { finish('{"s1":"Binary heaps", "s2":null}'); });
+  expect(await screen.findByText('Binary heaps')).toBeTruthy();
+  expect(screen.getByText('Heapify')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Retry section titles' })).toBeTruthy();
+  expect(jsonStore.data.has(`titles-${sourceFor('/book.pdf').id}`)).toBe(true);
+  provider.complete.mockResolvedValue('{"s2":"Restoring heap order"}');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry section titles' }));
+  expect(await screen.findByText('Restoring heap order')).toBeTruthy();
+  expect(screen.getByText('Binary heaps')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Retry section titles' })).toBeNull();
 });

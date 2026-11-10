@@ -38,6 +38,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const [content, setContent] = useState<{ id: string; ir: IR; sections: SectionRef[] }>();
   const [cleanup, setCleanup] = useState<'pending' | 'failed' | 'done'>('done');
   const [cleanupAttempt, setCleanupAttempt] = useState(0);
+  const lastCleanupAttempt = useRef(0);
   const [pdfUrl, setPdfUrl] = useState<string>();
   const [pdfAttempt, setPdfAttempt] = useState(0);
   const [pdfRequested, setPdfRequested] = useState(false);
@@ -69,6 +70,8 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   }, [jsonStore, store, loadAttempt]);
   useEffect(() => {
     if (!source) { setLoading(''); setProgress(undefined); return; }
+    const retry = cleanupAttempt !== lastCleanupAttempt.current;
+    lastCleanupAttempt.current = cleanupAttempt;
     let live = true;
     setContent(undefined); setError(''); setLoading(`Reading ${source.name}…`); setProgress(undefined); setCleanup('pending');
     void (async () => {
@@ -78,8 +81,8 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
         if (!live) return;
         setContent({ id: source.id, ir, sections }); setLoading('');
         try {
-          const cleaned = await sectionTitles(source.id, sections, ir, jsonStore, provider);
-          if (live) { setContent({ id: source.id, ir, sections: cleaned }); setCleanup('done'); }
+          const cleaned = await sectionTitles(source.id, sections, ir, jsonStore, provider, retry);
+          if (live) { setContent({ id: source.id, ir, sections: cleaned.sections }); setCleanup(cleaned.incomplete ? 'failed' : 'done'); }
         } catch { if (live) setCleanup('failed'); }
       } catch (e) { if (live) { setLoading(''); setError(`Couldn't read that PDF: ${String(e)}`); setCleanup('failed'); } }
     })();
@@ -129,9 +132,9 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     return { ...f, sourceCount: sources.length, sources };
   });
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
-    sections={content?.id === source.id && cleanup !== 'pending' ? content.sections : []} videos={recentVideos(videos, new Set([source.pdfPath]))}
+    sections={content?.id === source.id ? content.sections : []} videos={recentVideos(videos, new Set([source.pdfPath]))}
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
-    loading={loading || (cleanup === 'pending' ? 'Tidying section titles…' : '')} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
+    loading={loading} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo} pdfUrl={pdfUrl} onOpenOriginal={() => { setPdfRequested(true); setPdfAttempt(n => n + 1); }}
     onGenerate={(ids, detail) => { if (content?.id !== source.id) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
