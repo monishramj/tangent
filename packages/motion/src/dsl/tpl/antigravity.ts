@@ -3,16 +3,14 @@ import { z } from "zod";
 import { type C, at, frac, orderedAnchors, s, spread, visual, visualAt } from "../tplkit";
 import { ACCENT, MOTION } from "../../stage/motion";
 
-const num = z.number().finite();
 const Party = z.object({ name: s, ...visual });
 export const TEMPLATES = {
-  fill: z.object({ label: s, amount: num.nonnegative(), capacity: num.positive(), unit: s.max(12).optional(), ...visual }).refine(d => Number.isFinite(d.amount / d.capacity * 100), "fill percentage must be finite"),
   pictograph: z.object({ n: z.number().int().min(1).max(100), k: z.number().int().nonnegative(), label: s, ...visual }).refine(d => d.k <= d.n, "k must not exceed n"),
   dominoes: z.object({ title: s.optional(), items: z.array(z.object({ text: s, ...visual, ...at })).min(3).max(6) }),
   chat: z.object({ left: Party, right: Party, messages: z.array(z.object({ from: z.enum(["left", "right"]), text: s, typing: z.boolean().optional(), ...at })).min(2).max(6) }),
 } as const;
 type T = typeof TEMPLATES;
-export const VARIANTS: Record<keyof T, string[]> = { fill: ["glass", "battery", "bar"], pictograph: ["grid", "sweep"], dominoes: ["row", "grow"], chat: ["phone", "bubbles"] };
+export const VARIANTS: Record<keyof T, string[]> = { pictograph: ["grid", "sweep"], dominoes: ["row", "grow"], chat: ["phone", "bubbles"] };
 const AR = 9 / 16;
 const short = (t: string, n = 60) => t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t;
 const text = (c: C, base: string, t: string, x: number, y: number, size: number, when: string, opts: Record<string, unknown> = {}) =>
@@ -20,9 +18,6 @@ const text = (c: C, base: string, t: string, x: number, y: number, size: number,
 const shape = (c: C, base: string, x: number, y: number, width: number, height: number, when: string, opts: Record<string, unknown> = {}) =>
   c.add({ id: c.id(base), type: "shape", shape: "rect", x, y, width, height, ...opts }, when, { style: "pop", duration: MOTION.punchSec, easing: "outCubic" });
 
-export function fillLevel(amount: number, capacity: number) {
-  return { level: Math.min(1, amount / capacity), overflow: Math.max(0, amount - capacity), percent: Math.round(amount / capacity * 100) };
-}
 export function pictographGrid(n: number) {
   const cols = Math.ceil(Math.sqrt(n * 1.6)), rows = Math.ceil(n / cols);
   const cell = Math.min(.13, .76 / (cols * AR), .5 / rows);
@@ -115,70 +110,6 @@ export function dominoLabel(text: string, chars: number) {
 }
 
 export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => void } = {
-  fill(c, d, v) {
-    const { level, overflow, percent } = fillLevel(d.amount, d.capacity), bar = v === "bar", glass = v === "glass";
-    // vertical: container left of centre, number on the right; bar: a wide track with the number under it
-    const x = bar ? .5 : .36, y = bar ? .42 : .5, w = bar ? .72 : glass ? .15 : .19, h = bar ? .15 : glass ? .58 : .5, floor = y + h / 2;
-    text(c, "fill_label", d.label, .5, .1, .055, frac(0), { weight: "bold" });
-    if (glass) { // open-topped glass: two walls and a base, so it reads as a vessel rather than a box
-      const l = x - w / 2, r = x + w / 2, t = y - h / 2;
-      c.add({ id: c.id("fill_shell"), type: "line", from: [l, t], to: [l + .008, floor] }, frac(.02), { style: "draw" });
-      c.add({ id: c.id("fill_shell"), type: "line", from: [r, t], to: [r - .008, floor] }, frac(.02), { style: "draw" });
-      c.add({ id: c.id("fill_shell"), type: "line", from: [l + .008, floor], to: [r - .008, floor] }, frac(.02), { style: "draw" });
-    } else shape(c, "fill_shell", x, y, w, h, frac(.02));
-    if (v === "battery") shape(c, "fill_terminal", x, y - h / 2 - .02, w * .35, .03, frac(.03), { filled: true });
-    c.add({ id: c.id("fill_floor"), type: "line", from: bar ? [x - w / 2 - .02, floor + .006] : [.12, floor + .004], to: bar ? [.95, floor + .006] : [.62, floor + .004] }, frac(0), { style: "draw" });
-    // One liquid body grows out of its base (bottom, or the left end for the bar); the counter shares its curve, so the
-    // number tracks the level. Overloaded: a steady (linear) pour reaches the brim at T, where the counter on the same line
-    // reads exactly 100% and keeps climbing while the excess rolls over the lip, runs down the outside and spreads into a puddle.
-    const pad = glass ? .0015 : bar ? .012 : .014, innerW = w - 2 * pad, innerH = h - 2 * pad / AR * (bar ? 1 : .5), F = frac(.16);
-    const T = overflow > 0 ? Math.min(1.5, 300 / percent) : 1.8, curve = overflow > 0 ? "linear" : "inOutCubic";
-    if (level > 0) {
-      const lw = bar ? innerW * level : innerW, lh = bar ? h - 2 * pad / AR : innerH * level;
-      c.key(c.add({ id: c.id("fill_liquid"), type: "shape", shape: "rect", filled: true, color: ACCENT, pivot: bar ? "left" : "bottom", radius: .006,
-        x: bar ? x - innerW / 2 + lw / 2 : x, y: bar ? y : floor - pad / AR * .5 - lh / 2, width: lw, height: lh,
-        ...(glass ? { radius: 0, points: [
-          [-(w / 2 - .008 * (1 - level) - pad) / lw, -.5], [(w / 2 - .008 * (1 - level) - pad) / lw, -.5],
-          [(w / 2 - .008 - pad) / lw, .5], [-(w / 2 - .008 - pad) / lw, .5],
-        ] } : {}) }, F, { style: "grow", duration: T, easing: curve }));
-    }
-    const cx = bar ? .5 : .74, cy = bar ? .66 : .45;
-    const counter = c.add({ id: c.id("fill_percent"), type: "counter", from: 0, to: percent, suffix: "%", size: .12, x: cx, y: cy, color: ACCENT }, F,
-      { style: "type", duration: T * Math.max(100, percent) / 100, easing: curve });
-    if (!(level > 0)) c.key(counter);
-    text(c, "fill_amount", `${d.amount} / ${d.capacity}${d.unit ? " " + d.unit : ""}`, cx, bar ? .78 : .58, .036, frac(.18), { opacity: .7, maxW: .4 });
-    // capacity mark at the brim (top of the vessel, or the end of the bar)
-    const brimY = y - h / 2 + pad / AR * .5, brimX = x + innerW / 2;
-    c.add({ id: c.id("fill_capacity"), type: "line", from: bar ? [brimX, y - h * .8] : [x - w / 2 - .03, brimY], to: bar ? [brimX, y + h * .5] : [x + w / 2, brimY], dashed: true }, frac(.08), { style: "draw" });
-    text(c, "fill_caplabel", "CAPACITY", bar ? brimX : x - w / 2 - .09, bar ? y - h * .8 - .035 : brimY, .024, frac(.08), { maxW: .14, opacity: .55 });
-    visualAt(c, "fill_icon", d, cx, bar ? .22 : .27, .09, frac(.04));
-    if (overflow > 0) { // T: the moment the liquid reaches the brim
-      const wall = x + w / 2, sx = wall + .008, lipY = bar ? y - h / 2 : brimY;
-      const line = floor + (bar ? .006 : .004), pool = line - .003, puddleW = bar ? .1 : .16;
-      c.act({ at: F, do: "highlight", target: counter, delay: T }); // the number punches as it passes 100%
-      // Sample a cubic over the rim, then follow the outside wall into the puddle.
-      const start: Pt = [wall - pad - .008, lipY], bend: Pt = [sx, lipY + .035];
-      const foot: Pt = [sx - (glass ? .008 : 0), pool];
-      const points: Pt[] = Array.from({ length: 17 }, (_, i) => {
-        const t = i / 16, u = 1 - t;
-        return [u ** 3 * start[0] + 3 * u * u * t * (sx + .004) + 3 * u * t * t * sx + t ** 3 * bend[0],
-          u ** 3 * start[1] + 3 * u * u * t * (lipY - .02) + 3 * u * t * t * (lipY - .02) + t ** 3 * bend[1]];
-      });
-      // Ease the falling stream into the floor instead of ending in a right-angle join.
-      for (let i = 1; i <= 24; i++) {
-        const t = i / 24, u = 1 - t;
-        points.push([u ** 3 * bend[0] + 3 * u * u * t * sx + 3 * u * t * t * (foot[0] - .012) + t ** 3 * foot[0],
-          u ** 3 * bend[1] + 3 * u * u * t * (pool - .05) + 3 * u * t * t * pool + t ** 3 * pool]);
-      }
-      c.add({ id: c.id("fill_stream"), type: "line", color: ACCENT, from: start, to: foot, points, thick: 2.6 }, F,
-        { style: "draw", delay: T, duration: .65, easing: "inOutCubic" });
-      c.add({ id: c.id("fill_puddle"), type: "shape", shape: "circle", filled: true, color: ACCENT, pivot: "left",
-        x: foot[0] - .012 + puddleW / 2, y: pool, width: puddleW, height: .018 }, F,
-        { style: "grow", delay: T + .6, duration: 1.2, easing: "outCubic" });
-      c.add({ id: c.id("fill_overflow"), type: "text", text: `+${Number(overflow.toPrecision(5))}${d.unit ? " " + d.unit : ""} overflow`, color: ACCENT, opacity: 1,
-        x: Math.min(.95 - .11, sx + puddleW / 2), y: line + .05, size: .03, maxW: .22 }, F, { style: "type", delay: T + .7 });
-    }
-  },
   pictograph(c, d, v) {
     const { cols, rows, cell } = pictographGrid(d.n), times = spread(d.k, .2, .76), pct = d.k / d.n * 100;
     text(c, "pic_label", d.label, .5, .1, .052, frac(0), { weight: "bold" });
@@ -279,12 +210,10 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
   },
 };
 export const SAMPLES: Record<keyof T, unknown> = {
-  fill: { label: "Buffer under pressure", amount: 12, capacity: 10, unit: "MB", icon: "database" },
   pictograph: { n: 10, k: 3, label: "Three in ten people", icon: "user" },
   dominoes: { title: "One change cascades", items: [{ text: "Compare", icon: "search", at: "parent" }, { text: "Swap", icon: "refresh", at: "swaps" }, { text: "Check again", emoji: "⚡", at: "again" }] },
   chat: { left: { name: "Client", icon: "laptop" }, right: { name: "Server", icon: "database" }, messages: [{ from: "left", text: "Request", at: "parent" }, { from: "right", text: "Checking…", at: "children", typing: true }, { from: "left", text: "Ready?", at: "swaps" }, { from: "right", text: "Response", at: "again", typing: true }] },
 };
-export const GUIDE = `- fill {label,amount,capacity,unit?,icon?|emoji?} glass|battery|bar. Load/capacity; computed fill spills when overloaded.
-- pictograph {n:1-100,k,icon?|emoji?,label} grid|sweep. k of n light up; percentage computed.
+export const GUIDE = `- pictograph {n:1-100,k,icon?|emoji?,label} grid|sweep. k of n light up; percentage computed.
 - dominoes {title?,items:[{text,icon?|emoji?,at?}] 3-6} row|grow. Cause/effect chain: each step tips the next (grow: small cause, big effect).
 - chat {left:{name,icon?|emoji?},right:{...},messages:[{from:"left"|"right",text,at?,typing?}] 2-6} phone|bubbles. Requests, protocols, handshakes.`;

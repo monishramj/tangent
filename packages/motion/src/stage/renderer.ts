@@ -222,7 +222,7 @@ export class SceneRenderer {
           if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
           const path = trimPath(full, ta, tb);
           if (path.length < 2) return;
-          const p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = strokeW(h, o.type === "line" ? o.thick : 1), head = o.type === "arrow" ? sw * 3.2 : 0;
+          const p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = strokeW(h, 1), head = o.type === "arrow" ? sw * 3.2 : 0;
           // the shaft stops short of the tip so the filled head stays sharp; the head rides the drawing front
           const part = partialPath(path, p), tip = part[part.length - 1], dir = part.length > 1 ? pathDir(part, true) : [1, 0];
           const shaft = head && p > 0 ? trimPath(part, 0, Math.min(head * .8, pathLength(part))) : part;

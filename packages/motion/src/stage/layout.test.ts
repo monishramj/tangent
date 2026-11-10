@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutScene, MIN_FONT, type LItem, type Measure, type Placed } from "./layout";
+import { layoutScene, minFont, type LItem, type Measure, type Placed } from "./layout";
 
 const m: Measure = (s, size, bold) => s.length * size * (bold ? 0.6 : 0.5);
 const T = (id: string, text: string, extra: Partial<LItem> = {}): LItem => ({ id, type: "text", text, ...extra });
@@ -45,8 +45,8 @@ describe("layoutScene", () => {
       const l = layoutScene(items, w, h, m);
       const rs = items.map((i) => ({ p: l.get(i.id)!, r: rect(l.get(i.id)!, w, h, i.type === "KineticText") }));
       for (const { p, r } of rs) {
-        expect(p.fontSize).toBeGreaterThanOrEqual(MIN_FONT);
-        if (p.fontSize! > MIN_FONT) { // at the floor we cannot do more
+        expect(p.fontSize).toBeGreaterThanOrEqual(Math.floor(minFont(h)));
+        if (p.fontSize! > minFont(h)) { // at the floor we cannot do more
           expect(r.l).toBeGreaterThanOrEqual(-0.5); expect(r.r).toBeLessThanOrEqual(w + 0.5);
           expect(r.t).toBeGreaterThanOrEqual(-0.5); expect(r.b).toBeLessThanOrEqual(h + 0.5);
         }

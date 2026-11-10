@@ -1,17 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { EXPAND, GUIDE, SAMPLES, TEMPLATES, VARIANTS, chatLayout, dominoLayout, dominoStages, fillLevel, overlaps, pictographGrid, slab } from "./antigravity";
+import { EXPAND, GUIDE, SAMPLES, TEMPLATES, VARIANTS, chatLayout, dominoLayout, dominoStages, overlaps, pictographGrid, slab } from "./antigravity";
 import { ctx } from "../tplkit";
 import { Scene } from "../schema";
 import { SAMPLE_SAY } from "../fixtures/samples";
 import { validateScene } from "../validate";
 
-it("computes fill, caps the liquid and preserves overflow", () => {
-  expect(fillLevel(0, 10)).toEqual({ level: 0, overflow: 0, percent: 0 });
-  expect(fillLevel(3, 10)).toEqual({ level: .3, overflow: 0, percent: 30 });
-  expect(fillLevel(12, 10)).toEqual({ level: 1, overflow: 2, percent: 120 });
-  expect(TEMPLATES.fill.safeParse({ label: "Bad", amount: -1, capacity: 0 }).success).toBe(false);
-  expect(TEMPLATES.fill.safeParse({ label: "Huge", amount: 1e308, capacity: 1e-308 }).success).toBe(false);
-});
 it("fits every grid from one to one hundred without collisions", () => {
   for (let n = 1; n <= 100; n++) {
     const { cols, rows, cell } = pictographGrid(n);
@@ -70,32 +63,6 @@ it("chat bubbles hug their text and the thread fits its room", () => {
   expect(L.items[1].text.split("\n").length).toBeLessThanOrEqual(4);
   expect(L.total).toBeLessThanOrEqual(.77 + 1e-9);
   for (const b of L.items) expect(b.w).toBeLessThanOrEqual(.26 * .78 + .01);
-});
-
-it("reveals the glass polygon without changing its wall taper", async () => {
-  const { clipBelow } = await import("../../stage/geometry");
-  const c = ctx(0, SAMPLE_SAY, new Set());
-  EXPAND.fill(c, { label: "Buffer", amount: 12, capacity: 10 }, "glass");
-  const liquid = c.objects.find(o => o.id === "fill_liquid");
-  if (liquid?.type !== "shape" || !liquid.points) throw new Error("missing glass polygon");
-  const [left, right, baseRight, baseLeft] = liquid.points;
-  expect(right[0]).toBeGreaterThan(baseRight[0]);
-  const half = clipBelow(liquid.points, 0);
-  expect(half).toContainEqual([(right[0] + baseRight[0]) / 2, 0]);
-  expect(half).toContainEqual(baseLeft);
-  expect(clipBelow(liquid.points, -.5)).toEqual([left, right, baseRight, baseLeft]);
-  const stream = c.objects.find(o => o.id === "fill_stream");
-  if (stream?.type !== "line" || !stream.points) throw new Error("missing spill path");
-  expect(stream.points.length).toBeGreaterThan(10);
-  const landing = stream.points.slice(16), end = landing[landing.length - 1], prev = landing[landing.length - 2];
-  landing.slice(1).forEach((p, i) => expect(p[1]).toBeGreaterThanOrEqual(landing[i][1]));
-  expect(end[0]).toBeGreaterThan(prev[0]); // the stream turns into the puddle
-  expect(end[1] - prev[1]).toBeLessThan(.001);
-  expect(c.objects.some(o => o.id === "fill_lip")).toBe(false);
-  const actions = c.actions as { target?: string; duration?: number; delay?: number }[];
-  const grow = actions.find(a => a.target === "fill_liquid")!;
-  expect(actions.find(a => a.target === "fill_percent")!.duration).toBeCloseTo(grow.duration! * 1.2);
-  expect(actions.find(a => a.target === "fill_stream")!.delay).toBe(grow.duration);
 });
 
 it("keeps the six stress labels whole within three word-wrapped lines", async () => {

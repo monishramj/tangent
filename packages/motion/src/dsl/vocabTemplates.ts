@@ -249,17 +249,21 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     const three = d.sets.length === 3, D = three ? .48 : .6;
     const centers: [number, number][] = three ? [[.42, .42], [.58, .42], [.5, .66]] : [[.39, .55], [.61, .55]];
     const out: [number, number][] = three ? [[-.13, -.06], [.13, -.06], [0, .14]] : [[-.11, 0], [.11, 0]];
+    const inner: [number, number][] = [[-.055, -.06], [.055, -.06], [0, .11]]; // three sets: items sit inside each circle's own region
     const circles: string[] = [];
     d.sets.forEach((st, i) => {
       const [x, y] = centers[i], f = frac(.05 + .2 * i);
       circles[i] = c.add({ id: c.id(`venn${i}`), type: "shape", shape: "circle", ghost: true, x, y, width: D * AR, height: D }, f, { style: "draw", duration: .6 });
       const lx = x + out[i][0] * (three ? 1.6 : 1.5), ly = three ? (i < 2 ? y - D / 2 - .04 : y + D / 2 + .04) : y - D / 2 - .05;
-      text(c, `venn${i}_l`, st.label, three ? lx : x + out[i][0] * .9, ly, .045, f, { weight: "bold", opacity: 1, maxW: .24 });
-      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, x + out[i][0], y + out[i][1] + (j - (st.items.length - 1) / 2) * .07, .032, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : .16, opacity: .85 }));
+      text(c, `venn${i}_l`, st.label, three ? lx : x + out[i][0] * .9, ly, .045, f, { weight: "bold", opacity: 1, maxW: .24, maxH: .1 });
+      // each item gets its own row inside the circle's exclusive region: long text shrinks to fit rather than spilling out
+      // two sets: centre the items in the crescent between this circle's outer edge and the overlap
+      const R = D * AR / 2, ox = three ? 0 : centers[1 - i][0], ix0 = three ? x + inner[i][0] : (x + ox) / 2 + (i ? R : -R); // midpoint of [outer edge, overlap edge]
+      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, ix0, y + (three ? inner[i][1] : out[i][1]) + (j - (st.items.length - 1) / 2) * .07, .032, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : Math.abs(ox - x) * .8, maxH: .064, opacity: .85 }));
     });
     const [ix, iy] = three ? [.5, .5] : [.5, .55];
     d.both.forEach((it, j) => {
-      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .065, .032, frac(.65 + .06 * j), { maxW: three ? .09 : .1, opacity: 1, weight: "bold" });
+      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .065, .032, frac(.65 + .06 * j), { maxW: three ? .08 : .1, maxH: .06, opacity: 1, weight: "bold" });
       if (j === 0) c.key(id);
     });
     if (v === "focus") {
