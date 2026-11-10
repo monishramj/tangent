@@ -1,305 +1,150 @@
-import { useEffect, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { File02Icon, Upload04Icon } from "@hugeicons/core-free-icons";
-import AnimatedList from "@/components/AnimatedList";
-import Icon from "@/components/Icon";
-import ShinyText from "@/components/ShinyText";
-import SpotlightCard from "@/components/SpotlightCard";
-import { listSections, multiTitle, topSelected, type IR, type SectionRef } from "./api";
-import GiphyKey from "./GiphyKey";
-import { loadIr, type LoadProgress } from "../library";
-import { tauriJsonStore, type JsonStore } from "../storage/store";
-import { tauriVideoStore, videoDuration, type VideoBundle, type VideoStore } from "../storage/videos";
-
-import { DETAIL_LEVELS, isDetailLevel, type DetailLevel } from "../gen/script";
+import { useEffect, useRef, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import LibraryView from './LibraryView';
+import SourceView from './SourceView';
+import { listSections, multiTitle, originalPdf, pdfPreview, type IR, type SectionRef } from './api';
+import { loadIr, type LoadProgress } from '../library';
+import { sourceFor, tauriJsonStore, type JsonStore } from '../storage/store';
+import { addFolder, addSource, deleteFolder, emptyLibrary, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
+import { tauriVideoStore, type VideoBundle, type VideoStore } from '../storage/videos';
+import { sectionTitles } from './sectionTitles';
+import { providers } from '../llm/registry';
+import type { LLMProvider } from '../llm/provider';
+import { isDetailLevel, type DetailLevel } from '../gen/script';
 
 export type StartMeta = { pdfPath: string; title: string; detail: DetailLevel };
-const DETAIL_KEY = "tangent.detail";
-const DETAIL_LABEL: Record<DetailLevel, string> = { overview: "Overview", standard: "Standard", detailed: "Detailed", complete: "Complete" };
-const DETAIL_HINT: Record<DetailLevel, string> = {
-  overview: "Key ideas only. Shortest video.",
-  standard: "Key ideas, main definitions and examples.",
-  detailed: "Every idea, example and important caveat.",
-  complete: "Covers everything in the section. Longest video.",
-};
-const readDetail = (): DetailLevel => {
-  try { const v = localStorage.getItem(DETAIL_KEY); return isDetailLevel(v) ? v : "standard"; } catch { return "standard"; }
-};
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+export type LibraryRoute = { s: 'home' } | { s: 'folder'; folderId: string } | { s: 'source'; sourceId: string; folderId?: string };
+const isTauri = () => '__TAURI_INTERNALS__' in window;
 
-const KEY = "tangent.recent";
-type Recent = { path: string; sectionId: string; title: string };
-type State =
-  | { s: "idle" }
-  | { s: "loading"; name: string; progress?: LoadProgress }
-  | { s: "error"; msg: string }
-  | { s: "pick"; path: string; ir: IR; sections: SectionRef[] };
-
-const readRecent = (): Recent[] => {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch { return []; }
-};
-const pages = (a: { page: number }[]) => {
-  if (!a.length) return "";
-  const [lo, hi] = [Math.min(...a.map((x) => x.page)), Math.max(...a.map((x) => x.page))];
-  return lo === hi ? `p. ${lo}` : `pp. ${lo}-${hi}`;
-};
-const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const btn = "flex h-11 items-center gap-2 rounded-lg border border-line px-4 text-fg hover:bg-fg/10";
-
-// Tauri webviews give no File.path, so there the dialog plugin / drag-drop event supply absolute paths;
-// the file input and DOM drop remain the browser/jsdom fallback.
-const isTauri = () => "__TAURI_INTERNALS__" in window;
-const pathOf = (f: File) => (f as File & { path?: string }).path ?? f.name;
-const notPdf = "That isn't a PDF. Choose a .pdf file.";
-
-export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore }: {
-  onStart?: (sectionIds: string[], ir: IR, meta: StartMeta) => void; onOpenVideo?: (b: VideoBundle) => void; store?: VideoStore; jsonStore?: JsonStore;
+export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore, provider = providers.claude, route: controlledRoute, onNavigate }: {
+  onStart?: (ids: string[], ir: IR, meta: StartMeta) => void; onOpenVideo?: (video: VideoBundle) => void;
+  store?: VideoStore; jsonStore?: JsonStore; provider?: LLMProvider; route?: LibraryRoute; onNavigate?: (route: LibraryRoute) => void;
 }) {
+  const [localRoute, setLocalRoute] = useState<LibraryRoute>({ s: 'home' });
+  const route = controlledRoute ?? localRoute;
+  const navigate = onNavigate ?? setLocalRoute;
+  const [library, setLibrary] = useState<Library>(emptyLibrary);
+  const libraryRef = useRef(library);
+  libraryRef.current = library;
+  const [ready, setReady] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [detail, setDetail] = useState<DetailLevel>('standard');
   const [videos, setVideos] = useState<VideoBundle[]>([]);
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [choice, setChoice] = useState<{ saved: VideoBundle; title: string; regenerate: () => void } | null>(null);
-  const [listed, setListed] = useState(false); // recents are shown (and pruned) only once the saved videos are known
-  useEffect(() => { let live = true; store.list().then(v => { if (live) { setVideos(v); setListed(true); } }, () => {}); return () => { live = false; }; }, [store]);
-  const remove = async (id: string) => {
-    setConfirm(null);
-    try { await store.remove(id); setVideos(v => v.filter(x => x.id !== id)); } catch (e) { setState({ s: "error", msg: `Couldn't delete: ${e}` }); }
-  };
-  const savedFor = (path: string, sectionId: string) => videos.find(v => v.source.pdfPath === path && v.source.sectionId === sectionId);
-  const [state, setState] = useState<State>({ s: "idle" });
-  const [recent, setRecent] = useState(readRecent);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [detail, setDetailState] = useState<DetailLevel>(readDetail);
-  const setDetail = (d: DetailLevel) => { setDetailState(d); try { localStorage.setItem(DETAIL_KEY, d); } catch { /* per-viewer convenience only */ } };
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState('');
+  const [progress, setProgress] = useState<LoadProgress>();
   const [over, setOver] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-
-  // Parsed once per file: the IR is cached in the app store and figures land in app data (see library.ts).
-  const ingest = (path: string, name: string) => {
-    setState({ s: "loading", name });
-    return loadIr(path, progress => setState(s => s.s === "loading" ? { ...s, progress } : s), jsonStore);
+  const [content, setContent] = useState<{ id: string; ir: IR; sections: SectionRef[] }>();
+  const [cleanup, setCleanup] = useState<'pending' | 'failed' | 'done'>('done');
+  const [cleanupAttempt, setCleanupAttempt] = useState(0);
+  const [pdfUrl, setPdfUrl] = useState<string>();
+  const [pdfAttempt, setPdfAttempt] = useState(0);
+  const [pdfRequested, setPdfRequested] = useState(false);
+  const sourceId = route.s === 'source' ? route.sourceId : undefined;
+  const source = library.sources.find(s => s.id === sourceId);
+  const folderId = route.s === 'folder' || route.s === 'source' ? route.folderId : undefined;
+  const folder = library.folders.find(f => f.id === folderId);
+  // Serialize read/modify/write operations, including background thumbnail updates.
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+  const update = (change: (current: Library) => Library) => {
+    if (!ready) return Promise.reject(new Error("The library has not loaded. Try opening it again first."));
+    const write = writes.current.catch(() => {}).then(async () => {
+      const next = change(libraryRef.current);
+      await saveLibrary(jsonStore, next);
+      libraryRef.current = next; setLibrary(next);
+    });
+    writes.current = write;
+    return write;
   };
-  const load = async (path: string, name = path) => {
+  useEffect(() => {
+    let live = true;
+    void Promise.all([readLibrary(jsonStore), store.list(), jsonStore.read<string>('video-detail')]).then(async ([saved, bundles, preference]) => {
+      // Recover PDFs referenced by existing saved videos without relying on old localStorage recents.
+      const next = bundles.reduce((all, video) => addSource(all, video.source.pdfPath), saved);
+      if (next !== saved) await saveLibrary(jsonStore, next);
+      if (live) { libraryRef.current = next; setLibrary(next); setVideos(recentVideos(bundles)); if (isDetailLevel(preference)) setDetail(preference); setReady(true); }
+    }).catch(e => { if (live) setError(`Couldn't open the library: ${String(e)}`); });
+    return () => { live = false; };
+  }, [jsonStore, store, loadAttempt]);
+  useEffect(() => {
+    if (!source) { setLoading(''); setProgress(undefined); return; }
+    let live = true;
+    setContent(undefined); setError(''); setLoading(`Reading ${source.name}…`); setProgress(undefined); setCleanup('pending');
+    void (async () => {
+      try {
+        const ir = await loadIr(source.pdfPath, p => { if (live) setProgress(p); }, jsonStore);
+        const sections = await listSections(ir);
+        if (!live) return;
+        setContent({ id: source.id, ir, sections }); setLoading('');
+        try {
+          const cleaned = await sectionTitles(source.id, sections, ir, jsonStore, provider);
+          if (live) { setContent({ id: source.id, ir, sections: cleaned }); setCleanup('done'); }
+        } catch { if (live) setCleanup('failed'); }
+      } catch (e) { if (live) { setLoading(''); setError(`Couldn't read that PDF: ${String(e)}`); setCleanup('failed'); } }
+    })();
+    return () => { live = false; };
+  }, [source?.id, source?.pdfPath, jsonStore, provider, cleanupAttempt]);
+  useEffect(() => {
+    setPdfRequested(false); setPdfUrl(undefined);
+  }, [sourceId]);
+  useEffect(() => {
+    if (!source || !pdfRequested) return;
+    let live = true, url: string | undefined;
+    void originalPdf(source.pdfPath).then(base64 => {
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      if (live) { url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })); setPdfUrl(url); }
+    }).catch(e => { if (live) setError(`Couldn't open the original PDF: ${String(e)}`); });
+    return () => { live = false; if (url) URL.revokeObjectURL(url); };
+  }, [source?.id, source?.pdfPath, pdfRequested, pdfAttempt]);
+  const importPath = async (path: string) => {
+    if (!ready || loading) return;
+    if (!/\.pdf$/i.test(path)) { setError("That isn't a PDF. Choose a .pdf file."); return; }
     try {
-      const ir = await ingest(path, name);
-      setState({ s: "pick", path, ir, sections: await listSections(ir) });
-    } catch (e) {
-      setState({ s: "error", msg: String(e) });
-    }
+      const target = folderId ?? null;
+      await update(current => addSource(current, path, target));
+      const id = sourceFor(path).id;
+      navigate({ s: 'source', sourceId: id, folderId: target ?? undefined });
+      void pdfPreview(path).then(preview => update(current => ({ ...current, sources: current.sources.map(s => s.id === id ? { ...s, pageCount: preview.pages, thumbnailUrl: preview.thumbnailUrl } : s) }))).catch(() => {});
+    } catch (e) { setError(`Couldn't add the PDF: ${String(e)}`); }
   };
-  const take = (f?: File) => {
-    if (!f) return;
-    if (!/\.pdf$/i.test(f.name)) return setState({ s: "error", msg: notPdf });
-    load(pathOf(f), f.name);
-  };
-  const takePath = (p: string) => load(p, p.split(/[\\/]/).pop());
-  const choose = async () => {
-    if (!isTauri()) return input.current?.click();
-    const p = await open({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
-    if (typeof p === "string") takePath(p);
-  };
-  const dropped = useRef(takePath);
-  dropped.current = takePath;
+  const dropped = useRef(importPath); dropped.current = importPath;
   useEffect(() => {
     if (!isTauri()) return;
-    const un = getCurrentWebview().onDragDropEvent((e) => {
-      const p = e.payload;
-      if (p.type === "enter" || p.type === "over") return setOver(true);
-      setOver(false);
-      if (p.type !== "drop" || !p.paths.length) return;
-      const pdf = p.paths.find((x) => /\.pdf$/i.test(x));
-      pdf ? dropped.current(pdf) : setState({ s: "error", msg: notPdf });
+    const unlisten = getCurrentWebview().onDragDropEvent(event => {
+      const value = event.payload;
+      setOver(value.type === 'enter' || value.type === 'over');
+      if (value.type === 'drop' && value.paths.length) void dropped.current(value.paths.find(p => /\.pdf$/i.test(p)) ?? value.paths[0]);
     });
-    return () => { un.then((f) => f()); };
+    void unlisten.catch(e => setError(`Couldn't listen for dropped files: ${String(e)}`));
+    return () => { void unlisten.then(fn => fn(), () => {}); };
   }, []);
-  const start = (path: string, ir: IR, ids: string[], title: string) => {
-    const sectionId = ids.join("+");
-    setPicked(new Set());
-    const next = [{ path, sectionId, title }, ...recent.filter((r) => !(r.path === path && r.sectionId === sectionId))].slice(0, 8);
-    localStorage.setItem(KEY, JSON.stringify(next));
-    setRecent(next);
-    const go = () => onStart(ids, ir, { pdfPath: path, title, detail });
-    const saved = savedFor(path, sectionId);
-    if (saved) setChoice({ saved, title, regenerate: go }); else go();
+  const home = () => { setError(''); navigate({ s: 'home' }); };
+  const openVideo = async (video: VideoBundle) => {
+    try { onOpenVideo(await store.load(video.id)); } catch (e) { setError(`Couldn't open the saved video: ${String(e)}`); }
   };
-  // A recent entry is only a shortcut to a saved video: entries without one are dropped, and clicking never regenerates.
-  const shownRecent = listed ? recent.filter(r => savedFor(r.path, r.sectionId)) : [];
-  useEffect(() => {
-    if (!listed || shownRecent.length === recent.length) return;
-    setRecent(shownRecent);
-    try { localStorage.setItem(KEY, JSON.stringify(shownRecent)); } catch { /* per-viewer convenience only */ }
-  }, [listed, videos]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <main className="h-screen overflow-y-auto bg-bg px-8 py-12">
-      <div className="mx-auto flex max-w-2xl flex-col gap-10">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-5xl font-semibold tracking-tight">Tangent</h1>
-            <p className="mt-2 text-base text-muted">Drop in a chapter. Pick a section. Watch, and interrupt whenever you like.</p>
-          </div>
-          <GiphyKey />
-        </header>
-
-        {state.s === "pick" ? (
-          <section aria-label="Choose a section" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Pick a section</h2>
-              <button type="button" className={btn} onClick={() => setState({ s: "idle" })}>Choose another PDF</button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div role="radiogroup" aria-label="Detail level" className="inline-flex rounded-lg border border-line p-0.5">
-                {DETAIL_LEVELS.map(d => (
-                  <button key={d} type="button" role="radio" aria-checked={detail === d} onClick={() => setDetail(d)}
-                    className={`h-9 rounded-md px-3 text-sm transition-colors ${detail === d ? "bg-fg text-bg" : "text-muted hover:text-fg"}`}>
-                    {DETAIL_LABEL[d]}
-                  </button>
-                ))}
-              </div>
-              <span className="text-xs text-subtle">{DETAIL_HINT[detail]}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {(() => {
-                const all = picked.size === state.sections.length;
-                return <button type="button" className={btn} onClick={() => setPicked(all ? new Set() : new Set(state.sections.map((x) => x.id)))}>{all ? "Clear selection" : "Select all"}</button>;
-              })()}
-              {picked.size > 0 && (() => {
-                const ids = topSelected(state.sections, picked);
-                return (
-                  <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg/85`}
-                    onClick={() => start(state.path, state.ir, ids, multiTitle(ids.map((id) => state.sections.find((x) => x.id === id)!.title)))}>
-                    Make video ({ids.length} {ids.length === 1 ? "section" : "sections"})
-                  </button>
-                );
-              })()}
-            </div>
-            <AnimatedList
-              items={state.sections.map((x) => ({ id: x.id, title: x.title, meta: pages(x.anchors) }))}
-              ariaLabel="Sections"
-              onItemSelect={(_, i) => { const x = state.sections[i]; start(state.path, state.ir, [x.id], x.title); }}
-              frame={false}
-              showGradients={false}
-              width="100%"
-              maxHeight="none"
-              gap={4}
-              radius={8}
-              itemClassName="min-h-11"
-              style={{ "--al-tile": "transparent", "--al-tile-edge": "transparent", "--al-tile-highlight": "transparent", "--al-tile-shadow": "none", "--al-ink": "var(--fg)", "--al-muted": "var(--fg-muted)", "--al-ring": "rgba(255,255,255,0.5)", "--al-ring-fill": "rgba(255,255,255,0.04)", "--al-hover": "none", "--al-active": "none" } as React.CSSProperties}
-              renderItem={(_, i) => {
-                const x = state.sections[i];
-                return (
-                  <>
-                    <span className="relative mr-3 grid size-6 shrink-0 place-items-center">
-                      <input type="checkbox" aria-label={`Select ${x.title}`} checked={picked.has(x.id)}
-                        className="peer size-6 cursor-pointer appearance-none rounded-md border border-line bg-transparent transition-colors hover:border-fg/60 checked:border-fg checked:bg-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg/60"
-                        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
-                        onChange={(e) => setPicked((p) => { const n = new Set(p); e.target.checked ? n.add(x.id) : n.delete(x.id); return n; })} />
-                      <svg aria-hidden viewBox="0 0 16 16" className="pointer-events-none absolute size-4 text-bg opacity-0 transition-opacity peer-checked:opacity-100" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3.5 8.5l3 3 6-7" /></svg>
-                    </span>
-                    <span style={{ paddingLeft: Math.max(0, x.level - 1) * 20 }} className={`flex-1 ${x.level <= 1 ? "text-fg" : "text-muted"}`}>{x.title}</span>
-                    <span className="text-xs text-subtle tabular-nums">{pages(x.anchors)}</span>
-                  </>
-                );
-              }}
-            />
-          </section>
-        ) : (
-          // React Bits SpotlightCard: a soft white light follows the pointer (and keyboard focus) across the drop zone.
-          <SpotlightCard
-            data-testid="dropzone"
-            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files[0]); }}
-            spotlightColor="#ffffff" intensity={0.08} spotlightSize={320} borderGlow={0.5}
-            style={{ "--spotlight-card-surface": over ? "rgba(255,255,255,0.05)" : "transparent", "--spotlight-card-border": over ? "rgba(255,255,255,0.7)" : "var(--line)", "--spotlight-card-shadow": "none" } as React.CSSProperties}
-            className="flex flex-col items-center gap-4 !rounded-2xl !px-6 !py-14 text-center transition-[background-color] duration-200"
-          >
-            {state.s === "loading" ? (
-              <div role="status" className="flex w-full max-w-sm flex-col items-center gap-3 text-base text-muted">
-                <ShinyText text={`Reading ${state.name}...`} color={css("--fg-subtle")} shineColor={css("--fg")} />
-                {state.progress && <>
-                  <div aria-hidden className="h-1 w-full overflow-hidden rounded-full bg-fg/10">
-                    <div className="h-full origin-left rounded-full bg-fg transition-transform duration-500 ease-out" style={{ transform: `scaleX(${state.progress.fraction})` }} />
-                  </div>
-                  <span className="text-xs text-subtle tabular-nums">{state.progress.label}</span>
-                </>}
-              </div>
-            ) : state.s === "error" ? (
-              <>
-                <p role="alert" className="text-base text-fg">Couldn't read that PDF: {state.msg}</p>
-                <button type="button" className={btn} onClick={() => setState({ s: "idle" })}>Try again</button>
-              </>
-            ) : (
-              <>
-                <Icon icon={Upload04Icon} size={32} className="text-subtle" />
-                <p className="text-base text-muted">Drop a PDF here</p>
-                <button type="button" className={btn} onClick={choose}>
-                  <Icon icon={File02Icon} size={20} />
-                  Choose PDF
-                </button>
-              </>
-            )}
-            <input ref={input} type="file" accept="application/pdf,.pdf" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { take(e.target.files?.[0]); e.target.value = ""; }} />
-          </SpotlightCard>
-        )}
-
-        {choice && (
-          <section role="dialog" aria-label="Saved video found" className="flex flex-col gap-3 rounded-2xl border border-line p-4">
-            <p className="text-base text-fg">You already have a video for “{choice.title}”.</p>
-            <div className="flex gap-2">
-              <button type="button" className={btn} onClick={() => { onOpenVideo(choice.saved); setChoice(null); }}>Open saved</button>
-              <button type="button" className={btn} onClick={() => { const r = choice.regenerate; setChoice(null); r(); }}>Regenerate</button>
-              <button type="button" className={btn} onClick={() => setChoice(null)}>Cancel</button>
-            </div>
-          </section>
-        )}
-
-        <section aria-labelledby="videos" className="flex flex-col gap-3">
-          <h2 id="videos" className="text-lg font-semibold">Your videos</h2>
-          {videos.length === 0 ? (
-            <p className="text-sm text-subtle">No saved videos yet.</p>
-          ) : (
-            <ul aria-label="Your videos" className="flex flex-col gap-1">
-              {videos.map((v) => (
-                <li key={v.id} className="flex items-center gap-2">
-                  <button type="button" onClick={() => onOpenVideo(v)} className="flex min-h-11 flex-1 flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
-                    <span className="text-fg">{v.title}</span>
-                    <span className="text-xs text-subtle">
-                      {clock(videoDuration(v))} · {new Date(v.createdAt).toLocaleDateString()} · {v.complete ? "Complete" : "Partial"}
-                    </span>
-                  </button>
-                  {confirm === v.id ? (
-                    <>
-                      <button type="button" className={btn} onClick={() => remove(v.id)}>Confirm delete</button>
-                      <button type="button" className={btn} onClick={() => setConfirm(null)}>Keep</button>
-                    </>
-                  ) : (
-                    <button type="button" aria-label={`Delete ${v.title}`} className={btn} onClick={() => setConfirm(v.id)}>Delete</button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section aria-labelledby="recent" className="flex flex-col gap-3">
-          <h2 id="recent" className="text-lg font-semibold">Recent videos</h2>
-          {shownRecent.length === 0 ? (
-            <p className="text-sm text-subtle">No recent videos yet.</p>
-          ) : (
-            <ul aria-label="Recent videos" className="flex flex-col gap-1">
-              {shownRecent.map((r) => (
-                <li key={r.path + r.sectionId}>
-                  <button type="button" onClick={() => onOpenVideo(savedFor(r.path, r.sectionId)!)} className="flex min-h-11 w-full flex-col items-start rounded-lg px-3 py-2 text-left hover:bg-fg/10">
-                    <span className="text-fg">{r.title}</span>
-                    <span className="text-xs text-subtle">{r.path.split("/").pop()}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-    </main>
-  );
+  const removeVideo = async (id: string) => { await store.remove(id); setVideos(current => current.filter(v => v.id !== id)); };
+  const folders = [...library.folders].sort((a, b) => b.openedAt - a.openedAt).map(f => {
+    const sources = library.sources.filter(s => s.folderId === f.id);
+    return { ...f, sourceCount: sources.length, sources };
+  });
+  if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
+    sections={content?.id === source.id && cleanup !== 'pending' ? content.sections : []} videos={recentVideos(videos, new Set([source.pdfPath]))}
+    initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
+    loading={loading || (cleanup === 'pending' ? 'Tidying section titles…' : '')} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
+    onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home}
+    onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo} pdfUrl={pdfUrl} onOpenOriginal={() => { setPdfRequested(true); setPdfAttempt(n => n + 1); }}
+    onGenerate={(ids, detail) => { if (content?.id !== source.id) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
+  return <LibraryView folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
+    sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
+    videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
+    onBack={home} onHome={home} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
+    onOpenSource={id => navigate({ s: 'source', sourceId: id, folderId: folder?.id })} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
+    onChoosePdf={() => { void open({ filters: [{ name: 'PDF', extensions: ['pdf'] }] }).then(path => { if (typeof path === 'string') return importPath(path); }).catch(e => setError(String(e))); }}
+    onDropFile={file => { void importPath((file as File & { path?: string }).path ?? file.name); }}
+    onCreateFolder={(name, emoji) => update(current => addFolder(current, name, emoji))}
+    onRenameFolder={(id, name) => update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, name } : f) }))}
+    onDeleteFolder={async id => { await update(current => deleteFolder(current, id)); home(); }}
+    onMoveSource={(id, target) => update(current => moveSource(current, id, target))}
+    over={over} loading={!ready && !error ? 'Opening your library…' : loading} progress={progress} error={error} onRetry={error ? () => { setError(''); if (!ready) setLoadAttempt(n => n + 1); } : undefined} />;
 }

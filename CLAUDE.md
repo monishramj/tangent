@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-10): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Projects per class (NotebookLM-style: sources, videos, practice, notes), threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (10 new human templates, stick figure, the Tangenter). Next: dogfood on real CS 251 chapters and fix what breaks; sources-first homepage is in progress on the `homepage` branch (see *Current state*).
+> Status (2026-11-10): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Sources-first library with optional class folders and saved videos per PDF, threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (9 human templates, stick figure, the Tangenter). Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -213,6 +213,14 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Current state (keep this section current)
 Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
 
+**Sources-first homepage (2026-11-10):**
+- Production `Home` uses the approved bookshelf/source components in `src/home/LibraryView.tsx`, `SourceView.tsx`, `views.css` and the vendored `src/components/Folder.tsx`; production does not import the isolated design preview.
+- Optional folders (create, rename, delete, move PDFs), PDF paths, first-page thumbnails, recently opened folder order and detail preference persist through the Rust JSON store. Deleting a folder unfiles its PDFs; it never deletes sources, cached IR or videos. Existing bundle source paths are recovered into the library on load.
+- App routes cover home, folder, source, generate and watch. Returning from playback/generation restores the originating source/folder. Recent videos and the source's video list come only from saved bundles with scenes; opening always loads/replays a bundle, never generates.
+- Source view has Sections / Original PDF tabs. Section titles are cleaned once with Haiku, validated and cached separately from IR; IDs/order/hierarchy/page boundaries stay intact. Pending cleanup shows a loading state, failures show parser headings plus retry. Make a video enters checkbox/drag selection, removes selected descendants covered by a parent and passes detail/selection through the existing generation path.
+- The sidecar supplies optional first-page PNG previews and original PDF bytes for a revocable blob viewer. Original-PDF viewing currently copies the full file through IPC; very large textbooks may need a scoped streaming asset route.
+- Verified with `bun install`, TypeScript, full Vitest and focused Python preview tests. Orca browser screenshots checked production bookshelf, folder, source and selection mode using in-memory native-bridge fixtures; a real native ingest/generate/watch session remains to dogfood.
+
 **Architecture now (2026-11-05):**
 - **Rendering engine is its own package**: `packages/motion` (`@tangent/motion`, alias `@motion/*`): `dsl/` (schema, validator, templates, compiler, ops), `stage/` (scene state + PixiJS renderer), `player/` (audio-clock `Player`, `SceneQueue`), `annotations.ts`. It must not import app code (`@/…`), React or Tauri, so it can be published separately.
 - **Templates over raw DSL.** The scene LLM picks a template per beat (`title, stat, versus, list, character, diagram, math, code, array, tree, chart, figure, gif, callout, table`, each with variants) and fills short slots. `src/dsl/templates.ts` expands them into positioned DSL objects + word-anchored actions, clears the previous frame unless `keep:true`, and adds a transition. Raw `objects`/`actions` stay as the escape hatch. Fractional anchors `"@0.4"` (word at 40% of the beat) make template timing immune to TTS rewording.
@@ -268,7 +276,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 
 **Recently fixed (2026-11-10), don't regress:**
 - Text overflowing its box at small player sizes (chat bubbles, venn circles, any fitted text): the 18 px font floor was absolute, so small stages couldn't shrink text to fit. The floor now scales with stage height (`minFont(h) = min(18, 0.02·h)` in `stage/layout.ts`). Venn items get a row-height `maxH`, two-set items are centred in their crescent and three-set items sit inside their own circle.
-- Recent videos only lists entries that have a saved bundle and opens it directly (never regenerates); recents without a bundle are pruned from localStorage once the saved list loads. Regenerate = open the PDF and pick the section.
+- Recent videos lists only saved bundles with scenes and opens them directly (never regenerates); old localStorage recent shortcuts are ignored. Generate again = open the PDF and use Make a video.
 - Heapify demo removed from the app (Home button + App "demo" screen). `@motion/stage/demo` stays as a test fixture.
 - Scrollbars hidden app-wide (`src/index.css`); scrolling still works.
 - App icon: macOS-style rounded square (white logo on black) built from `assets/tangent-icon.png` by `scripts/mkicon.py` -> `assets/app-icon.png` -> `bunx tauri icon`. Icons are compiled into the binary: after changing them run `cargo clean -p tangent` before `tauri dev`.
@@ -320,4 +328,4 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage; **script stage on `sonnet`** (2026-11-05) for script quality.
 - Retaking a check replaces the earlier answer; Escape closes the speed menu and the side panel together (2026-11-05).
 - Picture templates over flowcharts (2026-11-10): at most one diagram per scene; the recurring Tangenter appears ~1 in 3–4 beats; colour comes from full-colour emoji + the one accent (icons stay white line art). Dominoes stays only if it stays good.
-- Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Projects = NotebookLM-style with notes. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.
+- Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Home = sources first with optional emoji folders; videos belong to their PDF. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key in Keychain via Settings.

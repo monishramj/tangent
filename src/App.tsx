@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Home, { type StartMeta } from "./home/Home";
+import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
 import { sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
@@ -13,20 +13,19 @@ import { devlog } from "./devlog";
 
 type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta };
 type Screen =
-  | { s: "home" }
-  | { s: "generate"; args: GenerateArgs; attempt: number }
-  | { s: "watch"; video: VideoBundle };
+  | LibraryRoute
+  | { s: "generate"; args: GenerateArgs; attempt: number; back?: LibraryRoute }
+  | { s: "watch"; video: VideoBundle; back?: LibraryRoute };
 
 export default function App({ provider, store = tauriJsonStore, videoStore = tauriVideoStore, initial = { s: "home" } }: { provider?: LLMProvider; store?: JsonStore; videoStore?: VideoStore; initial?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
-  const home = () => setScreen({ s: "home" });
   switch (screen.s) {
-    case "watch": return <Watch video={screen.video} provider={provider} store={store} onBack={home} />;
+    case "watch": return <Watch video={screen.video} provider={provider} store={store} onBack={() => setScreen(screen.back ?? { s: "home" })} />;
     case "generate": return <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
-      onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={home} />;
-    default: return <Home store={videoStore} jsonStore={store}
-      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0 })}
-      onOpenVideo={video => setScreen({ s: "watch", video })} />;
+      onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={() => setScreen(screen.back ?? { s: "home" })} />;
+    default: return <Home store={videoStore} jsonStore={store} provider={provider} route={screen} onNavigate={setScreen}
+      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: screen })}
+      onOpenVideo={video => setScreen({ s: "watch", video, back: screen })} />;
   }
 }
 
