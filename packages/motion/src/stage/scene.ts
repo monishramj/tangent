@@ -2,7 +2,7 @@
 import { parseTarget, type Scene } from "../dsl/schema";
 import type { Timeline, TimelineEvent } from "../dsl/compile";
 import { seqItems, type SeqSnap } from "../dsl/components";
-import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01 } from "./motion";
+import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01, window01 } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`
 export type ObjState = {
@@ -12,6 +12,7 @@ export type ObjState = {
   x: number; // stage fractions 0..1
   y: number;
   scale: number;
+  sx?: number; // extra horizontal scale (card flips); 1 when absent
   reveal?: number;
   style?: Style;
   gap?: number;
@@ -130,6 +131,11 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       if (variant === "slam") { o.scale = 1 + .6 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // big -> 1x, no bounce
       else if (variant === "punch") o.scale = 1 + .5 * (1 - ease(p, "outBack")); // hits, dips just under 1x, settles
       else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer reveals each word at its share
+      else if (style === "stamp") { // slams down from big, squashes just under 1x, settles into its tilt
+        const rot = num((def as { rotation?: unknown }).rotation, 0);
+        o.scale = 1 + 1.4 * (1 - ease(p, "outBack")); o.opacity = clamp01(p * 5); o.rotation = rot * (1 + .6 * (1 - ease(p, "outCubic")));
+      }
+      else if (style === "flip") { o.opacity = p < .5 ? 0 : 1; o.sx = ease(window01(p, .5, 1), "outCubic"); } // the old face shrinks first
       else if (style === "pop") o.scale = .6 + .4 * ease(p, easing ?? "outBack");
       else if (style === "slide") {
         const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(p, easing ?? "outExpo"));
@@ -158,6 +164,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       }
       o.scale = lerp(o.scale, num(e.args.scale, o.scale), k);
       o.rotation = lerp(o.rotation ?? 0, num(e.args.rotate, o.rotation ?? 0), k);
+      if (e.args.scaleX !== undefined) o.sx = lerp(o.sx ?? 1, num(e.args.scaleX, 1), k);
       if (typeof e.args.color === "string") {
         const from = o.color ?? 0xffffff, to = parseInt(e.args.color.slice(1), 16);
         let color = 0;

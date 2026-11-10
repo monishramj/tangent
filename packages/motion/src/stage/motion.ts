@@ -1,6 +1,6 @@
 import type { SceneObject } from "../dsl/schema";
 export type Ease = "outCubic" | "outBack" | "inOutQuad" | "outQuart" | "outExpo" | "inOutCubic" | "inOutExpo" | "inExpo" | "inOutSine";
-export type Style = "draw" | "pop" | "type" | "slide" | "stagger";
+export type Style = "draw" | "pop" | "type" | "slide" | "stagger" | "stamp" | "flip";
 export const clamp01 = (p: number) => Math.max(0, Math.min(1, p));
 export const progress = (t: number, start: number, end: number) => end <= start ? Number(t >= start) : clamp01((t - start) / (end - start));
 // Penner curves (pure; no ticker: every value is a function of the audio clock). outBack overshoots: use it only for punches.

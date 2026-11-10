@@ -5,7 +5,7 @@ import { TREE_OPS } from "./treeOps";
 
 const id = z.string().regex(/^[A-Za-z_][\w-]*$/);
 const num2 = z.tuple([z.number(), z.number()]);
-export const CreateStyle = z.enum(["draw", "pop", "type", "slide", "stagger"]);
+export const CreateStyle = z.enum(["draw", "pop", "type", "slide", "stagger", "stamp", "flip"]); // stamp: big -> 1x with a squash + settle into def.rotation; flip: hidden half, then grows in x (second half of a card flip)
 export const Easing = z.enum(["outCubic", "outBack", "inOutQuad", "outQuart", "outExpo", "inOutCubic", "inOutExpo", "inExpo", "inOutSine"]);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const animation = { style: CreateStyle.optional(), easing: Easing.optional(), gap: z.number().min(0).max(.9).optional() };
@@ -137,7 +137,7 @@ export const Action = z.discriminatedUnion("do", [
   act("create", { ...animation, edge: z.enum(["left", "right", "top", "bottom"]).optional() }),
   act("fade", { to: z.number().min(0).max(1).optional() }), // opacity only (default 0); a faded object stays addressable
   act("move", { to: z.union([z.string(), num2]).optional(), path: z.array(num2).min(2).optional(), arc: z.number().optional() }),
-  act("transform", { scale: z.number().positive().optional(), rotate: z.number().optional(), color: color.optional() }),
+  act("transform", { scale: z.number().positive().optional(), scaleX: z.number().min(0).optional(), rotate: z.number().optional(), color: color.optional() }),
   act("highlight", { row: index.optional(), col: index.optional(), range: range.optional() }),
   act("indicate", {}),
   act("camera", { x: z.number().optional(), y: z.number().optional(), zoom: z.number().positive().optional(), shake: z.number().min(0).max(.1).optional() }, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose

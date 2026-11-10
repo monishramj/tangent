@@ -65,7 +65,7 @@ export class SceneRenderer {
       node.visible = s.visible;
       node.alpha = s.opacity;
       node.position.set(s.x * w, s.y * h);
-      node.scale.set(s.scale);
+      node.scale.set(s.scale * (s.sx ?? 1), s.scale);
       node.rotation = s.rotation ?? 0;
       node.tint = s.color ?? 0xffffff;
     };
