@@ -1,5 +1,4 @@
-.tl-library { height:100dvh;overflow:auto;background:var(--bg);color:var(--fg);text-transform:lowercase; }
-.tl-library :is(button,select) { text-transform:inherit; } /* typed text (folder names) shows as typed and saved */
+.tl-library { height:100dvh;overflow:auto;background:var(--bg);color:var(--fg); }
 .tl-library button { cursor:pointer; } .tl-library button:disabled { opacity:.4;cursor:default; }
 .tl-wrap { max-width:1000px;margin:auto;padding:30px 42px 80px; } .tl-wrap.tl-wide { max-width:1240px; }
 .tl-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:64px;gap:20px; }
