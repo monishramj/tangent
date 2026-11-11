@@ -5,7 +5,7 @@ import Folder from '@/components/Folder';
 import SpotlightCard from '@/components/SpotlightCard';
 import AnimatedList from '@/components/AnimatedList';
 import ShinyText from '@/components/ShinyText';
-import GiphyKey from './GiphyKey';
+import Settings from './Settings';
 import { videoDuration, type VideoBundle } from '../storage/videos';
 import type { LoadProgress } from '../library';
 import logo from '../../assets/tangent-icon.png';
@@ -35,7 +35,7 @@ export type LibraryViewProps = {
 
 export function LibraryShell({ children, onHome, wide = false }: { children: ReactNode; onHome: () => void; wide?: boolean }) {
   return <main className="tl-library"><div className={`tl-wrap ${wide ? 'tl-wide' : ''}`}>
-    <header className="tl-header"><button className="tl-wordmark" onClick={onHome} aria-label="Tangent home"><img src={logo} alt="" />tangent</button><GiphyKey /></header>
+    <header className="tl-header"><button className="tl-wordmark" onClick={onHome} aria-label="Tangent home"><img src={logo} alt="" />tangent</button><Settings /></header>
     {children}
   </div></main>;
 }
