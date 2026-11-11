@@ -15,9 +15,10 @@ from pathlib import Path
 from .postprocess import strip_footers
 
 
-def _pick_device(env, cuda):
-    # Docling's formula model does not support MPS.
-    return env if env is not None else ("cuda" if cuda else "cpu")
+def _pick_device(env):
+    # "auto": Docling picks CUDA/MPS per model; the formula model (no MPS support) falls back to CPU on its own.
+    # Forcing "mps" makes that model raise.
+    return env or "auto"
 
 
 @lru_cache(maxsize=1)
@@ -27,9 +28,7 @@ def _load_converter():
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
-    import torch
-
-    device = _pick_device(os.environ.get("TANGENT_DEVICE"), torch.cuda.is_available())
+    device = _pick_device(os.environ.get("TANGENT_DEVICE"))
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
