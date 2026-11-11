@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { Tangenter, addTangenter, type Presenter } from "./tangenter";
 import { MARKS, Pose, SceneObject, Transition, type Scene } from "./schema";
-import { C, Op, TRANSITIONS, at, ctx, frac, heading, occurrences, s, spread, visual, visualAt } from "./tplkit";
+import { C, Op, TRANSITIONS, at, ctx, frac, heading, leader, occurrences, s, spread, visual, visualAt } from "./tplkit";
 import { VOCAB_EXPAND, VOCAB_GUIDE, VOCAB_TEMPLATES, VOCAB_VARIANTS } from "./vocabTemplates";
 import * as tCodex from "./tpl/codex";
 import * as tAgy from "./tpl/antigravity";
@@ -121,9 +121,9 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     for (const [side, x, edge, f] of sides) {
       const when = frac(f), slide = v === "cards" ? { style: "slide", edge } : { style: "pop" };
       if (v === "split") c.add({ id: c.id(`${edge}_card`), type: "shape", shape: "rect", x, y: .5, width: .36, height: .7 }, when, { style: "draw", duration: MOTION.draw });
-      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .27, size: .064, maxW: .32, opacity: 1 }, when, slide);
+      c.add({ id: c.id(`${edge}_title`), type: "text", text: side.title, weight: "bold", x, y: .27, size: .075, maxW: .32, opacity: 1 }, when, slide);
       visualAt(c, `${edge}_v`, side, x, .45, .17, when);
-      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .62 + i * .075, size: .04, maxW: .31, opacity: .8 }, frac(f + .12 + i * .08), { style: "type" }));
+      (side.points ?? []).forEach((p, i) => c.add({ id: c.id(`${edge}_p${i}`), type: "text", text: p, x, y: .62 + i * .08, size: .05, maxW: .31, maxH: .075, opacity: .85 }, frac(f + .12 + i * .08), { style: "type" }));
     }
     c.add({ id: c.id("vs"), type: "KineticText", text: "VS", variant: "punch", x: .5, y: .5, size: .08 }, frac(.38));
   },
@@ -137,13 +137,13 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
         const x = .5 + (col - (inRow - 1) / 2) * .29, y = (n <= 3 ? .55 : .42 + row * .32) + (d.title ? .03 : 0);
         c.add({ id: c.id(`card${i}`), type: "shape", shape: "rect", x, y, width: .25, height: n <= 3 ? .45 : .28 }, when[i], { style: "draw", duration: MOTION.draw });
         visualAt(c, `card${i}_v`, it, x, y - .06, .12, when[i]);
-        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .07 : 0), size: .046, maxW: .21, opacity: .95 }, when[i], { style: "type" });
+        c.add({ id: c.id(`card${i}_t`), type: "text", text: it.text, x, y: y + (it.icon || it.emoji ? .08 : 0), size: .056, maxW: .21, maxH: n <= 3 ? .2 : .12, opacity: .95 }, when[i], { style: "type" });
       } else if (v === "steps") {
         const x = .5 + (i - (n - 1) / 2) * Math.min(.24, .86 / n);
         const dot = c.add({ id: c.id(`step${i}`), type: "shape", shape: "circle", label: String(i + 1), x, y: .52, width: .1, height: .178, filled: i === n - 1 }, when[i], { style: "draw", duration: .5 });
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: `${c.objects.find(o => o.id.startsWith(`step${i - 1}`))?.id}`, to: dot }, when[i], { style: "draw" });
         visualAt(c, `step${i}_v`, it, x, .33, .09, when[i]);
-        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .71, size: .042, maxW: Math.min(.22, .84 / n), opacity: .9 }, when[i], { style: "type" });
+        c.add({ id: c.id(`step${i}_t`), type: "text", text: it.text, x, y: .71, size: .05, maxW: Math.min(.22, .84 / n), maxH: .2, opacity: .9 }, when[i], { style: "type" });
       } else {
         // the block (icon + longest line) is centred on its estimated width, not pinned to the left
         const size = .052, tw = Math.min(.62, Math.max(...d.items.map(x => x.text.length)) * size * .5 * 9 / 16), x0 = .5 - (tw + .07) / 2;
@@ -235,7 +235,7 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
     spread(hl.length, .3, .85).forEach((f, i) => c.act({ at: frac(f), do: "highlight", target: id, range: hl[i] }));
   },
   array(c, d) {
-    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .3, size: .046, opacity: .75 }, frac(0), { style: "type" });
+    if (d.label) c.add({ id: c.id(`${d.id}_label`), type: "text", text: d.label, x: .5, y: .22, size: .046, opacity: .75 }, frac(0), { style: "type" });
     const id = c.add({ id: c.id(d.id), type: "Array", init: d.values, heap: d.heap ?? "max", x: .5, y: .55 }, frac(0), { style: "stagger" });
     spread(d.ops.length, .3, .7).forEach((f, i) => c.act({ at: c.anchor(f, d.ops[i].at), do: "op", target: id, op: d.ops[i].op, args: d.ops[i].args }));
   },
@@ -252,7 +252,10 @@ const EXPAND: { [K in TemplateName]: (c: C, d: z.infer<(typeof TEMPLATES)[K]>, v
   },
   figure(c, d) {
     c.add({ id: c.id("figure"), type: "figure", src: d.src, focus: d.focus, x: .5, y: .46, width: .78, height: .7 }, frac(0));
-    if (d.caption) c.add({ id: c.id("figure_cap"), type: "text", text: d.caption, x: .5, y: .9, size: .032, opacity: .7 }, frac(.2), { style: "type" });
+    if (d.caption) {
+      c.add({ id: c.id("figure_cap"), type: "text", text: d.caption, x: .5, y: .9, size: .032, opacity: .7 }, frac(.2), { style: "type" });
+      leader(c, "figure_lead", [.5, .872], [.51, .83], frac(.2)); // the caption points up at its figure
+    }
   },
   gif(c, d, v) {
     // The gif alone: no caption or text beside it (any caption the model sends is ignored).

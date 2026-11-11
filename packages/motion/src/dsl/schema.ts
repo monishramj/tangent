@@ -96,7 +96,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   }),
   obj("stack", { frames: z.array(z.object({ label: z.string(), items: z.array(z.string()) })).min(1) }),
   obj("arrow", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
-  obj("line", { from: point, to: point, points: z.array(num2).min(2).max(128).optional(), label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
+  obj("line", { from: point, to: point, points: z.array(num2).min(2).max(128).optional(), label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional(), weight: z.enum(["hair"]).optional() }), // hair: leader ticks, guides
   obj("axes", { x: num2, y: num2 }),
   obj("numberline", { min: z.number(), max: z.number(), step: z.number().positive().optional(), width: unit.optional() }).superRefine((o, ctx) => {
     if (!(o.min < o.max) || (o.max - o.min) / (o.step ?? 1) > 24) ctx.addIssue({ code: "custom", message: "numberline needs min < max and at most 24 ticks" });

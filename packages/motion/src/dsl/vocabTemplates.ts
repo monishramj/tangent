@@ -113,8 +113,8 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     c.key(c.add({ id: c.id("def_term"), type: "KineticText", text: d.term, variant: card ? "words" : "slam", x: .5, y: card ? .34 : .36, size: card ? .085 : .14, maxW: .66 }, frac(.05)));
     if (d.kind) text(c, "def_kind", d.kind, .5, card ? .25 : .2, .032, frac(.05), { opacity: .5 });
     if (card) c.add({ id: c.id("def_rule"), type: "line", from: [.3, .42], to: [.7, .42] }, frac(.15), { style: "draw", duration: .4 });
-    text(c, "def_meaning", d.meaning, .5, card ? .56 : .6, .048, frac(.2), { maxW: .64, opacity: .95 });
-    if (d.example) text(c, "def_ex", `e.g. ${d.example}`, .5, card ? .74 : .78, .036, c.anchor(.6, d.example), { maxW: .64, opacity: .6 });
+    text(c, "def_meaning", d.meaning, .5, card ? .56 : .6, .056, frac(.2), { maxW: .64, maxH: .2, opacity: .95 });
+    if (d.example) text(c, "def_ex", `e.g. ${d.example}`, .5, card ? .75 : .79, .042, c.anchor(.6, d.example), { maxW: .64, opacity: .6 });
   },
   analogy(c, d, v) {
     const side = (it: z.infer<typeof Visual>, x: number, when: string, base: string) =>
@@ -136,8 +136,8 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
       if (v === "vertical") {
         const y0 = d.title ? .26 : .16, y = y0 + (.86 - y0) * i / Math.max(1, n - 1);
         ids.push(dot(c, `step${i}`, .22, y, .085, when[i], true, String(i + 1)));
-        text(c, `step${i}_t`, st.text, .29, st.sub ? y - .025 : y, .046, when[i], { align: "left", maxW: .58, opacity: 1, weight: "bold" });
-        if (st.sub) text(c, `step${i}_s`, st.sub, .29, y + .035, .032, when[i], { align: "left", maxW: .58, opacity: .6 });
+        text(c, `step${i}_t`, st.text, .29, st.sub ? y - .028 : y, .052, when[i], { align: "left", maxW: .58, opacity: 1, weight: "bold" });
+        if (st.sub) text(c, `step${i}_s`, st.sub, .29, y + .038, .038, when[i], { align: "left", maxW: .58, opacity: .6 });
         visualAt(c, `step${i}_v`, st, .86, y, .08, when[i]);
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "line", from: ids[i - 1], to: ids[i] }, when[i], { style: "draw", duration: .3 });
       } else if (v === "ladder") {
@@ -151,8 +151,8 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
         const vis = !!(st.icon || st.emoji);
         c.add({ id: c.id(`step${i}_n`), type: "KineticText", text: String(i + 1), variant: "punch", x, y: y - .17, size: .11 }, when[i]);
         visualAt(c, `step${i}_v`, st, x, y - .035, .085, when[i]);
-        text(c, `step${i}_t`, st.text, x, y + (vis ? .09 : .04), .042, when[i], { maxW: cw * .86, opacity: 1, weight: "bold" });
-        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .19 : .15), .032, when[i], { maxW: cw * .86, opacity: .6 });
+        text(c, `step${i}_t`, st.text, x, y + (vis ? .09 : .04), .052, when[i], { maxW: cw * .86, maxH: .12, opacity: 1, weight: "bold" });
+        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .19 : .15), .038, when[i], { maxW: cw * .86, maxH: .08, opacity: .6 });
       }
     });
     c.key(ids[n - 1]);
@@ -166,11 +166,11 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     cols.forEach(([label, items, x, mark], side) => {
       const t0 = frac(when[k++]);
       if (v === "cards") c.add({ id: c.id(`pc_card${side}`), type: "shape", shape: "rect", x, y: (top + .9) / 2 + .02, width: .42, height: .9 - top + .08 }, t0, { style: "draw", duration: .6 });
-      text(c, `pc_head${side}`, label, x, top + .03, .052, t0, { weight: "bold", opacity: 1 });
+      text(c, `pc_head${side}`, label, x, top + .03, .058, t0, { weight: "bold", opacity: 1 });
       items.forEach((it, i) => {
         const y = top + .15 + i * Math.min(.15, .56 / items.length), t = frac(when[k++]);
         c.add({ id: c.id(`pc_m${side}_${i}`), type: "shape", shape: mark, x: x - .16, y, width: .035 * AR * 1.4, height: .045 }, t, { style: "draw", duration: .35 });
-        text(c, `pc_i${side}_${i}`, it, x - .12, y, .044, t, { align: "left", maxW: .3, opacity: .95 });
+        text(c, `pc_i${side}_${i}`, it, x - .12, y, .052, t, { align: "left", maxW: .3, opacity: .95 });
       });
     });
   },

@@ -4,6 +4,7 @@ import type { SceneObject } from "../dsl/schema";
 import type { ObjState } from "./scene";
 import { fitLabel } from "./layout";
 import { ease, RADIUS, STROKE, staggerProgress, strokeW, type Point } from "./motion";
+import { body, leaderTick, rectLoop } from "./look";
 
 export const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 export const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -80,9 +81,9 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
         c.x = c.def.x === undefined ? (i - (cells.length-1)/2) * fw / cells.length : (c.def.x - .5) * fw;
         c.y = c.def.y === undefined ? 0 : (c.def.y - .5) * fh;
         const p = childProgress(s, Math.min(cells.length + o.edges.length - 1, i * 2), cells.length + o.edges.length);
-        c.g.clear().roundRect(-bw/2, -bh/2, bw, bh, h * RADIUS).fill({ color: bg }).roundRect(-bw/2, -bh/2, bw, bh, h * RADIUS).fill({ color: fg, alpha: .04 + s.hl * .12 }).stroke({ color: fg, width: strokeW(h), join: "round" });
-        c.g.position.set(c.x, c.y + (1 - ease(p)) * 18); c.g.alpha = p;
-        c.t.position.copyFrom(c.g.position); c.t.alpha = p;
+        c.g.clear(); body(c.g, rectLoop(bw, bh, h * RADIUS), 0, 0, h, fg, bg, { p, hl: s.hl * .15 }); // drawn, then solid
+        c.g.position.set(c.x, c.y);
+        c.t.position.copyFrom(c.g.position); c.t.alpha = Math.max(0, Math.min(1, (p - .35) / .55));
         if (resize) fitText(c.t, c.def.label, bw * .84, bh * .75, h * .035);
       });
       ink.clear();
@@ -95,8 +96,11 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
         const x = x1 + (x2-x1)*p, y = y1 + (y2-y1)*p, angle = Math.atan2(dy, dx);
         ink.moveTo(x1, y1).lineTo(x, y).stroke({ color: fg, width: strokeW(h), alpha: .85, cap: "round" });
         if (p > 0) ink.moveTo(x - 10*Math.cos(angle-.5), y - 10*Math.sin(angle-.5)).lineTo(x,y).lineTo(x - 10*Math.cos(angle+.5), y - 10*Math.sin(angle+.5)).stroke({ color: fg, width: strokeW(h), alpha: p, cap: "round", join: "round" });
-        edgeLabels[i].position.set((x1+x2)/2, (y1+y2)/2 - 20); edgeLabels[i].alpha = p;
-        if (resize) fitText(edgeLabels[i], e.label ?? "", Math.max(20, len - 2*trim), 30, h*.025);
+        // edge label on a short leader tick, pointing down at the edge's midpoint
+        const mx = (x1+x2)/2, my = (y1+y2)/2, lift = h * .075;
+        edgeLabels[i].position.set(mx, my - lift); edgeLabels[i].alpha = p;
+        if (e.label) leaderTick(ink, [mx, my - lift + h * .025], [mx, my - h * .008], h, fg, p);
+        if (resize) fitText(edgeLabels[i], e.label ?? "", Math.max(h * .2, len - 2*trim), h * .05, h * .032);
       });
       lastW = w; lastH = h;
     } };
@@ -124,11 +128,13 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       o.values.forEach((v, i) => {
         const p = line ? rv >= i / Math.max(1, n - 1) ? 1 : 0 : staggerProgress(rv, i, n, s.gap), [x, y] = pts[i];
         const bar = (base - y) * ease(p, "outQuart"), on = hc === i ? s.hl : 0, dim = hc === undefined ? 1 : 1 - .6 * s.hl, r = Math.min(h * RADIUS * .5, slot * .12);
-        if (!line && bar > 0) ink.roundRect(x - slot * .3, base - bar, slot * .6, bar, Math.min(r, bar / 2)).fill({ color: fg, alpha: (.22 + .72 * on) * dim }).stroke({ color: fg, width: sw, alpha: .9 * dim, join: "round" });
-        vals[i].position.set(x, (line ? y : base - bar) - h * .04); vals[i].alpha = p * dim;
+        if (!line && bar > 0) body(ink, rectLoop(slot * .6, bar, Math.min(r, bar / 2)), x, base - bar / 2, h, fg, bg, { hl: on, face: .23, alpha: dim, sw }); // face = TONE.high
+        const top = line ? y : base - bar, side = on * slot * .32; // the highlighted value steps aside onto a leader tick
+        vals[i].position.set(x + side, top - h * .04 - on * h * .035); vals[i].alpha = p * dim;
+        if (on > 0) leaderTick(ink, [x + side - h * .01, top - h * .05], [x + slot * .15, top - h * .005], h, fg, on);
         if (vals[i].text !== fmtNum(v)) vals[i].text = fmtNum(v);
         cats[i].position.set(x, base + h * .045); cats[i].alpha = (line ? ax : p) * dim * .75;
-        if (resize) { fitText(cats[i], o.labels[i], slot * .9, h * .07, h * .034); fitText(vals[i], fmtNum(v), slot * .9, h * .05, h * .04); }
+        if (resize) { fitText(cats[i], o.labels[i], slot * .9, h * .07, h * .042); fitText(vals[i], fmtNum(v), slot * .9, h * .06, h * .05); }
       });
       lastW = w; lastH = h;
       return [bw / 2, bh / 2 + h * .05] as [number, number];

@@ -62,13 +62,16 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
     text(c, "ice_top", d.top.text, .5 + L.tip.w / 2 + .05, ty, ts * 1.1, frac(.08), { weight: "bold", opacity: 1, align: "left", maxW: .26 });
     leader(c, "ice_top_lead", [.5 + L.tip.w / 2 + .04, ty], [.5 + L.tip.w * .3, ty + .005], frac(.08));
     // the hidden mass traces in under the waterline: the "oh, it's huge" moment
-    c.add({ id: c.id("ice_mass"), type: "shape", shape: "hexagon", ghost: true, x: .5, y: L.mass.y, width: L.mass.w, height: L.mass.h }, frac(.16), { style: "draw", duration: pan ? 1.6 : 1.2 });
+    c.add({ id: c.id("ice_mass"), type: "shape", shape: "hexagon", x: .5, y: L.mass.y, width: L.mass.w, height: L.mass.h }, frac(.16), { style: "draw", duration: pan ? 1.6 : 1.2 });
     if (!pan) c.add({ id: c.id("ice_depth"), type: "arrow", from: [.1, L.water + .05], to: [.1, .94], dashed: true }, frac(.2), { style: "draw", duration: 2.5 });
     const when = orderedAnchors(c.say, spread(L.layers.length, .24, .72), d.below.map(b => b.at)), last = L.layers.length - 1;
-    L.strata.forEach((st, i) => c.add({ id: c.id(`ice_strata${i}`), type: "line", from: [.5 - st.w / 2, st.y], to: [.5 + st.w / 2, st.y], dashed: true }, when[i + 1], { style: "draw", duration: .5 }));
+    L.strata.forEach((st, i) => c.add({ id: c.id(`ice_strata${i}`), type: "line", from: [.5 - st.w / 2, st.y], to: [.5 + st.w / 2, st.y], dashed: true, weight: "hair" }, when[i + 1], { style: "draw", duration: .5 }));
     L.layers.forEach((l, i) => {
       const id = text(c, `ice_layer${i}`, d.below[i].text, .5, l.y, ts, when[i], { weight: i === last ? "bold" : "normal", opacity: 1, maxW: l.maxW, ...(i === last ? { color: ACCENT } : {}) });
       if (i === last) c.key(id);
+      // a leader tick from the label's left end to the berg's wall at that depth: the label names this layer
+      const tw = Math.min(l.maxW, d.below[i].text.length * ts * .5 * AR), wall = .5 - l.maxW / .82 / 2;
+      if (.5 - tw / 2 - .015 - wall > .03) leader(c, `ice_layer${i}_lead`, [.5 - tw / 2 - .015, l.y], [wall + .012, l.y + .012], when[i]); // reaches the wall (longer than the 5% spec tick, so it reads as pointing)
       if (pan && L.cams[i] !== (i ? L.cams[i - 1] : .5)) c.act({ at: when[i], do: "camera", y: L.cams[i], duration: .8, easing: "inOutCubic" });
     });
     const tEnd = orderedAnchors(c.say, [...spread(L.layers.length, .24, .72), .84], [...d.below.map(b => b.at), undefined])[L.layers.length];

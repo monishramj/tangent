@@ -35,10 +35,11 @@ export const circleLoop = (r: number): Point[] => Array.from({ length: 33 }, (_,
  * side in ink. `loop` is a closed outline around 0,0, drawn at (x, y). p is the draw-on: the outline is traced (the lit side
  * brightening as the pen passes) and the fill and shadow arrive in the last 30%, so a body is "drawn, then becomes solid".
  * hl blends toward the inverted key body (white fill, shadow kept, no rim). */
-export function body(g: Graphics, loop: Point[], x: number, y: number, h: number, fg: ColorSource, bg: ColorSource, p = 1, hl = 0, sw = h * STROKE.line, face = BODY.fill, shadow = true) {
-  if (p <= 0) return;
+export function body(g: Graphics, loop: Point[], x: number, y: number, h: number, fg: ColorSource, bg: ColorSource,
+  { p = 1, hl = 0, sw = h * STROKE.line, face = BODY.fill, shadow = true, alpha = 1 }: { p?: number; hl?: number; sw?: number; face?: number; shadow?: boolean; alpha?: number } = {}) {
+  if (p <= 0 || alpha <= 0) return;
   const at = (pts: Point[], dx = 0, dy = 0) => pts.flatMap(([px, py]) => [px + x + dx, py + y + dy]);
-  const fillA = window01(p, .7, 1), d = h * SHADOW;
+  const fillA = window01(p, .7, 1) * alpha, d = h * SHADOW;
   if (fillA > 0) {
     const flat = at(loop);
     if (shadow) g.poly(at(loop, d * .75, d)).fill({ color: 0x000000, alpha: BODY.shadow * fillA });
@@ -47,10 +48,10 @@ export function body(g: Graphics, loop: Point[], x: number, y: number, h: number
   }
   const part = symmetricTrace(loop, p), line = { width: sw, color: fg, cap: "round", join: "round" } as const;
   if (part.length < 2) return;
-  g.poly(at(part), false).stroke({ ...line, alpha: BODY.rimDark + (1 - BODY.rimDark) * hl });
+  g.poly(at(part), false).stroke({ ...line, alpha: (BODY.rimDark + (1 - BODY.rimDark) * hl) * alpha });
   if (hl < 1) {
     let a = 0, b = 0; for (const [px, py] of loop) { a = Math.max(a, Math.abs(px)); b = Math.max(b, Math.abs(py)); }
-    for (const run of litRuns(part, a, b)) g.poly(at(run), false).stroke({ ...line, alpha: 1 - hl });
+    for (const run of litRuns(part, a, b)) g.poly(at(run), false).stroke({ ...line, alpha: (1 - hl) * alpha });
   }
 }
 

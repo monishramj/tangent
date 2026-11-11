@@ -62,7 +62,7 @@ export function orderedAnchors(say: string, fs: number[], phrases: (string | und
 
 /** A short hand-drawn tick from a label toward the thing it names, drawn on with the label: pointed at, not floating. */
 export const leader = (c: C, base: string, from: [number, number], to: [number, number], when: string) =>
-  c.add({ id: c.id(base), type: "line", from, to, points: [from, [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - .006], to] }, when, { style: "draw", duration: .3 });
+  c.add({ id: c.id(base), type: "line", weight: "hair", from, to, points: [from, [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - .006], to] }, when, { style: "draw", duration: .3 });
 
 /** Frame heading in the title size, with the house detail under it: a short hand-drawn tick, drawn on after the words. */
 export function heading(c: C, base: string, title: string, y = .1, o: Record<string, unknown> = {}) {

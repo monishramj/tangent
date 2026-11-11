@@ -131,7 +131,7 @@ export function buildPerson(o: O<"person">, fg: string, cell: () => Cell) {
     // a filled part (head, body): drawn on, then solid; lit rim on the up-left side, no drop shadow (the figure has a ground shadow)
     const solid = (pts: Point[], tone: number, p: number) => {
       const c = pts.reduce((a, q) => [a[0] + q[0] / pts.length, a[1] + q[1] / pts.length], [0, 0]);
-      drawBody(g, [...pts, pts[0]].map(([x, y]) => [x - c[0], y - c[1]] as Point), c[0], c[1], h, fg, 0x000000, p, 0, lw * .75, tone, false);
+      drawBody(g, [...pts, pts[0]].map(([x, y]) => [x - c[0], y - c[1]] as Point), c[0], c[1], h, fg, 0x000000, { p, sw: lw * .75, face: tone, shadow: false });
     };
     const feet = Math.max(leg1[2][1], leg2[2][1]);
     g.ellipse(0, feet + lw * .5, H * .15, H * .015).fill({ color: 0x000000, alpha: .5 * rv(4) }); // ground shadow: .3 H x .03 H
