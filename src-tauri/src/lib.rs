@@ -5,6 +5,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 mod llm;
+mod pages;
 mod store;
 mod videos;
 use tauri::{Manager, RunEvent, State};
@@ -55,7 +56,7 @@ impl State_ {
     }
 }
 
-fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: bool) -> Result<PathBuf, String> {
+pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: bool) -> Result<PathBuf, String> {
     if let Some(dir) = override_dir {
         if dir.as_os_str().is_empty() { return Err("TANGENT_SIDECAR_DIR must not be empty".into()); }
         return Ok(dir);
@@ -128,7 +129,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(State_::default())
-        .invoke_handler(tauri::generate_handler![sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
+        .invoke_handler(tauri::generate_handler![pages::pdf_page, pages::allow_pdf, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {

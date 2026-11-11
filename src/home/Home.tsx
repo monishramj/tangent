@@ -93,12 +93,11 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   }, [sourceId]);
   useEffect(() => {
     if (!source || !pdfRequested) return;
-    let live = true, url: string | undefined;
-    void originalPdf(source.pdfPath).then(base64 => {
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-      if (live) { url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })); setPdfUrl(url); }
+    let live = true;
+    void originalPdf(source.pdfPath).then(url => {
+      if (live) setPdfUrl(url);
     }).catch(e => { if (live) setError(`Couldn't open the original PDF: ${String(e)}`); });
-    return () => { live = false; if (url) URL.revokeObjectURL(url); };
+    return () => { live = false; };
   }, [source?.id, source?.pdfPath, pdfRequested, pdfAttempt]);
   const importPath = async (path: string) => {
     if (!ready || loading) return;

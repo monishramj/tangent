@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 export type Anchor = { page: number };
@@ -72,7 +72,7 @@ export const sectionsFigures = (ir: IR, ids: string[]) => uniq(ids.flatMap(id =>
 export const sectionsExercises = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionExercises(ir, id)));
 
 export const pdfPreview = (path: string) => call<{ pages: number; thumbnailUrl?: string }>("pdf_info", { path, preview: true });
-export const originalPdf = (path: string) => call<string>("original_pdf", { path });
+export const originalPdf = async (path: string) => convertFileSrc(await invoke<string>("allow_pdf", { path }));
 
 // Textbook follow-along (docs/textbook-follow.md).
 export type { Passage } from "@/follow/types";
@@ -102,4 +102,7 @@ export function sectionPages(ir: IR, videoSectionId: string): number[] {
   return [...pages].sort((a, b) => a - b);
 }
 
-export const pdfPage = (path: string, page: number, width: number) => call<PageImage>("pdf_page", { path, page, width });
+export const pdfPage = async (path: string, page: number, width: number): Promise<PageImage> => {
+  const result = await invoke<{ path: string; width: number; height: number }>("pdf_page", { path, page, width });
+  return { url: convertFileSrc(result.path), width: result.width, height: result.height };
+};

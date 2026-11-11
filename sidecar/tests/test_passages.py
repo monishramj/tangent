@@ -1,10 +1,6 @@
-"""Textbook follow-along (docs/textbook-follow.md): passage ids + page bboxes in the IR, and page rendering."""
-import base64
-import io
-
+"""Textbook follow-along (docs/textbook-follow.md): passage ids + page bboxes in the IR."""
 import pytest
 
-from tangent_sidecar import handle
 from tangent_sidecar import ingest
 from tangent_sidecar.postprocess import postprocess
 from test_ingest import document, flatten  # noqa: F401  (pytest fixture)
@@ -98,36 +94,3 @@ def test_old_ir_without_passages_still_postprocesses():
     ir = {"sections": [{"id": "s", "title": "Only", "level": 1, "markdown": "x", "figures": [], "exercises": [],
                         "anchors": [{"page": 1}], "children": []}]}
     assert postprocess(ir)["sections"][0]["markdown"] == "x"
-
-
-def _pdf(tmp_path, sizes=((200, 100), (300, 600))):
-    import pypdfium2
-    pdf = pypdfium2.PdfDocument.new()
-    for w, h in sizes:
-        pdf.new_page(w, h)
-    path = tmp_path / "book.pdf"
-    pdf.save(str(path))
-    pdf.close()
-    return path
-
-
-def test_pdf_page_renders_one_page_at_a_target_width(tmp_path):
-    from PIL import Image
-    path = _pdf(tmp_path)
-    reply = handle({"id": 1, "method": "pdf_page", "params": {"path": str(path), "page": 2, "width": 150}})
-    page = reply["result"]
-    assert (page["width"], page["height"]) == (300, 600)  # PDF points, for layout before the image loads
-    assert page["url"].startswith("data:image/png;base64,")
-    image = Image.open(io.BytesIO(base64.b64decode(page["url"].split(",", 1)[1])))
-    assert image.size[0] == pytest.approx(150, abs=2) and image.size[1] == pytest.approx(300, abs=2)
-
-
-@pytest.mark.parametrize("params", [None, {}, {"path": "x.pdf"}, {"page": 1, "width": 100},
-                                    {"page": 0, "width": 100}, {"page": 3, "width": 100},
-                                    {"page": 1, "width": 0}, {"page": 1, "width": 5000}, {"page": "1", "width": 100}])
-def test_pdf_page_validates(tmp_path, params):
-    path = _pdf(tmp_path)
-    # {"page": 1, "width": 100} is the valid request minus its path: it must stay pathless to fail.
-    if isinstance(params, dict) and "page" in params and "path" not in params and params != {"page": 1, "width": 100}:
-        params = {**params, "path": str(path)}
-    assert "error" in handle({"id": 2, "method": "pdf_page", "params": params})

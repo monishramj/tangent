@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ingestPdf, listSections, repairSections, sectionText, sectionsText, topSelected, multiTitle } from "./api";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("r") }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("r"), convertFileSrc: (path: string) => `asset:${path}` }));
 vi.mock("@tauri-apps/api/path", () => ({ appDataDir: vi.fn().mockResolvedValue("/data"), join: vi.fn(async (...p: string[]) => p.join("/")) }));
 
 it("wraps ingest_pdf and list_sections over sidecar_call", async () => {
@@ -108,10 +108,17 @@ describe("sectionsPassages / sectionPages / pdfPage", () => {
     expect(sectionPages(ir, "missing")).toEqual([]);
   });
 
-  it("pdfPage wraps the sidecar pdf_page call", async () => {
+  it("pdfPage converts the native cache path to an asset URL", async () => {
     const { pdfPage } = await import("./api");
-    vi.mocked(invoke).mockResolvedValueOnce({ url: "data:image/png;base64,x", width: 600, height: 800 });
-    expect(await pdfPage("/b.pdf", 3, 640)).toEqual({ url: "data:image/png;base64,x", width: 600, height: 800 });
-    expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "pdf_page", params: { path: "/b.pdf", page: 3, width: 640 } });
+    vi.mocked(invoke).mockResolvedValueOnce({ path: "/pages/cached.png", width: 600, height: 800 });
+    expect(await pdfPage("/b.pdf", 3, 640)).toEqual({ url: "asset:/pages/cached.png", width: 600, height: 800 });
+    expect(invoke).toHaveBeenCalledWith("pdf_page", { path: "/b.pdf", page: 3, width: 640 });
   });
+});
+
+it("originalPdf allows the source and converts its canonical path", async () => {
+  const { originalPdf } = await import("./api");
+  vi.mocked(invoke).mockResolvedValueOnce("/canonical/book.pdf");
+  expect(await originalPdf("/book.pdf")).toBe("asset:/canonical/book.pdf");
+  expect(invoke).toHaveBeenCalledWith("allow_pdf", { path: "/book.pdf" });
 });
