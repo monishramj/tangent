@@ -46,6 +46,7 @@ it("old bundles: shows the section's pages with no highlight and no Back button"
   render(<Textbook source={source} scenes={old} time={0.5} renderPage={renderPage} />);
   await waitFor(() => expect(screen.getByAltText("Page 12")).toBeTruthy());
   expect(screen.queryAllByTestId("passage-highlight")).toHaveLength(0);
+  expect(screen.getByText("Highlights appear on videos made after this feature.")).toBeTruthy();
   fireEvent.wheel(screen.getByLabelText("Textbook pages"), { deltaY: 200 });
   expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
 });
@@ -53,4 +54,49 @@ it("old bundles: shows the section's pages with no highlight and no Back button"
 it("with no known pages and no mapping, falls back to page 1", async () => {
   render(<Textbook source={{ pdfPath: "/book.pdf", pages: [] }} scenes={old} time={0} renderPage={renderPage} />);
   await waitFor(() => expect(screen.getByAltText("Page 1")).toBeTruthy());
+});
+
+
+it("zoom controls scale page widths and Fit restores the computed column zoom", async () => {
+  const { container } = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  await screen.findByAltText("Page 12");
+  const page = container.querySelector<HTMLElement>('[data-page="12"]')!;
+  const fitted = parseFloat(page.style.width);
+  expect(fitted).toBeCloseTo(360 * 0.94 / 0.8);
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(parseFloat(page.style.width)).toBeCloseTo(fitted * 1.25);
+  expect(screen.getByRole("button", { name: "Fit" }).getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+  expect(parseFloat(page.style.width)).toBeCloseTo(fitted);
+  fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+  fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+  expect(parseFloat(page.style.width)).toBeCloseTo(fitted);
+  expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Fit" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("a plain page click keeps following, while dragging stops it", () => {
+  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  const root = screen.getByLabelText("Textbook pages");
+  fireEvent.pointerDown(root, { clientX: 20, clientY: 20 });
+  fireEvent.pointerUp(root, { clientX: 20, clientY: 20 });
+  fireEvent.click(root);
+  expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
+  // jsdom lacks PointerEvent coordinates; MouseEvent supplies the same pointer geometry.
+  fireEvent(root, new MouseEvent("pointerdown", { bubbles: true, clientX: 20, clientY: 20 }));
+  fireEvent(root, new MouseEvent("pointermove", { bubbles: true, clientX: 40, clientY: 20 }));
+  expect(screen.getByRole("button", { name: "Back to current" })).toBeTruthy();
+});
+
+it("modifier wheel zooms around the pointer without disabling follow", () => {
+  const scroll = vi.spyOn(Element.prototype, "scrollTo");
+  const { container } = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  const page = container.querySelector<HTMLElement>('[data-page="12"]')!;
+  const fitted = parseFloat(page.style.width);
+  const root = screen.getByLabelText("Textbook pages");
+  fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, clientX: 100, clientY: 150 });
+  expect(parseFloat(page.style.width)).toBeGreaterThan(fitted);
+  expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
+  expect(scroll.mock.calls.some(([arg]) => (arg as ScrollToOptions | undefined)?.behavior === "instant")).toBe(true);
+  scroll.mockRestore();
 });
