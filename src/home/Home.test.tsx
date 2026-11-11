@@ -141,15 +141,13 @@ it('rejects non PDFs, reports ingest errors and retries the source', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Retry section titles' }));
   expect(await screen.findByText('Heaps')).toBeTruthy();
 });
-it('original PDF tab loads a local PDF blob on demand', async () => {
-  const create = vi.fn().mockReturnValue('blob:pdf'), revoke = vi.fn();
-  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
-  vi.mocked(originalPdf).mockResolvedValue(btoa('%PDF-1.7'));
+it('original PDF tab loads the allowed asset URL on demand', async () => {
+  vi.mocked(originalPdf).mockResolvedValue('asset://localhost/book.pdf');
   const { container, unmount } = setup(); await upload(container);
   expect(originalPdf).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab', { name: 'Original PDF' }));
-  await waitFor(() => expect(container.querySelector('iframe')?.src).toBe('blob:pdf'));
-  unmount(); expect(revoke).toHaveBeenCalledWith('blob:pdf');
+  await waitFor(() => expect(container.querySelector('iframe')?.src).toBe('asset://localhost/book.pdf'));
+  unmount();
 });
 it('move-to-folder persists the chosen folder', async () => {
   const source = sourceFor('/book.pdf');

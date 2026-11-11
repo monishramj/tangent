@@ -73,36 +73,6 @@ def pdf_info(params):
         pdf.close()
 
 
-def pdf_page(params):
-    """Render one page as a PNG data URL at a target pixel width; also returns the page size in points."""
-    if not isinstance(params, dict) or not isinstance(params.get("path"), str) or not params["path"].strip():
-        raise ValueError("path must be a non-empty local PDF path")
-    page_no, width = params.get("page"), params.get("width")
-    if type(page_no) is not int or type(width) is not int or not 1 <= width <= 4000:
-        raise ValueError("page must be an int and width an int in 1..4000")
-    import pypdfium2
-
-    pdf = pypdfium2.PdfDocument(str(Path(params["path"]).expanduser().resolve(strict=True)))
-    try:
-        if not 1 <= page_no <= len(pdf):
-            raise ValueError(f"page must be in 1..{len(pdf)}")
-        page = pdf[page_no - 1]
-        try:
-            w, h = page.get_size()
-            bitmap = page.render(scale=width / w)
-            try:
-                output = io.BytesIO()
-                bitmap.to_pil().save(output, format="PNG")
-            finally:
-                bitmap.close()
-        finally:
-            page.close()
-        return {"url": "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii"),
-                "width": round(w), "height": round(h)}
-    finally:
-        pdf.close()
-
-
 def _assets_root():
     return Path(__file__).resolve().parents[1] / ".ingest"
 
@@ -314,16 +284,6 @@ def section_text(params_or_ir, section_id=None):
     if node is None:
         raise ValueError(f"unknown section: {section_id}")
     return strip_footers("\n\n".join(t for t in texts(node) if t))
-
-
-def original_pdf(params):
-    if not isinstance(params, dict) or not isinstance(params.get("path"), str):
-        raise ValueError("path must be a local PDF path")
-    # shortcut: preview copies the whole PDF through IPC, use scoped asset streaming for very large books.
-    data = Path(params["path"]).expanduser().resolve(strict=True).read_bytes()
-    if not data[:1024].lstrip().startswith(b"%PDF-"):
-        raise ValueError("path must contain a PDF")
-    return base64.b64encode(data).decode("ascii")
 
 
 def repair_sections(params):
