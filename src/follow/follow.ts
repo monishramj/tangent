@@ -33,3 +33,7 @@ export function fitColumn(boxes: BBox[]) {
 
 export const scrollTargetX = (pageLeft: number, pageWidth: number, bbox: BBox, viewportW: number) =>
   Math.max(0, Math.min(pageLeft + pageWidth * (bbox[0] + bbox[2]) / 2 - viewportW / 2, pageLeft + pageWidth * bbox[0] - 12));
+
+/** Keep a sharper loaded page when shrinking; only upgrade after layout settles. */
+export const renderBucket = (width: number, pixelRatio: number, loaded = 0) =>
+  Math.max(loaded, Math.min(4000, Math.ceil(width * pixelRatio / 400) * 400));

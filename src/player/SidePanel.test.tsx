@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Thread } from "@/storage/store";
 import SidePanel from "./SidePanel";
@@ -152,7 +152,8 @@ it("resizes by keyboard, clamps and restores the persisted width", () => {
   expect(Number(screen.getByRole("separator").getAttribute("aria-valuenow"))).toBe(Math.min(900, window.innerWidth * .7));
 });
 
-it("drags the left edge with pointer capture and stops after release", () => {
+it("drags through CSS without state or storage writes until release", () => {
+  vi.useFakeTimers();
   vi.stubGlobal("PointerEvent", MouseEvent);
   setup();
   const handle = screen.getByRole("separator");
@@ -161,11 +162,16 @@ it("drags the left edge with pointer capture and stops after release", () => {
   fireEvent.pointerDown(handle, { button: 0, clientX: 600 });
   expect(handle.setPointerCapture).toHaveBeenCalled();
   fireEvent.pointerMove(handle, { clientX: 500 });
-  expect(handle.getAttribute("aria-valuenow")).toBe("500");
+  expect(handle.getAttribute("aria-valuenow")).toBe("400");
+  expect(localStorage.getItem("tangent.panelWidth")).toBeNull();
+  act(() => { vi.advanceTimersByTime(20); });
+  expect(handle.parentElement!.style.getPropertyValue("--panel-width")).toBe("500px");
   fireEvent.pointerUp(handle);
+  expect(localStorage.getItem("tangent.panelWidth")).toBe("500");
   expect(handle.releasePointerCapture).toHaveBeenCalled();
   fireEvent.pointerMove(handle, { clientX: 400 });
   expect(handle.getAttribute("aria-valuenow")).toBe("500");
+  vi.useRealTimers();
 });
 
 it("ignores invalid stored widths and works when storage is unavailable", () => {
@@ -192,4 +198,28 @@ it("pill tabs preserve the badge and support arrow wraparound, Home and End", ()
     expect(document.activeElement).toBe(screen.getByRole("tab", { name }));
   }
   expect(screen.getByRole("tablist").contains(screen.getByRole("button", { name: "Close panel" }))).toBe(false);
+});
+
+it("defers the glass displacement map until an active drag ends", () => {
+  vi.useFakeTimers();
+  try {
+    let notify: () => void = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { notify = callback; }
+      observe() {} disconnect() {}
+    });
+    setup();
+    const wrapper = screen.getByRole("separator").parentElement!;
+    const glass = wrapper.lastElementChild!;
+    Object.defineProperties(glass, { offsetWidth: { value: 500 }, offsetHeight: { value: 600 } });
+    glass.getBoundingClientRect = () => ({ width: 500, height: 600 }) as DOMRect;
+    const map = glass.querySelector("feImage")!;
+    const before = map.getAttribute("href");
+    wrapper.dataset.resizing = "true";
+    act(() => { notify(); vi.advanceTimersByTime(750); });
+    expect(map.getAttribute("href")).toBe(before);
+    delete wrapper.dataset.resizing;
+    act(() => { vi.advanceTimersByTime(250); });
+    expect(decodeURIComponent(map.getAttribute("href")!)).toContain('width="500"');
+  } finally { vi.useRealTimers(); }
 });
