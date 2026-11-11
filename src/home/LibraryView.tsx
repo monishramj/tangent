@@ -103,7 +103,7 @@ export default function LibraryView(props: LibraryViewProps) {
   return <LibraryShell onHome={home}>
     {(folder || allFolders) && <button className="tl-back" onClick={() => { cancelOpening(); if (folder) onBack(); else setAllFolders(false); }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
     <div className="tl-content" key={folder?.id ?? (allFolders ? 'all' : 'home')}>
-      <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'Library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
+      <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
         {folder ? <details className="tl-menu"><summary aria-label="Folder actions"><Icon icon={MoreHorizontalIcon} size={20} /></summary><div><button onClick={() => startForm('rename')}>Rename folder</button><button onClick={() => startForm('delete')}>Delete folder</button></div></details>
           : <button className="tl-text-button" onClick={() => startForm('create')}><Icon icon={Add01Icon} size={17} />New folder</button>}
       </div>
