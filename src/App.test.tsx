@@ -29,7 +29,7 @@ const provider = { complete: vi.fn() };
 
 it("home opens the sources-first library with saved videos and no demo", async () => {
   render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([vid])} />);
-  expect(screen.getByRole("heading", { name: "Your library." })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Library" })).toBeTruthy();
   expect(screen.getByTestId("dropzone")).toBeTruthy();
   expect(screen.queryByText(/project/i)).toBeNull();
   expect(await screen.findByRole("list", { name: "Recent videos" })).toBeTruthy();
@@ -42,7 +42,7 @@ it("opening a saved video plays it under its title; Back returns home", async ()
   expect(await screen.findByRole("heading", { name: "Heaps" })).toBeTruthy();
   expect(await screen.findByRole("slider")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByRole("heading", { name: "Your library." })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Library" })).toBeTruthy();
 });
 
 it("Back from a saved video restores the source and its folder", async () => {

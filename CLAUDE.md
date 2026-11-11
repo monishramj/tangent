@@ -213,6 +213,7 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 ## Current state (keep this section current)
 
 **Library layout cleanup (2026-11-11):** Home is titled “Library” with the introductory and dropzone taglines removed. Folders and the PDF dropzone stay above two columns: loose pages left, recent videos right; below 700px the columns stack. All 17 Home tests and the production build pass. Browser verification covered the empty desktop layout; populated native data remains unchecked because the browser has no Tauri bridge.
+
 Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
 
 **Sources-first homepage (2026-11-10):**
