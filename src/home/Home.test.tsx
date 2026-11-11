@@ -1,15 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Home from './Home';
-import { listSections, originalPdf, pdfPreview } from './api';
+import { listSections, pdfPage, pdfPreview } from './api';
 import { loadIr } from '../library';
 import { memoryJsonStore, sourceFor } from '../storage/store';
 import { fakeVideoStore, type VideoBundle } from '../storage/videos';
 
-vi.mock('./api', async orig => ({ ...(await orig<typeof import('./api')>()), listSections: vi.fn(), pdfPreview: vi.fn(), originalPdf: vi.fn() }));
+vi.mock('./api', async orig => ({ ...(await orig<typeof import('./api')>()), listSections: vi.fn(), pdfPreview: vi.fn(), pdfPage: vi.fn() }));
 vi.mock('../library', () => ({ loadIr: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/components/ShinyText', () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
+globalThis.IntersectionObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof IntersectionObserver;
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 window.matchMedia ??= ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
 const ir = { sections: [] };
@@ -141,15 +142,14 @@ it('rejects non PDFs, reports ingest errors and retries the source', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Retry section titles' }));
   expect(await screen.findByText('Heaps')).toBeTruthy();
 });
-it('original PDF tab loads a local PDF blob on demand', async () => {
-  const create = vi.fn().mockReturnValue('blob:pdf'), revoke = vi.fn();
-  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
-  vi.mocked(originalPdf).mockResolvedValue(btoa('%PDF-1.7'));
-  const { container, unmount } = setup(); await upload(container);
-  expect(originalPdf).not.toHaveBeenCalled();
+it('original PDF tab loads native page images on demand', async () => {
+  vi.mocked(pdfPage).mockResolvedValue({ url: 'asset://localhost/page.png', width: 600, height: 800 });
+  const { container } = setup(); await upload(container);
+  expect(pdfPage).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('tab', { name: 'Original PDF' }));
-  await waitFor(() => expect(container.querySelector('iframe')?.src).toBe('blob:pdf'));
-  unmount(); expect(revoke).toHaveBeenCalledWith('blob:pdf');
+  expect(await screen.findByAltText('Page 1')).toBeTruthy();
+  expect(container.querySelectorAll('[data-page]')).toHaveLength(8);
+  expect(pdfPage).toHaveBeenCalledWith('/book.pdf', 1, expect.any(Number));
 });
 it('move-to-folder persists the chosen folder', async () => {
   const source = sourceFor('/book.pdf');

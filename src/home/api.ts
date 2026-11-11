@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 export type Anchor = { page: number };
@@ -72,4 +72,36 @@ export const sectionsFigures = (ir: IR, ids: string[]) => uniq(ids.flatMap(id =>
 export const sectionsExercises = (ir: IR, ids: string[]) => uniq(ids.flatMap(id => sectionExercises(ir, id)));
 
 export const pdfPreview = (path: string) => call<{ pages: number; thumbnailUrl?: string }>("pdf_info", { path, preview: true });
-export const originalPdf = (path: string) => call<string>("original_pdf", { path });
+
+// Textbook follow-along (docs/textbook-follow.md).
+export type { Passage } from "@/follow/types";
+import type { Passage, PageImage } from "@/follow/types";
+
+const findSection = (nodes: SectionIR[], id: string): SectionIR | undefined => {
+  for (const n of nodes) { if (n.id === id) return n; const hit = findSection(n.children, id); if (hit) return hit; }
+};
+const validPassage = (p: unknown): p is Passage => {
+  const q = p as Passage | null;
+  return !!q && typeof q.id === "string" && typeof q.markdown === "string" && Array.isArray(q.boxes);
+};
+
+/** Passages of each section and its descendants, in the given order, deduped by id. Old IRs have none. */
+export function sectionsPassages(ir: IR, ids: string[]): Passage[] {
+  const own = (n: SectionIR): unknown[] => [...(Array.isArray(n.passages) ? n.passages : []), ...n.children.flatMap(own)];
+  const seen = new Set<string>();
+  return ids.flatMap(id => { const n = findSection(ir.sections, id); return n ? own(n) : []; })
+    .filter(validPassage).filter(p => !seen.has(p.id) && seen.add(p.id));
+}
+
+/** Sorted unique 1-based pages of a video section id (ids joined with "+"). */
+export function sectionPages(ir: IR, videoSectionId: string): number[] {
+  const pages = new Set<number>();
+  const add = (n: SectionIR) => { n.anchors.forEach(a => pages.add(a.page)); n.children.forEach(add); };
+  for (const id of videoSectionId.split("+")) { const n = findSection(ir.sections, id); if (n) add(n); }
+  return [...pages].sort((a, b) => a - b);
+}
+
+export const pdfPage = async (path: string, page: number, width: number): Promise<PageImage> => {
+  const result = await invoke<{ path: string; width: number; height: number }>("pdf_page", { path, page, width });
+  return { url: convertFileSrc(result.path), width: result.width, height: result.height };
+};

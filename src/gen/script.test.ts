@@ -125,3 +125,46 @@ describe("detail level", () => {
     expect(complete).toContain("Speech rules, all mandatory");
   });
 });
+
+// Textbook follow-along (docs/textbook-follow.md): beats name the source passages they rewrite.
+describe("generateScript passages", () => {
+  const passages = [{ id: "p1", markdown: "A heap is a tree." }, { id: "p2", markdown: "The root is the max." }];
+  const beat = (say: string, extra: object = {}) => ({ say, visualIntent: "x", ...extra });
+
+  it("tags each source block with its id and asks for passage ids per beat", async () => {
+    const provider = mockProvider(JSON.stringify([beat("A heap is a tree.", { passages: ["p1"] })]));
+    await generateScript({ sectionMarkdown: "A heap is a tree.\n\nThe root is the max.", passages, provider });
+    const prompt = provider.complete.mock.calls[0][0];
+    expect(prompt).toContain("[p1] A heap is a tree.");
+    expect(prompt).toContain("[p2] The root is the max.");
+    expect(prompt).toContain('"passages"');
+  });
+
+  it("keeps known ids, drops unknown ones and duplicates, and never fails the beat over them", async () => {
+    const provider = mockProvider(JSON.stringify([
+      beat("A heap is a tree.", { passages: ["p1", "p9", "p1"] }),
+      beat("The root is the max.", { passages: ["p2", 7, null] }),
+      beat("So heaps are trees.", { passages: "p1" }),
+      beat("That is the key idea."),
+    ]));
+    const r = await generateScript({ sectionMarkdown: "s", passages, provider });
+    expect(r.violations).toEqual([]);
+    expect(r.attempts).toBe(1);
+    expect(r.beats?.map(b => b.passages)).toEqual([["p1"], ["p2"], [], []]);
+  });
+
+  it("without passages the prompt has no ids and beats carry none", async () => {
+    const provider = mockProvider(JSON.stringify([beat("A heap is a tree.", { passages: ["p1"] })]));
+    const r = await generateScript({ sectionMarkdown: "A heap is a tree.", provider });
+    expect(provider.complete.mock.calls[0][0]).not.toContain('"passages"');
+    expect(r.beats?.[0].passages).toBeUndefined();
+  });
+
+  it("keeps the tagged source on the retry", async () => {
+    const provider = mockProvider(JSON.stringify([beat("It is a tree.", { passages: ["p1"] })]), JSON.stringify([beat("A heap is a tree.", { passages: ["p1"] })]));
+    const r = await generateScript({ sectionMarkdown: "s", passages, provider });
+    expect(r.attempts).toBe(2);
+    expect(provider.complete.mock.calls[1][0]).toContain("[p1] A heap is a tree.");
+    expect(r.beats?.[0].passages).toEqual(["p1"]);
+  });
+});

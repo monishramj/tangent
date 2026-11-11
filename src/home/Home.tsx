@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
 import SourceView from './SourceView';
-import { listSections, multiTitle, originalPdf, pdfPreview, type IR, type SectionRef } from './api';
+import { listSections, multiTitle, pdfPreview, type IR, type SectionRef } from './api';
 import { loadIr, type LoadProgress } from '../library';
 import { sourceFor, tauriJsonStore, type JsonStore } from '../storage/store';
 import { addFolder, addSource, deleteFolder, emptyLibrary, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
@@ -39,9 +39,6 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const [cleanup, setCleanup] = useState<'pending' | 'failed' | 'done'>('done');
   const [cleanupAttempt, setCleanupAttempt] = useState(0);
   const lastCleanupAttempt = useRef(0);
-  const [pdfUrl, setPdfUrl] = useState<string>();
-  const [pdfAttempt, setPdfAttempt] = useState(0);
-  const [pdfRequested, setPdfRequested] = useState(false);
   const sourceId = route.s === 'source' ? route.sourceId : undefined;
   const source = library.sources.find(s => s.id === sourceId);
   const folderId = route.s === 'folder' || route.s === 'source' ? route.folderId : undefined;
@@ -88,18 +85,6 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     })();
     return () => { live = false; };
   }, [source?.id, source?.pdfPath, jsonStore, provider, cleanupAttempt]);
-  useEffect(() => {
-    setPdfRequested(false); setPdfUrl(undefined);
-  }, [sourceId]);
-  useEffect(() => {
-    if (!source || !pdfRequested) return;
-    let live = true, url: string | undefined;
-    void originalPdf(source.pdfPath).then(base64 => {
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-      if (live) { url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })); setPdfUrl(url); }
-    }).catch(e => { if (live) setError(`Couldn't open the original PDF: ${String(e)}`); });
-    return () => { live = false; if (url) URL.revokeObjectURL(url); };
-  }, [source?.id, source?.pdfPath, pdfRequested, pdfAttempt]);
   const importPath = async (path: string) => {
     if (!ready || loading) return;
     if (!/\.pdf$/i.test(path)) { setError("That isn't a PDF. Choose a .pdf file."); return; }
@@ -136,7 +121,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
     loading={loading} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home}
-    onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo} pdfUrl={pdfUrl} onOpenOriginal={() => { setPdfRequested(true); setPdfAttempt(n => n + 1); }}
+    onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onGenerate={(ids, detail) => { if (content?.id !== source.id) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
   return <LibraryView folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}

@@ -1,4 +1,4 @@
-// GIPHY lookup for `gif` objects. Resolved once at generation time; the URL is saved in the bundle.
+// GIPHY lookup for `gif` objects. Resolved at generation time and backfilled on replay when a saved GIF has no URL.
 // No key (Settings -> GIPHY) = no lookup: the renderer shows a framed reaction card with the caption instead.
 import { invoke } from "@tauri-apps/api/core";
 import type { Scene } from "@motion/dsl/schema";
@@ -7,7 +7,7 @@ export type GifSearch = (query: string) => Promise<string | null>;
 const BANNED = /\b(nsfw|sexy|gore|blood|drunk)\b/i;
 
 // Secrets are an owner-only file in app data (the Keychain prompted for the login password on every unsigned rebuild). A non-secret localStorage flag says whether a
-// key exists (the Settings UI reads only the flag). giphyKey runs at generation time only and reads the secret once per
+// key exists (the Settings UI reads only the flag). giphyKey runs at generation/replay time and reads the secret once per
 // session even without the flag, so a key saved before the flag existed is still found.
 export const GIPHY_FLAG = "tangent.giphy.set";
 export function hasGiphyKey(): boolean {

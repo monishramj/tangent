@@ -3,9 +3,11 @@ import type { Scene } from "@motion/dsl/schema";
 import type { Timeline } from "@motion/dsl/compile";
 import type { PipelineEvent } from "../pipeline/streamVideo";
 import type { Checkpoint } from "../gen/checkpoints";
+import type { BeatBoxes } from "../follow/types";
 import type { DetailLevel } from "../gen/script";
+import { giphyKey, giphySearch, resolveGifs, type GifSearch } from "../media/giphy";
 
-export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number };
+export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number; passages?: BeatBoxes };
 export type VideoBundle = {
   id: string; title: string; createdAt: number; complete: boolean;
   source: { pdfPath: string; sectionId: string; sectionTitle: string };
@@ -60,7 +62,7 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
       for await (const ev of stream) {
         if (ev.type === "scene") {
           const e: SceneEvent = ev;
-          bundle.scenes.push({ sceneId: e.sceneId, scene: e.scene, timeline: e.timeline, audioFile: e.wavPath, durationSec: e.timeline.totalSec });
+          bundle.scenes.push({ sceneId: e.sceneId, scene: e.scene, timeline: e.timeline, audioFile: e.wavPath, durationSec: e.timeline.totalSec, ...(e.passages ? { passages: e.passages } : {}) });
           void persist();
         } else if (ev.type === "checkpoints") { bundle.checkpoints = ev.items; void persist(); }
         else clean = false;
@@ -74,7 +76,23 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
 }
 
 /** Stored scenes as pipeline events: no LLM, no TTS. */
-export async function* replayStream(b: VideoBundle): AsyncGenerator<PipelineEvent> {
-  for (const s of b.scenes) yield { type: "scene", sceneId: s.sceneId, scene: s.scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0 };
+export async function* replayStream(b: VideoBundle, gifSearch?: GifSearch | null): AsyncGenerator<PipelineEvent> {
+  let search: Promise<GifSearch | null> | undefined;
+  for (const s of b.scenes) {
+    let scene = s.scene;
+    if (scene.objects.some(o => o.type === "gif" && !o.src && o.query)) {
+      search ??= gifSearch === undefined ? giphyKey().then(key => key ? giphySearch(key) : null) : Promise.resolve(gifSearch);
+      const resolved = structuredClone(scene);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // Resolve a copy so a late lookup cannot mutate a scene already playing.
+        scene = await Promise.race([
+          search.then(async fn => { await resolveGifs(resolved, fn); return resolved; }),
+          new Promise<Scene>(resolve => { timer = setTimeout(() => resolve(scene), 1500); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    }
+    yield { type: "scene", sceneId: s.sceneId, scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0, ...(s.passages ? { passages: s.passages } : {}) };
+  }
   if (b.checkpoints?.length) yield { type: "checkpoints", items: b.checkpoints };
 }

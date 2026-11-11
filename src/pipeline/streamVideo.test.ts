@@ -395,3 +395,28 @@ it("emits checkpoints exactly once from the side call, and an invalid answer yie
     expect(vi.mocked(provider.complete).mock.calls.filter(c => c[0].startsWith("Write checkpoint questions"))).toHaveLength(1);
   }
 });
+
+// Textbook follow-along (docs/textbook-follow.md).
+it("attaches each beat's passage boxes to its scene; unknown ids are dropped; no passages → no field", async () => {
+  const { options, beats } = setup(2);
+  const box = (page: number) => ({ page, bbox: [0, page / 10, 1, page / 10 + 0.05] as [number, number, number, number] });
+  const passages = [{ id: "p1", markdown: "Arrays grow.", boxes: [box(1)] }, { id: "p2", markdown: "Then shrink.", boxes: [box(2), box(3)] }];
+  const tagged = beats.map((b, i) => ({ ...b, passages: i === 0 ? ["p1"] : i === 1 ? ["p2", "p404"] : i === 3 ? ["p1", "p2"] : [] }));
+  options.provider.complete = vi.fn(async (prompt: string) => {
+    if (prompt.includes("Rewrite the textbook section")) return JSON.stringify(tagged);
+    if (prompt.startsWith("Write checkpoint questions")) return "[]";
+    return answerFor(groupOf(prompt));
+  });
+  const events = collect(streamVideo({ ...options, passages }));
+  await vi.runAllTimersAsync();
+  const scenes = sceneEvents(await events).filter(e => e.type === "scene");
+  expect(scenes.map(s => s.passages)).toEqual([
+    [[box(1)], [box(2), box(3)], []],
+    [[box(1), box(2), box(3)], [], [], []],
+  ]);
+
+  const plain = setup(2);
+  const out = collect(streamVideo(plain.options));
+  await vi.runAllTimersAsync();
+  for (const s of sceneEvents(await out)) expect(s.type === "scene" && "passages" in s).toBe(false);
+});

@@ -15,6 +15,12 @@ from pathlib import Path
 from .postprocess import strip_footers
 
 
+def _pick_device(env):
+    # "auto": Docling picks CUDA/MPS per model; the formula model (no MPS support) falls back to CPU on its own.
+    # Forcing "mps" makes that model raise.
+    return env or "auto"
+
+
 @lru_cache(maxsize=1)
 def _load_converter():
     from docling.datamodel.accelerator_options import AcceleratorOptions
@@ -22,14 +28,12 @@ def _load_converter():
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
-    import torch
-
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = _pick_device(os.environ.get("TANGENT_DEVICE"))
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
         accelerator_options=AcceleratorOptions(
-            device=os.environ.get("TANGENT_DEVICE", device),
+            device=device,
             num_threads=int(os.environ.get("TANGENT_THREADS", "8")),
         ),
     )
@@ -135,6 +139,22 @@ def _repeated_margins(document, items):
     return {ref: lines & repeated for ref, lines in candidates.items()}
 
 
+def _boxes(document, item):
+    """One box per provenance entry: [x0, y0, x1, y1] as page fractions, top-left origin."""
+    boxes = []
+    for prov in item.prov:
+        page = document.pages.get(prov.page_no)
+        if page is None or not page.size.width or not page.size.height:
+            continue
+        b = prov.bbox.to_top_left_origin(page_height=page.size.height)
+        x0, x1 = sorted((b.l, b.r))
+        y0, y1 = sorted((b.t, b.b))
+        w, h = page.size.width, page.size.height
+        box = [round(min(1.0, max(0.0, v)), 4) for v in (x0 / w, y0 / h, x1 / w, y1 / h)]
+        boxes.append({"page": prov.page_no, "bbox": box})
+    return boxes
+
+
 def document_to_ir(document, assets, pdf_path=None):
     from docling_core.transforms.serializer.markdown import MarkdownDocSerializer
     from docling_core.types.doc import ContentLayer
@@ -151,13 +171,15 @@ def document_to_ir(document, assets, pdf_path=None):
     sections, stack = [], []
     exercise = None
     figure_count = 0
+    passage_count = 0
 
     def section(title, level):
         nonlocal exercise
         while stack and stack[-1]["level"] >= level:
             stack.pop()
         node = {"id": f"section-{len(all_sections) + 1}", "title": title, "level": level,
-                "markdown": "", "figures": [], "exercises": [], "anchors": [], "children": []}
+                "markdown": "", "figures": [], "exercises": [], "anchors": [], "children": [],
+                "passages": []}
         (stack[-1]["children"] if stack else sections).append(node)
         stack.append(node)
         all_sections.append(node)
@@ -202,6 +224,8 @@ def document_to_ir(document, assets, pdf_path=None):
         if not markdown:
             continue
         current["markdown"] += ("\n\n" if current["markdown"] else "") + markdown
+        passage_count += 1
+        current["passages"].append({"id": f"p{passage_count}", "markdown": markdown, "boxes": _boxes(document, item)})
 
         if any(EXERCISE_HEADING.search(s["title"]) for s in stack):
             if (exercise is None or getattr(item, "enumerated", False)
@@ -264,16 +288,6 @@ def section_text(params_or_ir, section_id=None):
     if node is None:
         raise ValueError(f"unknown section: {section_id}")
     return strip_footers("\n\n".join(t for t in texts(node) if t))
-
-
-def original_pdf(params):
-    if not isinstance(params, dict) or not isinstance(params.get("path"), str):
-        raise ValueError("path must be a local PDF path")
-    # shortcut: preview copies the whole PDF through IPC, use scoped asset streaming for very large books.
-    data = Path(params["path"]).expanduser().resolve(strict=True).read_bytes()
-    if not data[:1024].lstrip().startswith(b"%PDF-"):
-        raise ValueError("path must contain a PDF")
-    return base64.b64encode(data).decode("ascii")
 
 
 def repair_sections(params):

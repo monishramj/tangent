@@ -12,6 +12,11 @@ from tangent_sidecar import handle, main
 from tangent_sidecar import ingest
 
 
+@pytest.mark.parametrize("env,expected", [("cpu", "cpu"), ("mps", "mps"), (None, "auto"), ("", "auto")])
+def test_pick_device(env, expected):
+    assert ingest._pick_device(env) == expected
+
+
 @pytest.fixture
 def document():
     """Tiny hand-made Docling document; no converter or models involved."""

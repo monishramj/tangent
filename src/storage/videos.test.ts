@@ -85,3 +85,80 @@ it("stores checkpoints on the bundle without marking it incomplete, and replays 
   expect(events.map(e => e.type)).toEqual(["scene", "checkpoints"]);
   expect(events[1]).toMatchObject({ items: [{ id: "cp1" }] });
 });
+
+// Textbook follow-along (docs/textbook-follow.md): beat → passage boxes persist so replay needs no regeneration.
+it("persists and replays per-beat passage boxes; old bundles replay without them", async () => {
+  const boxes = [[{ page: 3, bbox: [0.1, 0.2, 0.9, 0.3] as [number, number, number, number] }], []];
+  const store = fakeVideoStore();
+  await drain(recordStream(of([{ ...ev(1), passages: boxes } as PipelineEvent, ev(2)]), { id: "v", title: "t", source }, store));
+  await new Promise(r => setTimeout(r, 0));
+  const saved = await store.load("v");
+  expect(saved.scenes[0].passages).toEqual(boxes);
+  expect(saved.scenes[1].passages).toBeUndefined();
+  const replayed: PipelineEvent[] = [];
+  for await (const e of replayStream(saved)) replayed.push(e);
+  expect(replayed[0]).toMatchObject({ type: "scene", passages: boxes });
+  expect("passages" in replayed[1]).toBe(false);
+  // A bundle saved before this feature (no passages anywhere) still replays scene for scene.
+  const old = { ...saved, scenes: saved.scenes.map(({ passages: _p, ...s }) => s) };
+  const oldEvents: PipelineEvent[] = [];
+  for await (const e of replayStream(old)) oldEvents.push(e);
+  expect(oldEvents.map(e => e.type === "scene" && "passages" in e)).toEqual([false, false]);
+});
+
+const gifBundle = () => ({
+  id: "gif", title: "Reaction", createdAt: 0, complete: true, source,
+  scenes: [{ sceneId: "s", scene: { scene: "s", beats: [], objects: [
+    { id: "missing", type: "gif", query: "wow" },
+    { id: "saved", type: "gif", query: "saved", src: "https://g/saved.gif" },
+  ] } as unknown as import("@motion/dsl/schema").Scene, timeline: { totalSec: 2 } as never, audioFile: "/audio.wav", durationSec: 2 }],
+});
+
+it("backfills replay GIFs with a fake search without replacing saved URLs or changing the bundle", async () => {
+  const bundle = gifBundle();
+  const search = vi.fn(async () => "https://g/new.gif");
+  const event = (await replayStream(bundle, search).next()).value;
+  expect(search).toHaveBeenCalledExactlyOnceWith("wow");
+  expect(event).toMatchObject({ scene: { objects: [{ src: "https://g/new.gif" }, { src: "https://g/saved.gif" }] } });
+  expect(bundle.scenes[0].scene.objects[0]).not.toHaveProperty("src");
+});
+
+it("no key or a failed lookup keeps replay placeholder cards", async () => {
+  for (const search of [null, vi.fn(async () => { throw new Error("offline"); })]) {
+    const event = (await replayStream(gifBundle(), search).next()).value;
+    expect(event).toMatchObject({ scene: { objects: [{ query: "wow" }, { src: "https://g/saved.gif" }] } });
+    if (event?.type === "scene") expect(event.scene.objects[0]).not.toHaveProperty("src");
+  }
+});
+
+it("uses the saved GIPHY key when no search override is supplied", async () => {
+  const { resetGiphyKey } = await import("../media/giphy");
+  resetGiphyKey();
+  vi.mocked(invoke).mockResolvedValueOnce("KEY");
+  const fetchFn = vi.fn(async () => new Response(JSON.stringify({ data: [{ images: { fixed_height: { url: "https://g/found.gif" } } }] })));
+  vi.stubGlobal("fetch", fetchFn);
+  try {
+    const event = (await replayStream(gifBundle()).next()).value;
+    expect(event).toMatchObject({ scene: { objects: [{ src: "https://g/found.gif" }, {}] } });
+    expect(fetchFn).toHaveBeenCalledOnce();
+  } finally { vi.unstubAllGlobals(); resetGiphyKey(); }
+});
+
+it("time-boxes a slow replay lookup to 1.5 seconds and ignores its late result", async () => {
+  vi.useFakeTimers();
+  try {
+    let finish!: (url: string) => void;
+    const first = replayStream(gifBundle(), () => new Promise(resolve => { finish = resolve; })).next();
+    await vi.advanceTimersByTimeAsync(1499);
+    let emitted = false;
+    void first.then(() => { emitted = true; });
+    await Promise.resolve();
+    expect(emitted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const event = (await first).value;
+    finish("https://g/late.gif");
+    await vi.advanceTimersByTimeAsync(0);
+    if (event?.type === "scene") expect(event.scene.objects[0]).not.toHaveProperty("src");
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
+});

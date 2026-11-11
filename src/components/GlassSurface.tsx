@@ -538,14 +538,23 @@ const GlassSurface = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const resizeObserver = new ResizeObserver(() => {
+    // Reuse the displacement map while resizing; rebuild once the layout settles.
+    let timer: ReturnType<typeof setTimeout>;
+    const updateSize = () => {
       const element = containerRef.current;
-      if (element) setBoxSize(`${element.offsetWidth}x${element.offsetHeight}`);
+      if (element?.closest('[data-resizing="true"]')) {
+        timer = setTimeout(updateSize, 250);
+      } else if (element) setBoxSize(`${element.offsetWidth}x${element.offsetHeight}`);
+    };
+    const resizeObserver = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(updateSize, 250);
     });
 
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      clearTimeout(timer);
       resizeObserver.disconnect();
     };
   }, []);

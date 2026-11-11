@@ -27,7 +27,7 @@
         "media-src": "'self' asset: http://asset.localhost blob:",
         "connect-src": "'self' ipc: http://ipc.localhost asset: http://asset.localhost https://api.giphy.com https://*.giphy.com",
         "font-src": "'self' data:",
-        "frame-src": "blob:",
+        "frame-src": "'none'",
         "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'none'",
@@ -42,6 +42,7 @@
           "$TEMP/tangent-*.wav",
           "$APPDATA/videos/**",
           "$APPDATA/figures/**",
+          "$APPDATA/pages/**",
           "$APPDATA/store/**"
         ]
       }

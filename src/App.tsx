@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
-import { sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
+import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import { recordStream, replayStream, tauriVideoStore, type VideoBundle, type VideoStore } from "./storage/videos";
-import { newId, tauriJsonStore, type JsonStore } from "./storage/store";
+import { irCache, sourceFor, newId, tauriJsonStore, type JsonStore } from "./storage/store";
 import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
@@ -31,8 +31,17 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
 
 function Watch({ video, provider, store, onBack }: { video: VideoBundle; provider?: LLMProvider; store: JsonStore; onBack: () => void }) {
   const stream = useMemo(() => replayStream(video), [video]);
+  const [pages, setPages] = useState<number[]>([]);
+  useEffect(() => {
+    let live = true;
+    setPages([]);
+    void irCache(store).get(sourceFor(video.source.pdfPath).id).then(ir => {
+      if (live) setPages(ir && Array.isArray(ir.sections) ? sectionPages(ir, video.source.sectionId) : []);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [video, store]);
   return <PlayerScreen stream={stream} title={video.title} kicker={video.source.sectionTitle !== video.title ? video.source.sectionTitle : "Tangent"}
-    videoId={video.id} section={video.title} provider={provider} store={store} autoPlay onBack={onBack} />;
+    textbook={{ pdfPath: video.source.pdfPath, pages }} videoId={video.id} section={video.title} provider={provider} store={store} autoPlay onBack={onBack} />;
 }
 
 /** Read the section, start the pipeline, record it into a bundle, and play it as it streams. */
@@ -52,7 +61,7 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
         if (controller.signal.aborted) return;
         const key = await giphyKey();
         const stream = startSession({
-          irSection: { markdown, figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
+          irSection: { markdown, passages: sectionsPassages(ir, sectionIds), figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
           provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });
@@ -65,5 +74,6 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   const error = state && "error" in state ? state.error : null;
   return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
     kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} provider={provider} store={store}
+    textbook={{ pdfPath: args.meta.pdfPath, pages: sectionPages(args.ir, args.sectionIds.join("+")) }}
     progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section: ${error}` : undefined} />;
 }

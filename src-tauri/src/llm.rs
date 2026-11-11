@@ -85,7 +85,16 @@ pub fn scratch_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// PATH entries plus the dirs GUI apps miss. `path` is the inherited $PATH, `home` is $HOME.
+fn home_from(home: Option<String>, userprofile: Option<String>) -> String {
+    home.or(userprofile).unwrap_or_default()
+}
+
+pub fn home_dir() -> String {
+    home_from(std::env::var("HOME").ok(),
+        if cfg!(windows) { std::env::var("USERPROFILE").ok() } else { None })
+}
+
+/// PATH entries plus the dirs GUI apps miss.
 pub fn search_dirs(path: &str, home: &str) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::env::split_paths(path).collect();
     v.push(Path::new(home).join(".local/bin"));
@@ -95,7 +104,18 @@ pub fn search_dirs(path: &str, home: &str) -> Vec<PathBuf> {
 }
 
 pub fn resolve(bin: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
-    dirs.iter().map(|d| d.join(bin)).find(|p| p.is_file())
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+            .split(';').filter(|ext| !ext.is_empty()).map(String::from).collect()
+    } else { vec![] };
+    resolve_with(bin, dirs, &exts)
+}
+
+/// Extensions first: npm puts an extensionless sh shim next to `claude.cmd` on Windows, and only the .cmd runs.
+fn resolve_with(bin: &str, dirs: &[PathBuf], exts: &[String]) -> Option<PathBuf> {
+    dirs.iter().flat_map(|dir| {
+        exts.iter().map(move |ext| dir.join(format!("{bin}{ext}"))).chain(std::iter::once(dir.join(bin)))
+    }).find(|path| path.is_file())
 }
 
 pub fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], model: Option<&str>) -> Result<String, String> {
@@ -109,7 +129,7 @@ pub fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: 
 fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], cwd: &Path, model: Option<&str>) -> Result<String, String> {
     let out_file = cwd.join("last-message.txt");
     let (bin, args) = build_args(provider, system, &out_file, !images.is_empty(), model)?;
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir();
     let dirs = search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let exe = resolve(bin, &dirs).ok_or_else(|| format!("{bin} not found in PATH, ~/.local/bin or /opt/homebrew/bin"))?;
     let new_path = std::env::join_paths(&dirs).map_err(|e| e.to_string())?; // child (node shims) needs the same dirs
@@ -245,7 +265,8 @@ mod tests {
 
     #[test]
     fn dirs_and_resolve() {
-        let d = search_dirs("/a:/b", "/home/u");
+        let path = std::env::join_paths(["/a", "/b"]).unwrap();
+        let d = search_dirs(path.to_str().unwrap(), "/home/u");
         assert_eq!(&d[..2], [PathBuf::from("/a"), PathBuf::from("/b")]);
         assert!(d.contains(&PathBuf::from("/home/u/.local/bin")));
         assert!(d.contains(&PathBuf::from("/opt/homebrew/bin")));
@@ -255,5 +276,25 @@ mod tests {
         assert_eq!(resolve("fakebin", &[PathBuf::from("/nonexistent"), tmp.clone()]), Some(tmp.join("fakebin")));
         assert_eq!(resolve("missing-bin", &[tmp.clone()]), None);
         std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn resolve_prefers_pathext_over_extensionless_shim() {
+        let tmp = scratch_dir().unwrap();
+        let dirs = [tmp.clone()];
+        let exts = [".exe".into(), ".cmd".into()];
+        std::fs::write(tmp.join("claude"), "").unwrap();
+        assert_eq!(resolve_with("claude", &dirs, &[]), Some(tmp.join("claude")));
+        std::fs::write(tmp.join("claude.cmd"), "").unwrap();
+        assert_eq!(resolve_with("claude", &dirs, &exts), Some(tmp.join("claude.cmd")));
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn home_falls_back_to_userprofile() {
+        assert_eq!(home_from(Some("home".into()), Some("profile".into())), "home");
+        assert_eq!(home_from(None, Some("profile".into())), "profile");
+        assert_eq!(home_from(None, None), "");
+        assert_eq!(home_from(Some("".into()), Some("profile".into())), "");
     }
 }

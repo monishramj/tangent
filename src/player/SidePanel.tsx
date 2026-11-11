@@ -1,14 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, TextAlignLeftIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
+import PillTabs from "@/components/PillTabs";
 import GlassSurface from "@/components/GlassSurface";
 import ShinyText from "@/components/ShinyText";
 import type { Thread } from "@/storage/store";
 import type { Line } from "@/tutor/narration";
 import RichText from "./RichText";
 
-export type Tab = "ask" | "transcript" | "checks";
+export type Tab = "ask" | "transcript" | "checks" | "textbook";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const WIDTH_KEY = "tangent.panelWidth";
+const maxWidth = () => Math.max(320, Math.min(900, window.innerWidth * .7));
+const clampWidth = (width: number) => Math.max(320, Math.min(maxWidth(), width));
 const chip = "inline-flex min-h-8 items-center rounded-full border border-line px-3 text-xs text-subtle tabular-nums transition-colors hover:bg-fg/10 hover:text-fg";
 
 type Props = {
@@ -18,32 +22,94 @@ type Props = {
   onSeek: (t: number) => void; onResume: (t: number) => void;
   /** The Checks tab's content; the tab shows only when given. */
   checks?: ReactNode;
+  checksBadge?: ReactNode;
+  textbook?: ReactNode;
 };
 
 // Docked beside the video (never over it). Tinted glass, chat-style threads pinned to video moments.
 export default function SidePanel(p: Props) {
+  const [width, setWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(WIDTH_KEY));
+      return clampWidth(saved > 0 && Number.isFinite(saved) ? saved : 400);
+    } catch { return clampWidth(400); }
+  });
+  const wrapper = useRef<HTMLDivElement>(null);
+  const frame = useRef(0);
+  const drag = useRef<{ x: number; width: number; next: number } | null>(null);
+  const finishDrag = () => {
+    if (!drag.current) return;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    resize(drag.current.next);
+    drag.current = null;
+    if (wrapper.current) delete wrapper.current.dataset.resizing;
+  };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const resize = (value: number) => {
+    const next = clampWidth(value);
+    wrapper.current?.style.setProperty("--panel-width", `${next}px`);
+    setWidth(next);
+    try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* fine */ }
+  };
+  useEffect(() => {
+    const onResize = () => setWidth(w => clampWidth(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : [])];
+  const tabs: [Tab, string, typeof BubbleChatIcon][] = [
+    ...(p.checks ? [["checks", "Checks", CheckListIcon] as [Tab, string, typeof BubbleChatIcon]] : []),
+    ...(p.textbook ? [["textbook", "Textbook", BookOpen01Icon] as [Tab, string, typeof BubbleChatIcon]] : []),
+    ["transcript", "Transcript", TextAlignLeftIcon], ["ask", "Ask", BubbleChatIcon],
+  ];
   return (
     // Always docked beside the video (its width grows open, so the video eases smaller instead of jumping).
     // backgroundOpacity gives the frost a visible tint even with only black behind it.
-    <div className="panel-open flex shrink-0 justify-end overflow-clip py-3 pr-3">
-    <GlassSurface width="min(400px,45vw)" height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    <div ref={wrapper} className="panel-open relative flex shrink-0 justify-end overflow-clip py-3 pr-3" style={{ "--panel-width": `${width}px` } as CSSProperties}>
+    <div role="separator" aria-orientation="vertical" aria-label="Resize panel" tabIndex={0}
+      aria-valuemin={320} aria-valuemax={maxWidth()} aria-valuenow={width}
+      className="absolute inset-y-3 left-0 z-10 w-2 touch-none cursor-col-resize rounded-full hover:bg-fg/15 focus-visible:bg-fg/15"
+      onPointerDown={e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        drag.current = { x: e.clientX, width, next: width };
+        wrapper.current!.dataset.resizing = "true";
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={e => {
+        if (!drag.current) return;
+        drag.current.next = clampWidth(drag.current.width + drag.current.x - e.clientX);
+        if (!frame.current) frame.current = requestAnimationFrame(() => {
+          frame.current = 0;
+          if (drag.current) wrapper.current?.style.setProperty("--panel-width", `${drag.current.next}px`);
+        });
+      }}
+      onPointerUp={e => { if (drag.current) { finishDrag(); e.currentTarget.releasePointerCapture(e.pointerId); } }}
+      onLostPointerCapture={finishDrag}
+      onPointerCancel={finishDrag}
+      onKeyDown={e => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault(); e.stopPropagation();
+          resize(width + (e.key === "ArrowLeft" ? 24 : -24));
+        }
+      }} />
+    <GlassSurface width="100%" height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
-        <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">
-          {tabs.map(([t, label]) => <button key={t} role="tab" type="button" aria-selected={p.tab === t} onClick={() => p.onTab(t)}
-            className={`h-10 rounded-full px-3.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}>{label}</button>)}
-        </div>
-        <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
+        <PillTabs value={p.tab} onValueChange={p.onTab} items={tabs.map(([value, label, icon]) => ({
+          value, label, content: <><Icon icon={icon} size={22} />{value === "checks" && p.checksBadge}</>,
+        }))} />
+        <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
       </header>
       {p.tab === "ask" && <Ask {...p} />}
       {p.tab === "transcript" && <Transcript {...p} />}
       {p.tab === "checks" && p.checks}
+      {p.tab === "textbook" && p.textbook}
     </div>
     </GlassSurface>
     </div>
