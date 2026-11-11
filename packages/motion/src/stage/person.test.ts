@@ -47,3 +47,10 @@ it("gesture winds up, overshoots a little and lands exactly", async () => {
   const peak = Math.max(...Array.from({ length: 50 }, (_, i) => gesture(i / 49)));
   expect(peak).toBeGreaterThan(1.02); expect(peak).toBeLessThan(1.09);
 });
+it("wave waves twice from when the pose began, then rests", async () => {
+  const { jointsAt, POSE_JOINTS } = await import("./person");
+  const arm = (since: number) => jointsAt("wave", "wave", 1, since, since)[3];
+  expect(arm(.2)).not.toBeCloseTo(POSE_JOINTS.wave[3]);
+  expect(arm(2)).toBeCloseTo(POSE_JOINTS.wave[3]); expect(arm(5)).toBeCloseTo(POSE_JOINTS.wave[3]);
+  expect(jointsAt("wave", "stand", 1, 30, .2)[3]).not.toBeCloseTo(POSE_JOINTS.wave[3]); // a late wave pose still waves
+});

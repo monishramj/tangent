@@ -34,7 +34,7 @@ export type ObjState = {
   pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
   tangenter?: boolean;
   aim?: Point;
-  pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
+  pose?: string; poseFrom?: string; poseP?: number; poseAge?: number; // person: target pose, previous pose, blend progress
   born?: number; // start time of the create event (transitions tell incoming objects from outgoing ones)
   exitFrom?: number; // opacity just before a transition's clear faded it out
   dx?: number; // transition offset (stage widths) already added to x; connectors with fixed endpoints add it too
@@ -194,7 +194,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       break;
     }
     case "pulse": if (p < 1) o.pulse = p; break;
-    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = e.args.easing ? k : gesture(p); if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break; // gesture: wind up, react, settle
+    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseAge = t - e.start; o.poseP = e.args.easing ? k : gesture(p); if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break; // gesture: wind up, react, settle
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
   }
 }

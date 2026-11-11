@@ -5,7 +5,7 @@ import type { OpPlan } from "./ops";
 
 // Tunable. Default motion length per verb (s); op reserves its whole anchor gap.
 export const DURATION: Record<Action["do"], number> = {
-  create: 0.4, fade: 0.3, move: 0.5, transform: 0.6, highlight: 0.4, indicate: 0.4, camera: 0.6, wait: 0.5, op: Infinity, pose: 0.5, pulse: 0.8,
+  create: 0.4, fade: 0.3, move: 0.5, transform: 0.6, highlight: 0.4, indicate: 0.4, camera: 0.6, wait: 0.5, op: Infinity, pose: 0.45, pulse: 0.8,
 };
 export const TRANSITION: Record<string, number> = { cut: 0, whip: 0.3, push: 0.4, "match-cut": 0.3 };
 export const MIN_SEC = 0.15; // squash motion down to this (never insert silence: the WAV can't be padded mid-clip)
