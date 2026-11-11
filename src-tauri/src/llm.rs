@@ -111,9 +111,10 @@ pub fn resolve(bin: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     resolve_with(bin, dirs, &exts)
 }
 
+/// Extensions first: npm puts an extensionless sh shim next to `claude.cmd` on Windows, and only the .cmd runs.
 fn resolve_with(bin: &str, dirs: &[PathBuf], exts: &[String]) -> Option<PathBuf> {
     dirs.iter().flat_map(|dir| {
-        std::iter::once(dir.join(bin)).chain(exts.iter().map(move |ext| dir.join(format!("{bin}{ext}"))))
+        exts.iter().map(move |ext| dir.join(format!("{bin}{ext}"))).chain(std::iter::once(dir.join(bin)))
     }).find(|path| path.is_file())
 }
 
@@ -278,14 +279,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_extensions_and_prefer_bare_name() {
+    fn resolve_prefers_pathext_over_extensionless_shim() {
         let tmp = scratch_dir().unwrap();
         let dirs = [tmp.clone()];
         let exts = [".exe".into(), ".cmd".into()];
+        std::fs::write(tmp.join("claude"), "").unwrap();
+        assert_eq!(resolve_with("claude", &dirs, &[]), Some(tmp.join("claude")));
         std::fs::write(tmp.join("claude.cmd"), "").unwrap();
         assert_eq!(resolve_with("claude", &dirs, &exts), Some(tmp.join("claude.cmd")));
-        std::fs::write(tmp.join("claude"), "").unwrap();
-        assert_eq!(resolve_with("claude", &dirs, &exts), Some(tmp.join("claude")));
         std::fs::remove_dir_all(tmp).unwrap();
     }
 
