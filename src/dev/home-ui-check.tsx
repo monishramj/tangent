@@ -4,6 +4,8 @@ import LibraryView, { type FolderSummary, type SourceSummary } from '../home/Lib
 import SourceView from '../home/SourceView';
 import type { VideoBundle } from '../storage/videos';
 import '../index.css';
+import samplePage from './home-design-previews/instructions.png';
+const renderPage = async () => ({ url: samplePage, width: 541, height: 700 });
 const sections = [
   { id: 'parent', title: 'Foundations', level: 1, anchors: [{ page: 1 }] },
   { id: 'child', title: 'Arrays', level: 2, anchors: [{ page: 2 }] },
@@ -11,7 +13,7 @@ const sections = [
 ];
 function Check() {
   const [folders, setFolders] = useState<FolderSummary[]>(Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `Class ${i + 1}`, emoji: '📚', sourceCount: i === 0 ? 1 : 0 })));
-  const [sources, setSources] = useState<SourceSummary[]>([{ id: 'source', name: 'Algorithms.pdf', pdfPath: '/test.pdf', folderId: '0' }]);
+  const [sources, setSources] = useState<SourceSummary[]>([{ id: 'source', name: 'Algorithms.pdf', pdfPath: '/test.pdf', folderId: '0', pageCount: 4 }]);
   const [videos, setVideos] = useState<VideoBundle[]>([{ id: 'video', title: 'Arrays explained', createdAt: Date.now(), complete: true, source: { pdfPath: '/test.pdf', sectionId: 'child', sectionTitle: 'Arrays' }, scenes: [] }]);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
@@ -20,7 +22,7 @@ function Check() {
   const source = sources.find(s => s.id === sourceId);
   const deleteVideo = (id: string) => setVideos(v => v.filter(item => item.id !== id));
   return <>{source ? <SourceView source={source} folderName={folders.find(f => f.id === folderId)?.name} sections={sections} videos={videos} onBack={() => setSourceId(null)} onHome={home} onOpenVideo={() => {}} onDeleteVideo={deleteVideo}
-    onGenerate={(ids, detail) => setGenerated(`${ids.join(',')}|${detail}`)} onOpenOriginal={() => {}} />
+    renderPage={renderPage} onGenerate={(ids, detail) => setGenerated(`${ids.join(',')}|${detail}`)} />
     : <LibraryView folders={folders} sources={sources.filter(s => (s.folderId ?? null) === folderId)} videos={videos} folder={folders.find(f => f.id === folderId)} onOpenFolder={setFolderId} onBack={() => setFolderId(null)} onHome={home} onOpenSource={setSourceId} onOpenVideo={() => {}} onChoosePdf={() => {}} onDropFile={() => {}}
       onCreateFolder={(name, emoji) => setFolders(f => [...f, { id: name, name, emoji, sourceCount: 0 }])}
       onRenameFolder={(id, name) => setFolders(f => f.map(item => item.id === id ? { ...item, name } : item))}

@@ -129,7 +129,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(State_::default())
-        .invoke_handler(tauri::generate_handler![pages::pdf_page, pages::allow_pdf, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
+        .invoke_handler(tauri::generate_handler![pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {

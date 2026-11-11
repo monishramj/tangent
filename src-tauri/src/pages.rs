@@ -300,16 +300,6 @@ pub async fn pdf_page(app: AppHandle, path: String, page: u32, width: u32) -> Re
     }).await.map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn allow_pdf(app: AppHandle, path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let path = validate_pdf(&base, Path::new(&path))?;
-        app.asset_protocol_scope().allow_file(&path).map_err(|e| e.to_string())?;
-        Ok(path.to_string_lossy().into_owned())
-    }).await.map_err(|e| e.to_string())?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

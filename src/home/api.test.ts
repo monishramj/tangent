@@ -115,10 +115,3 @@ describe("sectionsPassages / sectionPages / pdfPage", () => {
     expect(invoke).toHaveBeenCalledWith("pdf_page", { path: "/b.pdf", page: 3, width: 640 });
   });
 });
-
-it("originalPdf allows the source and converts its canonical path", async () => {
-  const { originalPdf } = await import("./api");
-  vi.mocked(invoke).mockResolvedValueOnce("/canonical/book.pdf");
-  expect(await originalPdf("/book.pdf")).toBe("asset:/canonical/book.pdf");
-  expect(invoke).toHaveBeenCalledWith("allow_pdf", { path: "/book.pdf" });
-});

@@ -27,7 +27,7 @@
         "media-src": "'self' asset: http://asset.localhost blob:",
         "connect-src": "'self' ipc: http://ipc.localhost asset: http://asset.localhost https://api.giphy.com https://*.giphy.com",
         "font-src": "'self' data:",
-        "frame-src": "blob: asset: http://asset.localhost",
+        "frame-src": "'none'",
         "worker-src": "'self' blob:",
         "object-src": "'none'",
         "base-uri": "'none'",

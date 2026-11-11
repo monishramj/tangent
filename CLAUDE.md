@@ -212,6 +212,8 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## Current state (keep this section current)
 
+**Source PDF viewer (2026-11-11):** Original PDF now reuses Textbook’s lazy Rust-rendered page list with a saved dark-page toggle; removed original-file asset access and all iframes (`frame-src 'none'`), while preserving Textbook rendering behavior.
+
 **Native PDF pages (2026-11-11):** Textbook pages render with Rust/PDFium into an atomic PNG disk cache under app-data `pages` (SHA-256 path/size/mtime keys, 512→384 MiB pruning every 16 writes); hits return asset paths without entering PDFium. Both page rendering and Original PDF asset access require a canonical library source path and `%PDF-` header; saved-video paths rely on existing library recovery. The sidecar retains `pdf_info` thumbnails but no longer serves `pdf_page`/`original_pdf`. PDFium uses a tiny native dynamic loader because the locked `libloading` archive was absent offline (coordinator-approved); packaging still needs the PDFium resource. Native WKWebView PDF iframe behavior remains to verify.
 
 **Panel tab polish + replay GIF backfill (2026-11-11):** Open-panel icon tabs use `src/components/PillTabs.tsx`, an equal-width adaptation of React Bits PillNav with a CSS transform-only sliding indicator (no animation dependency or hover physics), reduced-motion support, and arrow/Home/End navigation. Checks badge, tab labels/selection, and the separate Close X remain; panel width/drag and Textbook are untouched. React Bits attribution/license is retained in `PillTabs.LICENSE`.
