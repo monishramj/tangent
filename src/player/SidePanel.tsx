@@ -33,9 +33,21 @@ export default function SidePanel(p: Props) {
       return clampWidth(saved > 0 && Number.isFinite(saved) ? saved : 400);
     } catch { return clampWidth(400); }
   });
-  const drag = useRef<{ x: number; width: number } | null>(null);
+  const wrapper = useRef<HTMLDivElement>(null);
+  const frame = useRef(0);
+  const drag = useRef<{ x: number; width: number; next: number } | null>(null);
+  const finishDrag = () => {
+    if (!drag.current) return;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    resize(drag.current.next);
+    drag.current = null;
+    if (wrapper.current) delete wrapper.current.dataset.resizing;
+  };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
   const resize = (value: number) => {
     const next = clampWidth(value);
+    wrapper.current?.style.setProperty("--panel-width", `${next}px`);
     setWidth(next);
     try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* fine */ }
   };
@@ -57,27 +69,35 @@ export default function SidePanel(p: Props) {
   return (
     // Always docked beside the video (its width grows open, so the video eases smaller instead of jumping).
     // backgroundOpacity gives the frost a visible tint even with only black behind it.
-    <div className="panel-open relative flex shrink-0 justify-end overflow-clip py-3 pr-3" style={{ "--panel-width": `${width}px` } as CSSProperties}>
+    <div ref={wrapper} className="panel-open relative flex shrink-0 justify-end overflow-clip py-3 pr-3" style={{ "--panel-width": `${width}px` } as CSSProperties}>
     <div role="separator" aria-orientation="vertical" aria-label="Resize panel" tabIndex={0}
       aria-valuemin={320} aria-valuemax={maxWidth()} aria-valuenow={width}
       className="absolute inset-y-3 left-0 z-10 w-2 touch-none cursor-col-resize rounded-full hover:bg-fg/15 focus-visible:bg-fg/15"
       onPointerDown={e => {
         if (e.button !== 0) return;
         e.preventDefault();
-        drag.current = { x: e.clientX, width };
+        drag.current = { x: e.clientX, width, next: width };
+        wrapper.current!.dataset.resizing = "true";
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
-      onPointerMove={e => { if (drag.current) resize(drag.current.width + drag.current.x - e.clientX); }}
-      onPointerUp={e => { if (drag.current) { drag.current = null; e.currentTarget.releasePointerCapture(e.pointerId); } }}
-      onLostPointerCapture={() => { drag.current = null; }}
-      onPointerCancel={() => { drag.current = null; }}
+      onPointerMove={e => {
+        if (!drag.current) return;
+        drag.current.next = clampWidth(drag.current.width + drag.current.x - e.clientX);
+        if (!frame.current) frame.current = requestAnimationFrame(() => {
+          frame.current = 0;
+          if (drag.current) wrapper.current?.style.setProperty("--panel-width", `${drag.current.next}px`);
+        });
+      }}
+      onPointerUp={e => { if (drag.current) { finishDrag(); e.currentTarget.releasePointerCapture(e.pointerId); } }}
+      onLostPointerCapture={finishDrag}
+      onPointerCancel={finishDrag}
       onKeyDown={e => {
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           e.preventDefault(); e.stopPropagation();
           resize(width + (e.key === "ArrowLeft" ? 24 : -24));
         }
       }} />
-    <GlassSurface width={width} height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    <GlassSurface width="100%" height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex min-w-0 flex-1 gap-0.5 rounded-full border border-line p-1">

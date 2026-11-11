@@ -98,3 +98,7 @@ body {
 /* No visible scrollbars anywhere; scrolling (wheel, trackpad, keyboard) still works. */
 * { scrollbar-width: none; }
 *::-webkit-scrollbar { display: none; }
+
+[data-sizing="true"] .passage-highlight { transition: none; }
+/* Skip the large backdrop filter while the panel edge moves. */
+.panel-open[data-resizing="true"] > :last-child { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }

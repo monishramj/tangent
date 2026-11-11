@@ -58,21 +58,20 @@ it("with no known pages and no mapping, falls back to page 1", async () => {
 
 
 it("zoom controls scale page widths and Fit restores the computed column zoom", async () => {
-  const { container } = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
   await screen.findByAltText("Page 12");
-  const page = container.querySelector<HTMLElement>('[data-page="12"]')!;
-  const fitted = parseFloat(page.style.width);
+  const fitted = parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"));
   expect(fitted).toBeCloseTo(360 * 0.94 / 0.8);
   fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
-  expect(parseFloat(page.style.width)).toBeCloseTo(fitted * 1.25);
-  expect(screen.getByRole("button", { name: "Fit" }).getAttribute("aria-pressed")).toBe("false");
+  expect(parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"))).toBeCloseTo(fitted * 1.25);
+  expect(screen.getByRole("button", { name: "Fit width" }).getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
-  expect(parseFloat(page.style.width)).toBeCloseTo(fitted);
+  expect(parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"))).toBeCloseTo(fitted);
   fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
-  fireEvent.click(screen.getByRole("button", { name: "Fit" }));
-  expect(parseFloat(page.style.width)).toBeCloseTo(fitted);
+  fireEvent.click(screen.getByRole("button", { name: "Fit width" }));
+  expect(parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"))).toBeCloseTo(fitted);
   expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Fit" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Fit width" }).getAttribute("aria-pressed")).toBe("true");
 });
 
 it("a plain page click keeps following, while dragging stops it", () => {
@@ -90,13 +89,51 @@ it("a plain page click keeps following, while dragging stops it", () => {
 
 it("modifier wheel zooms around the pointer without disabling follow", () => {
   const scroll = vi.spyOn(Element.prototype, "scrollTo");
-  const { container } = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
-  const page = container.querySelector<HTMLElement>('[data-page="12"]')!;
-  const fitted = parseFloat(page.style.width);
+  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  const fitted = parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"));
   const root = screen.getByLabelText("Textbook pages");
   fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, clientX: 100, clientY: 150 });
-  expect(parseFloat(page.style.width)).toBeGreaterThan(fitted);
+  expect(parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"))).toBeGreaterThan(fitted);
   expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
   expect(scroll.mock.calls.some(([arg]) => (arg as ScrollToOptions | undefined)?.behavior === "instant")).toBe(true);
   scroll.mockRestore();
+});
+
+it("shows a loading circle until the first image arrives and preserves the error message", async () => {
+  const pending = vi.fn<RenderPage>(() => new Promise(() => {}));
+  const view = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={pending} />);
+  expect(screen.getByRole("status", { name: "Loading page 12" })).toBeTruthy();
+  view.rerender(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  await screen.findByAltText("Page 12");
+  expect(screen.queryByRole("status", { name: "Loading page 12" })).toBeNull();
+  cleanup();
+  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={async () => { throw new Error("offline"); }} />);
+  await screen.findByText("Couldn't load page 12.");
+  expect(screen.queryByRole("status", { name: "Loading page 12" })).toBeNull();
+});
+
+it("debounces sharper renders, keeps the old image visible, and never rerenders at a lower bucket", async () => {
+  vi.useFakeTimers();
+  try {
+    const renderer = vi.fn<RenderPage>(renderPage);
+    render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderer} />);
+    await act(async () => {});
+    const initialCalls = renderer.mock.calls.length;
+    const image = screen.getByAltText("Page 12");
+    const scroll = vi.spyOn(Element.prototype, "scrollTo");
+    scroll.mockClear();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(renderer).toHaveBeenCalledTimes(initialCalls);
+    expect(screen.getByAltText("Page 12")).toBe(image);
+    expect(scroll.mock.calls.every(([arg]) => (arg as ScrollToOptions)?.behavior === "instant")).toBe(true);
+    await act(async () => { vi.advanceTimersByTime(249); });
+    expect(renderer).toHaveBeenCalledTimes(initialCalls);
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(renderer).toHaveBeenCalledTimes(initialCalls + 1);
+    const sharperCalls = renderer.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    expect(renderer).toHaveBeenCalledTimes(sharperCalls);
+    scroll.mockRestore();
+  } finally { vi.useRealTimers(); }
 });

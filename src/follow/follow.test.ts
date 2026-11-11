@@ -1,6 +1,6 @@
 // UI package: auto-follow / free scroll / Back to current, and overlay geometry (docs/textbook-follow.md).
 import { describe, expect, it } from "vitest";
-import { fitColumn, scrollTargetX, followReducer, initialFollow, overlayRect, scrollTarget, showBackButton } from "./follow";
+import { renderBucket, fitColumn, scrollTargetX, followReducer, initialFollow, overlayRect, scrollTarget, showBackButton } from "./follow";
 import type { BBox } from "./types";
 
 describe("followReducer", () => {
@@ -105,4 +105,11 @@ describe("scrollTargetX", () => {
   it("keeps the left edge visible when the box is wider than the viewport", () => {
     expect(scrollTargetX(12, 1000, [0.2, 0, 0.9, 1], 400)).toBe(200);
   });
+});
+
+it("render buckets upgrade in capped 400px steps and retain sharper loaded images", () => {
+  expect(renderBucket(401, 2)).toBe(1200);
+  expect(renderBucket(200, 2, 1600)).toBe(1600);
+  expect(renderBucket(801, 2, 1600)).toBe(2000);
+  expect(renderBucket(3000, 2, 3200)).toBe(4000);
 });

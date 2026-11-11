@@ -74,9 +74,15 @@ export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef, 
       setReady(true);
     });
     // Pixi's resizeTo only listens to window resize; the box also shrinks when the side panel opens.
-    const ro = new ResizeObserver(() => { if (inited && !dead) a.resize(); });
+    let resizeFrame = 0;
+    const ro = new ResizeObserver(() => {
+      if (!resizeFrame) resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        if (inited && !dead) a.resize();
+      });
+    });
     ro.observe(host.current!);
-    return () => { dead = true; ro.disconnect(); app.current = null; if (inited) a.destroy(true); };
+    return () => { dead = true; cancelAnimationFrame(resizeFrame); ro.disconnect(); app.current = null; if (inited) a.destroy(true); };
   }, []);
 
   return (
