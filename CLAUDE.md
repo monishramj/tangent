@@ -211,6 +211,11 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 6. **Tutor annotate loop.**
 
 ## Current state (keep this section current)
+
+**Library layout follow-up (2026-11-11):** Only the big home heading is lowercase (“library”). Buttons, labels, section headers, titles and names retain their normal case; the shared library shell no longer transforms text. Loose pages and recent videos keep equal-width bordered panels, matching minimum heights, and aligned row heights; the shared grid stretches both panels to the taller content.
+
+**Library layout cleanup (2026-11-11):** Home is titled “library” with the introductory and dropzone taglines removed. Folders and the PDF dropzone stay above two columns: loose pages left, recent videos right; below 700px the columns stack. All 17 Home tests and the production build pass. Browser verification covered the empty desktop layout; populated native data remains unchecked because the browser has no Tauri bridge.
+
 Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines in the `tauri dev` terminal show pipeline status, rejected scene attempts and buffering.
 
 **Sources-first homepage (2026-11-10):**
@@ -340,6 +345,8 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Array heaps: max by default, `heap: "min"` option.
 
 ## Decisions (Monish)
+- Library follow-up (2026-11-11): lowercase is the home heading only (“library”); everything else keeps normal case. Keep equally sized loose-page and recent-video panels.
+- Library home (2026-11-11): concise copy, folders above loose pages and recent videos in two columns, with the PDF dropzone retained.
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
 - Narration voice: **PocketTTS `alba`** (local, CPU), preferred in the voice comparison. Chatterbox not pursued for now.
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage; **script stage on `sonnet`** (2026-11-05) for script quality.

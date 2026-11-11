@@ -37,7 +37,7 @@ async function upload(container: HTMLElement, path = '/book.pdf') {
 }
 it('has folders, a dropzone, empty recents and no demo', async () => {
   setup();
-  expect(screen.getByRole('heading', { name: 'Your library.' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
   expect(screen.getByTestId('dropzone')).toBeTruthy();
   expect(screen.queryByRole('button', { name: /demo/i })).toBeNull();
   await screen.findByText('No recent videos yet.');
@@ -118,7 +118,7 @@ it('creates, imports inside, renames and deletes a folder without deleting its P
   await screen.findByRole('heading', { name: /Algorithms/ });
   fireEvent.click(screen.getByText('Delete folder', { selector: 'button' }));
   fireEvent.click(within(screen.getByRole('region', { name: 'Delete folder' })).getByRole('button', { name: 'Delete folder' }));
-  await screen.findByRole('heading', { name: 'Your library.' });
+  await screen.findByRole('heading', { name: 'library' });
   expect((jsonStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(1);
 });
 it('falls back to parser titles after cleanup failure and offers retry', async () => {

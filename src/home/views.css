@@ -33,7 +33,9 @@
 .tl-drop>svg { color:var(--fg-subtle);flex-shrink:0; } .tl-drop strong { display:block;font-size:14px;font-weight:500; }
 .tl-drop span { display:block;font-size:12px;color:var(--fg-subtle);margin-top:4px; } .tl-drop .tl-quiet { margin-left:auto; }
 .tl-section { margin-top:38px; } .tl-library h2 { font-size:15px;font-weight:550;margin-bottom:15px; }
-.tl-section h2>span { font-size:11px;color:var(--fg-subtle);font-weight:400;margin-left:12px; }
+.tl-library-columns { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:38px; }
+.tl-library-columns>.tl-section { min-width:0;min-height:240px;padding:20px;border:1px solid var(--line);border-radius:12px; }
+.tl-library-columns .tl-video-row { min-height:75px; }
 .tl-files { margin:0 0 28px;padding:0;list-style:none; }
 .tl-files>li { display:flex;align-items:center;border-bottom:1px solid var(--line); }
 .tl-file-open { flex:1;min-width:0;display:flex;align-items:center;gap:15px;text-align:left;padding:15px 8px;border-radius:6px; }
@@ -96,7 +98,7 @@
 .tl-pdf-empty strong { color:var(--fg-muted);font-weight:500; }
 .tl-status { color:var(--fg-subtle);font-size:12px;padding:15px 10px; }
 @media(max-width:850px) { .tl-shelf-books { gap:24px;overflow-x:auto;padding-left:5px;padding-right:5px; } .tl-shelf-book { flex-basis:170px; } .tl-source-grid { grid-template-columns:minmax(0,1fr);gap:30px; } .tl-source-videos { border-left:0;border-top:1px solid var(--line);padding:20px 0; } }
-@media(max-width:700px) { .tl-all-folders .tl-shelf-books { grid-template-columns:repeat(2,minmax(0,1fr));gap:35px 20px;padding:0; } .tl-all-folders .tl-shelf-book { width:150px; } .tl-all-folders [data-mode=book] { zoom:.78; } }
+@media(max-width:700px) { .tl-library-columns { grid-template-columns:1fr;gap:0; } .tl-all-folders .tl-shelf-books { grid-template-columns:repeat(2,minmax(0,1fr));gap:35px 20px;padding:0; } .tl-all-folders .tl-shelf-book { width:150px; } .tl-all-folders [data-mode=book] { zoom:.78; } }
 @media(max-width:560px) { .tl-wrap { padding:24px 20px 60px; } .tl-header { margin-bottom:40px; } .tl-heading h1 { font-size:32px; } .tl-drop { flex-wrap:wrap;padding:20px!important; } .tl-drop .tl-quiet { margin-left:40px; } .tl-source-toolbar { flex-wrap:wrap; } .tl-tabs { gap:20px; } .tl-source-toolbar .tl-primary { margin-left:auto; } .tl-source-heading h1 { font-size:30px; } }
 @media(max-width:360px) { .tl-all-folders .tl-shelf-books { grid-template-columns:1fr; } }
 @media(max-height:650px) { .tl-generation { position:static; } }
