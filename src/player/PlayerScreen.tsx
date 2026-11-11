@@ -16,7 +16,7 @@ import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
 import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
-import { bufferClock } from "@motion/player/bufferClock";
+import { bufferClock, unlockAudioOnGesture } from "@motion/player/bufferClock";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
 import Captions, { captionCues } from "./Captions";
@@ -31,6 +31,8 @@ const iconBtn = "relative grid size-10 shrink-0 place-items-center rounded-full 
 // Absolute filesystem paths (sidecar WAVs, saved bundles) go through the asset protocol; URLs pass through.
 const audioSrc = (p: string) => p.startsWith("/") && "__TAURI_INTERNALS__" in window ? convertFileSrc(p) : p;
 const CC_KEY = "tangent.cc";
+// The Home "Make video" click (same document) is the gesture that lets the shared AudioContext run later.
+if (typeof window !== "undefined" && typeof AudioContext !== "undefined") unlockAudioOnGesture();
 const readCc = () => { try { return localStorage.getItem(CC_KEY) !== "off"; } catch { return true; } };
 export const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const SPEED_KEY = "tangent.speed";
@@ -157,7 +159,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           const ev = next.value;
           if (ev.type === "scene") { queue.enqueue(ev); setScenes(s => [...s, ev]); played = true; }
           else if (ev.type === "checkpoints") { const items = [...ev.items].sort((a, b) => a.afterScene - b.afterScene); cpsRef.current = items; setCheckpoints(items); }
-          else if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); // later failures are skipped, not overlaid
+          else { devlog(`scene failed ${ev.sceneId}: ${ev.error.message}`); if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); } // later failures are skipped, not overlaid
         }
       } catch (e) { if (live) setError(String(e)); }
       finally { if (live) { queue.finish(); setDone(true); } }
@@ -360,6 +362,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             {buffering && current && !activeCp && <Loading progress={progress} compact />}
             {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
               <div><p role="alert" className="text-muted">{error}</p>
+                {current && <button type="button" onClick={() => { setError(null); play(); }} className="mt-3 mr-2 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Resume</button>}
                 {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
             </div>}
             {canPlay && !playing && !buffering && !activeCp && <div className="absolute top-1/2 left-1/2 z-[5] -translate-x-1/2 -translate-y-1/2">

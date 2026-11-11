@@ -155,6 +155,13 @@ describe("SceneQueue", () => {
     audios[0].dispatchEvent(new Event("ended"));
     expect(audios[1].play).not.toHaveBeenCalled(); expect(callbacks.size).toBe(0);
   });
+  it("reports a load/decode failure of a preloading scene instead of dropping it", () => {
+    const { queue, audios, onError } = setup();
+    queue.enqueue(scene("a")); queue.enqueue(scene("b")); // paused, and b is not current
+    Object.assign(audios[1], { error: { message: "audio 403" } });
+    audios[1].dispatchEvent(new Event("error"));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "Unable to play scene b: audio 403" }));
+  });
   it("after dispose a finished queue can be filled again (effect re-run on the same queue)", () => {
     const { queue } = setup();
     queue.enqueue(scene("a")); queue.finish();

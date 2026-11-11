@@ -1,10 +1,11 @@
-import { expect, it } from "vitest";
-import { BufferClock } from "./bufferClock";
+import { expect, it, vi } from "vitest";
+import { BufferClock, RESUME_TIMEOUT_MS, unlockAudioOnGesture } from "./bufferClock";
 
 function fakeCtx() {
   const sources: { offset: number; stopped: boolean; playbackRate: { value: number }; buffer: unknown; onended: (() => void) | null }[] = [];
   const ctx = {
     currentTime: 0,
+    state: "running" as AudioContextState,
     destination: {},
     resume: () => Promise.resolve(),
     decodeAudioData: () => Promise.reject(new Error("unused")),
@@ -60,4 +61,41 @@ it("rate ≠ 1 plays a stretched copy at 1× (same pitch) and the clock still co
   ctx.currentTime = 2; expect(clock.currentTime).toBe(3);
   clock.currentTime = 4; clock.playbackRate = 2; // cached: no second stretch; offset is in stretched time
   expect([made.length, sources[sources.length - 1].offset]).toEqual([1, 2]);
+});
+
+it("a context that never starts (WebKit, no user gesture) fails play() loudly instead of playing silence", async () => {
+  vi.useFakeTimers();
+  try {
+    const { ctx } = fakeCtx();
+    Object.assign(ctx, { state: "suspended", resume: () => new Promise(() => {}) }); // WebKit leaves resume() pending
+    const clock = new BufferClock(Promise.resolve({ duration: 10 } as AudioBuffer), ctx);
+    await Promise.resolve();
+    const played = clock.play();
+    const caught = played.then(() => "resolved", (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(RESUME_TIMEOUT_MS + 1);
+    expect(await caught).toMatch(/Audio is blocked \(AudioContext suspended\)/);
+  } finally { vi.useRealTimers(); }
+});
+
+it("a failed fetch/decode is kept on .error with its reason", async () => {
+  const { ctx } = fakeCtx();
+  const clock = new BufferClock(Promise.reject(new Error("audio 403")), ctx);
+  let errors = 0;
+  clock.addEventListener("error", () => errors++);
+  await Promise.resolve(); await Promise.resolve();
+  expect([errors, clock.error?.message, clock.readyState]).toEqual([1, "audio 403", 0]);
+});
+
+it("the first click or keypress creates and resumes the shared context", async () => {
+  const resume = vi.fn(function (this: { state: string }) { this.state = "running"; return Promise.resolve(); });
+  vi.stubGlobal("AudioContext", class { state = "suspended"; resume = resume; });
+  try {
+    const target = new EventTarget();
+    unlockAudioOnGesture(target as unknown as Window);
+    target.dispatchEvent(new Event("pointerdown"));
+    expect(resume).toHaveBeenCalledTimes(1);
+    await Promise.resolve(); await Promise.resolve();
+    target.dispatchEvent(new Event("keydown")); // running: listeners removed
+    expect(resume).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
 });
