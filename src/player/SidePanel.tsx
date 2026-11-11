@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, TextAlignLeftIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
+import PillTabs from "@/components/PillTabs";
 import GlassSurface from "@/components/GlassSurface";
 import ShinyText from "@/components/ShinyText";
 import type { Thread } from "@/storage/store";
@@ -80,10 +81,9 @@ export default function SidePanel(p: Props) {
     <GlassSurface width={width} height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
-        <div role="tablist" className="flex min-w-0 flex-1 gap-0.5 rounded-full border border-line p-1">
-          {tabs.map(([t, label, icon]) => <button key={t} role="tab" type="button" aria-label={label} title={label} aria-selected={p.tab === t} onClick={() => p.onTab(t)}
-            className={`relative grid h-10 min-w-0 flex-1 place-items-center rounded-full px-1.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}><Icon icon={icon} size={22} />{t === "checks" && p.checksBadge}</button>)}
-        </div>
+        <PillTabs value={p.tab} onValueChange={p.onTab} items={tabs.map(([value, label, icon]) => ({
+          value, label, content: <><Icon icon={icon} size={22} />{value === "checks" && p.checksBadge}</>,
+        }))} />
         <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
       </header>
       {p.tab === "ask" && <Ask {...p} />}

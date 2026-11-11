@@ -179,3 +179,17 @@ it("ignores invalid stored widths and works when storage is unavailable", () => 
   fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
   expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("424");
 });
+
+it("pill tabs preserve the badge and support arrow wraparound, Home and End", () => {
+  const p = setup({ tab: "checks", checks: <p>checks</p>, textbook: <p>pages</p>, checksBadge: <span data-testid="checks-badge">1/3</span> });
+  const checks = screen.getByRole("tab", { name: "Checks" });
+  expect(checks.getAttribute("aria-selected")).toBe("true");
+  expect(checks.getAttribute("tabindex")).toBe("0");
+  expect(checks.contains(screen.getByTestId("checks-badge"))).toBe(true);
+  for (const [key, name, value] of [["ArrowRight", "Textbook", "textbook"], ["ArrowLeft", "Ask", "ask"], ["End", "Ask", "ask"], ["Home", "Checks", "checks"]]) {
+    fireEvent.keyDown(checks, { key });
+    expect(p.onTab).toHaveBeenLastCalledWith(value);
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name }));
+  }
+  expect(screen.getByRole("tablist").contains(screen.getByRole("button", { name: "Close panel" }))).toBe(false);
+});

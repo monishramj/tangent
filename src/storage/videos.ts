@@ -5,6 +5,7 @@ import type { PipelineEvent } from "../pipeline/streamVideo";
 import type { Checkpoint } from "../gen/checkpoints";
 import type { BeatBoxes } from "../follow/types";
 import type { DetailLevel } from "../gen/script";
+import { giphyKey, giphySearch, resolveGifs, type GifSearch } from "../media/giphy";
 
 export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number; passages?: BeatBoxes };
 export type VideoBundle = {
@@ -75,7 +76,23 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
 }
 
 /** Stored scenes as pipeline events: no LLM, no TTS. */
-export async function* replayStream(b: VideoBundle): AsyncGenerator<PipelineEvent> {
-  for (const s of b.scenes) yield { type: "scene", sceneId: s.sceneId, scene: s.scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0, ...(s.passages ? { passages: s.passages } : {}) };
+export async function* replayStream(b: VideoBundle, gifSearch?: GifSearch | null): AsyncGenerator<PipelineEvent> {
+  let search: Promise<GifSearch | null> | undefined;
+  for (const s of b.scenes) {
+    let scene = s.scene;
+    if (scene.objects.some(o => o.type === "gif" && !o.src && o.query)) {
+      search ??= gifSearch === undefined ? giphyKey().then(key => key ? giphySearch(key) : null) : Promise.resolve(gifSearch);
+      const resolved = structuredClone(scene);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // Resolve a copy so a late lookup cannot mutate a scene already playing.
+        scene = await Promise.race([
+          search.then(async fn => { await resolveGifs(resolved, fn); return resolved; }),
+          new Promise<Scene>(resolve => { timer = setTimeout(() => resolve(scene), 1500); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    }
+    yield { type: "scene", sceneId: s.sceneId, scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0, ...(s.passages ? { passages: s.passages } : {}) };
+  }
   if (b.checkpoints?.length) yield { type: "checkpoints", items: b.checkpoints };
 }

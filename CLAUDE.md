@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-10): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Sources-first library with optional class folders and saved videos per PDF, threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (9 human templates, stick figure, the Tangenter). Motion identity pass done (house line, tonal look, spec character, bodies everywhere, leader ticks, bigger card type). Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
+> Status (2026-11-11): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Sources-first library with optional class folders and saved videos per PDF, threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (9 human templates, stick figure, the Tangenter). Motion identity pass done (house line, tonal look, spec character, bodies everywhere, leader ticks, bigger card type). Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -212,6 +212,10 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## Current state (keep this section current)
 
+**Panel tab polish + replay GIF backfill (2026-11-11):** Open-panel icon tabs use `src/components/PillTabs.tsx`, an equal-width adaptation of React Bits PillNav with a CSS transform-only sliding indicator (no animation dependency or hover physics), reduced-motion support, and arrow/Home/End navigation. Checks badge, tab labels/selection, and the separate Close X remain; panel width/drag and Textbook are untouched. React Bits attribution/license is retained in `PillTabs.LICENSE`.
+- Saved-video replay now backfills GIF objects with a query but no src via the existing saved GIPHY key and `resolveGifs`; existing URLs are preserved. Each unresolved scene is time-boxed to 1.5 s including secret lookup; failure/no key keeps reaction cards. Resolution uses a copy so late responses cannot mutate a playing scene; URLs are not persisted back to disk.
+- Verified: `./node_modules/.bin/tsc --noEmit` clean; `./node_modules/.bin/vitest run`: **58 files / 855 tests passed**, exit 0. Orca embedded-browser SidePanel preview screenshot: `/tmp/tangent-tab-pills.png` (full four-tab header with badge and Close X).
+
 **Textbook follow-along (2026-11-11):** Player side-panel tab "Textbook" (book icon in the header when closed, inside the panel when open) shows the source PDF pages and outlines the passage the current beat rewrites. Design: `docs/textbook-follow.md`; contract: `src/follow/types.ts`.
 - Panel controls: Checks (with answered/total badge), Textbook, Transcript and Ask move from the header into icon tabs while the panel is open; X closes it. The left edge supports pointer dragging and 24 px arrow-key resizing, clamped to 320–900 px and 70% of the window (320 px minimum on very small windows), default 400 px, persisted as `tangent.panelWidth`. Opening still animates to the chosen width; dragging does not restart the animation. Verified: `bunx tsc --noEmit` clean; `bunx vitest run`: 58 files / 841 tests passed (including pointer capture, keyboard clamps, persistence and icon-tab placement). Native visual/drag verification remains unchecked.
 - Data (package A): Docling ingest stores `section.passages[{id:"pN", markdown, boxes:[{page, bbox}]}]` (bbox = page fractions, top-left; ids global and stable; passages joined equal the section markdown). `postprocess` keeps passages in step (clean, ligatures, DUP_MATH, merges, figure drops/caption reattach). New sidecar `pdf_page {path,page,width≤4000}` renders one page PNG (pypdfium2). The script prompt tags source blocks `[pN]` and beats return `passages` ids; unknown/duplicate/malformed ids are dropped, never failing a beat. Scene events and `StoredScene` carry `passages` (per beat boxes); replay needs no regeneration. `src/follow/passages.ts`: `boxesFor`, `boxesAt` (same clock as `narrationLines`), `hasPassages`.
@@ -355,6 +359,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Array heaps: max by default, `heap: "min"` option.
 
 ## Decisions (Monish)
+- Panel polish/replay (2026-11-11): reuse React Bits PillNav's pill/glide design as CSS-only equal-width tabs, without new npm dependencies; replay may backfill missing GIF URLs with a saved key, bounded to 1.5 s per scene, with cards as fallback and no bundle rewrite.
 - Player panel (2026-11-11): panel tabs as icons inside the open panel; panel width draggable.
 - Textbook zoom (2026-11-11): auto fit text column per video, manual +/−/pinch, Fit to return.
 - Textbook follow-along (2026-11-11): passage-level highlights, auto-follow + free scroll with Back to current, mapping saved in the bundle, old bundles show pages without highlights. Cached IRs are not re-ingested automatically.

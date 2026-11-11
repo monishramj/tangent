@@ -105,3 +105,60 @@ it("persists and replays per-beat passage boxes; old bundles replay without them
   for await (const e of replayStream(old)) oldEvents.push(e);
   expect(oldEvents.map(e => e.type === "scene" && "passages" in e)).toEqual([false, false]);
 });
+
+const gifBundle = () => ({
+  id: "gif", title: "Reaction", createdAt: 0, complete: true, source,
+  scenes: [{ sceneId: "s", scene: { scene: "s", beats: [], objects: [
+    { id: "missing", type: "gif", query: "wow" },
+    { id: "saved", type: "gif", query: "saved", src: "https://g/saved.gif" },
+  ] } as unknown as import("@motion/dsl/schema").Scene, timeline: { totalSec: 2 } as never, audioFile: "/audio.wav", durationSec: 2 }],
+});
+
+it("backfills replay GIFs with a fake search without replacing saved URLs or changing the bundle", async () => {
+  const bundle = gifBundle();
+  const search = vi.fn(async () => "https://g/new.gif");
+  const event = (await replayStream(bundle, search).next()).value;
+  expect(search).toHaveBeenCalledExactlyOnceWith("wow");
+  expect(event).toMatchObject({ scene: { objects: [{ src: "https://g/new.gif" }, { src: "https://g/saved.gif" }] } });
+  expect(bundle.scenes[0].scene.objects[0]).not.toHaveProperty("src");
+});
+
+it("no key or a failed lookup keeps replay placeholder cards", async () => {
+  for (const search of [null, vi.fn(async () => { throw new Error("offline"); })]) {
+    const event = (await replayStream(gifBundle(), search).next()).value;
+    expect(event).toMatchObject({ scene: { objects: [{ query: "wow" }, { src: "https://g/saved.gif" }] } });
+    if (event?.type === "scene") expect(event.scene.objects[0]).not.toHaveProperty("src");
+  }
+});
+
+it("uses the saved GIPHY key when no search override is supplied", async () => {
+  const { resetGiphyKey } = await import("../media/giphy");
+  resetGiphyKey();
+  vi.mocked(invoke).mockResolvedValueOnce("KEY");
+  const fetchFn = vi.fn(async () => new Response(JSON.stringify({ data: [{ images: { fixed_height: { url: "https://g/found.gif" } } }] })));
+  vi.stubGlobal("fetch", fetchFn);
+  try {
+    const event = (await replayStream(gifBundle()).next()).value;
+    expect(event).toMatchObject({ scene: { objects: [{ src: "https://g/found.gif" }, {}] } });
+    expect(fetchFn).toHaveBeenCalledOnce();
+  } finally { vi.unstubAllGlobals(); resetGiphyKey(); }
+});
+
+it("time-boxes a slow replay lookup to 1.5 seconds and ignores its late result", async () => {
+  vi.useFakeTimers();
+  try {
+    let finish!: (url: string) => void;
+    const first = replayStream(gifBundle(), () => new Promise(resolve => { finish = resolve; })).next();
+    await vi.advanceTimersByTimeAsync(1499);
+    let emitted = false;
+    void first.then(() => { emitted = true; });
+    await Promise.resolve();
+    expect(emitted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const event = (await first).value;
+    finish("https://g/late.gif");
+    await vi.advanceTimersByTimeAsync(0);
+    if (event?.type === "scene") expect(event.scene.objects[0]).not.toHaveProperty("src");
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
