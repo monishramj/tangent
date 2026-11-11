@@ -172,25 +172,26 @@ it('does not overwrite durable sources when the library read fails', async () =>
   expect(write).not.toHaveBeenCalled();
 });
 
-it("the reaction gifs popover saves a GIPHY key to the Keychain", async () => {
+it("the settings panel saves a GIPHY key", async () => {
   const { invoke } = await import("@tauri-apps/api/core");
   render(<Home />);
-  fireEvent.click(screen.getByRole("button", { name: /reaction gifs/i }));
-  const dlg = screen.getByRole("dialog", { name: "Reaction gifs" });
-  expect(await within(dlg).findByText("No key saved.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const dlg = screen.getByRole("dialog", { name: "Settings" });
+  expect(within(dlg).getByText(/reaction gifs · off/i)).toBeTruthy();
   fireEvent.change(within(dlg).getByLabelText("GIPHY API key"), { target: { value: " abc " } });
   await act(async () => { fireEvent.click(within(dlg).getByRole("button", { name: "Save" })); });
   expect(invoke).toHaveBeenCalledWith("set_secret", { name: "giphy", value: "abc" });
-  expect(within(dlg).getByText("A key is saved.")).toBeTruthy();
+  expect(within(dlg).getByText(/reaction gifs · on/i)).toBeTruthy();
   expect(localStorage.getItem("tangent.giphy.set")).toBe("1");
   expect(invoke).not.toHaveBeenCalledWith("get_secret", expect.anything());
 });
 
-it("shows gif on/off from the local flag without reading the Keychain", async () => {
+it("shows gif on/off from the local flag without reading the secret", async () => {
   const { invoke } = await import("@tauri-apps/api/core");
   localStorage.setItem("tangent.giphy.set", "1");
   render(<Home />);
-  expect(screen.getByRole("button", { name: /reaction gifs · on/i })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(screen.getByText(/reaction gifs · on/i)).toBeTruthy();
   expect(invoke).not.toHaveBeenCalledWith("get_secret", expect.anything());
 });
 

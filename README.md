@@ -47,7 +47,7 @@ In dev, webview events (`status …`, `stream scene …`, `scene attempt N rejec
 ## Known issues
 
 - **Mid-scene silence drifts A/V.** When the compiler inserts silence inside a scene, the visuals lag the audio (the WAV isn't padded to match).
-- Reaction gifs need a GIPHY key (Settings, stored in the Keychain); without one they render as text cards.
+- Reaction gifs need a GIPHY key (Settings gear on Home; stored in an owner-only file in app data); without one they render as text cards.
 - **Slow first scene.** Script + first scene still take a while with Haiku (the planning call is gone and the first scene is shorter now).
 - **A failed scene is skipped,** and the saved video is marked "Partial".
 - **Videos saved before 2026-11-04 have no audio** (the old WAV-path bug). Delete and regenerate them.

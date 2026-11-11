@@ -3,9 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-const SERVICE: &str = "com.tangent.app";
-
-/// Names become file names (store) or keychain accounts (secrets), so keep them boring.
+/// Names become file names (store) or secret file names, so keep them boring.
 pub fn valid_name(s: &str) -> Result<&str, String> {
     if !s.is_empty() && s.len() <= 128 && !s.contains("..") && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) { Ok(s) } else { Err(format!("invalid name: {s:?}")) }
 }
@@ -44,32 +42,43 @@ pub fn store_write(app: AppHandle, name: String, value: Value) -> Result<(), Str
 #[tauri::command]
 pub fn store_delete(app: AppHandle, name: String) -> Result<(), String> { delete(&base(&app)?, &name) }
 
-fn entry(name: &str) -> Result<keyring::Entry, String> { keyring::Entry::new(SERVICE, valid_name(name)?).map_err(|e| e.to_string()) }
+/// Secrets live in `<appData>/secrets/<name>`, owner-only (0700 dir, 0600 file). The macOS Keychain was dropped:
+/// unsigned dev builds changed identity every rebuild and prompted for the login password on each read.
+/// ponytail: plaintext at rest, protected by file permissions only; encrypt or move back to the Keychain once builds are signed.
+fn secret_file(base: &Path, name: &str) -> Result<PathBuf, String> { Ok(base.join("secrets").join(valid_name(name)?)) }
 
-/// No usable keychain (no backend on this machine, locked, or access denied). Reads treat it as "no secret".
-fn backend_missing(e: &keyring::Error) -> bool { matches!(e, keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_)) }
-fn backend_error(e: keyring::Error) -> String {
-    if backend_missing(&e) { format!("No system keychain is available on this computer ({e}).") } else { e.to_string() }
-}
-
-#[tauri::command]
-pub fn get_secret(name: String) -> Result<Option<String>, String> {
-    match entry(&name)?.get_password() {
+pub fn secret_get(base: &Path, name: &str) -> Result<Option<String>, String> {
+    match fs::read_to_string(secret_file(base, name)?) {
         Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) if backend_missing(&e) => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
 /// Empty value deletes the secret. Values are never logged.
-#[tauri::command]
-pub fn set_secret(name: String, value: String) -> Result<(), String> {
-    let e = entry(&name)?;
+pub fn secret_set(base: &Path, name: &str, value: &str) -> Result<(), String> {
+    let file = secret_file(base, name)?;
     if value.is_empty() {
-        return match e.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(err) => Err(backend_error(err)) };
+        return match fs::remove_file(&file) { Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()), _ => Ok(()) };
     }
-    e.set_password(&value).map_err(backend_error)
+    let dir = file.parent().unwrap();
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let tmp = file.with_extension("tmp");
+    let mut open = fs::OpenOptions::new();
+    open.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        open.mode(0o600);
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    }
+    std::io::Write::write_all(&mut open.open(&tmp).map_err(|e| e.to_string())?, value.as_bytes()).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &file).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn get_secret(app: AppHandle, name: String) -> Result<Option<String>, String> { secret_get(&base(&app)?, &name) }
+#[tauri::command]
+pub fn set_secret(app: AppHandle, name: String, value: String) -> Result<(), String> { secret_set(&base(&app)?, &name, &value) }
 
 #[cfg(test)]
 mod tests {
@@ -112,19 +121,25 @@ mod tests {
     }
 
     #[test]
-    fn secrets_reject_bad_names_before_touching_the_keychain() {
+    fn secrets_roundtrip_owner_only_and_reject_bad_names() {
+        let base = tmp("secrets");
         for n in ["", "..", "a/b", "a b", "../giphy", &"x".repeat(129)] {
-            assert!(get_secret(n.to_string()).unwrap_err().starts_with("invalid name"), "{n:?}");
-            assert!(set_secret(n.to_string(), "v".into()).unwrap_err().starts_with("invalid name"), "{n:?}");
+            assert!(secret_get(&base, n).unwrap_err().starts_with("invalid name"), "{n:?}");
+            assert!(secret_set(&base, n, "v").unwrap_err().starts_with("invalid name"), "{n:?}");
         }
-    }
-
-    #[test]
-    fn missing_backend_is_a_clear_error() {
-        let e = keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("no dbus")));
-        assert!(backend_missing(&e));
-        assert!(backend_error(e).starts_with("No system keychain"));
-        assert!(!backend_missing(&keyring::Error::NoEntry));
+        assert_eq!(secret_get(&base, "giphy").unwrap(), None);
+        secret_set(&base, "giphy", "abc").unwrap();
+        assert_eq!(secret_get(&base, "giphy").unwrap(), Some("abc".into()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(base.join("secrets/giphy")).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(fs::metadata(base.join("secrets")).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        secret_set(&base, "giphy", "").unwrap();
+        secret_set(&base, "giphy", "").unwrap();
+        assert_eq!(secret_get(&base, "giphy").unwrap(), None);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
