@@ -32,7 +32,7 @@ export default function Page({ path, page, first, aspect, width, onAspect, root,
     }, () => { if (live) setError(true); });
     return () => { live = false; };
   }, [visible, path, page, widthPx, renderPage, first, onAspect]);
-  return <div ref={wrapper} data-page={page} className="relative mb-3 w-full overflow-hidden rounded-sm border border-line bg-fg/5"
+  return <div ref={wrapper} data-page={page} className="relative mb-[var(--page-gap,12px)] w-full overflow-hidden rounded-sm border border-line bg-fg/5"
     style={{ width: "var(--page-w)", aspectRatio: image ? image.width / image.height : aspect }}>
     {image && <img alt={`Page ${page}`} src={image.url} className="block size-full" />}
     {!image && !error && <LoadingCircle label={`Loading page ${page}`} />}

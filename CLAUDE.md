@@ -212,6 +212,8 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## Current state (keep this section current)
 
+**Trackpad pinch + compact tabs (2026-11-11):** Textbook pinch previews transform one inner pages wrapper once per animation frame, without changing page widths until 150 ms after the last input. Ctrl/meta-wheel and WebKit gesture events share the preview (no duplicate zoom); commit preserves the pinch anchor and scaled page gaps, with scroll-boundary compensation, then upgrades PDF resolution on the existing 250 ms settle. Follow highlights and Back to current remain on the same page elements. The panel tablist shrink-wraps fixed 40 px icon tabs; the close button stays right-aligned, with keyboard navigation and Checks badges retained. Geometry/unit and UI tests cover batching, deferred widths/renders, gesture handoff and clamps; Orca browser checks measured <0.25 px commit displacement.
+
 **Native PDF pages + cross-platform fixes (2026-11-11):** PDF pages render in Rust (`src-tauri/src/pages.rs`), not the sidecar.
 - `pdf_page(path, page, width)` (Tauri command, `spawn_blocking`) loads libpdfium with a ~15-function raw FFI (dlopen / LoadLibraryW; no crate: `pdfium-render`/`libloading` weren't in the offline cargo cache) and writes `<appData>/pages/<sha256(path,size,mtime)>/<page>-<width>.png` atomically (+ `<page>.size` with points and page count, so hits never touch PDFium). Hits bump mtime; every 16 writes the cache prunes oldest-first from >512 MiB down to 384 MiB. One global mutex serializes PDFium (it isn't thread-safe); hits skip it. The frontend gets the file path and loads it via `convertFileSrc` (`asset:` scope `$APPDATA/pages/**`); `img-src` already allowed `asset:`, so the CSP only tightened (`frame-src 'none'`).
 - Security: only a canonical path equal to a library source's `pdfPath` with a `%PDF-` header; width 1..4000, page within the count, ≤64 MP bitmap.
@@ -374,6 +376,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Array heaps: max by default, `heap: "min"` option.
 
 ## Decisions (Monish)
+- Pinch + compact tabs (2026-11-11): GPU-only pinch preview, one settled layout commit, WebKit gesture support without wheel duplication; the tab bar should only be as wide as its icons.
 - PDF pages (2026-11-11): render in Rust (PDFium, disk cache, `asset:` URLs) instead of the sidecar; the Original PDF tab uses the same page list, dark by default with a saved toggle. Ingest uses Docling `auto` (MPS where supported, CPU for the formula model).
 - Panel polish/replay (2026-11-11): reuse React Bits PillNav's pill/glide design as CSS-only equal-width tabs, without new npm dependencies; replay may backfill missing GIF URLs with a saved key, bounded to 1.5 s per scene, with cards as fallback and no bundle rewrite.
 - Resize/zoom feedback (2026-11-11): immediate CSS sizing, settled higher-resolution PDF upgrades, a visible loading circle, and an explicit active “Fit width” control; preserve paragraph alignment during drag/pinch.

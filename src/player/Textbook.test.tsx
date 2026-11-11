@@ -87,16 +87,69 @@ it("a plain page click keeps following, while dragging stops it", () => {
   expect(screen.getByRole("button", { name: "Back to current" })).toBeTruthy();
 });
 
-it("modifier wheel zooms around the pointer without disabling follow", () => {
-  const scroll = vi.spyOn(Element.prototype, "scrollTo");
-  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
-  const fitted = parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"));
-  const root = screen.getByLabelText("Textbook pages");
-  fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, clientX: 100, clientY: 150 });
-  expect(parseFloat(screen.getByLabelText("Textbook pages").style.getPropertyValue("--page-w"))).toBeGreaterThan(fitted);
-  expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
-  expect(scroll.mock.calls.some(([arg]) => (arg as ScrollToOptions | undefined)?.behavior === "instant")).toBe(true);
-  scroll.mockRestore();
+it("batches modifier wheel previews per frame and commits width only after settling", async () => {
+  vi.useFakeTimers();
+  try {
+    const renderer = vi.fn<RenderPage>(renderPage);
+    render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderer} />);
+    await act(async () => {});
+    act(() => { vi.advanceTimersByTime(250); });
+    const root = screen.getByLabelText("Textbook pages");
+    const inner = root.querySelector<HTMLElement>(".flow-root")!;
+    const initialCalls = renderer.mock.calls.length;
+    const fitted = root.style.getPropertyValue("--page-w");
+    const writes = vi.spyOn(inner.style, "transform", "set");
+    for (let i = 0; i < 4; i++) fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, clientX: 100, clientY: 150 });
+    expect(writes).not.toHaveBeenCalled();
+    expect(root.style.getPropertyValue("--page-w")).toBe(fitted);
+    act(() => { vi.advanceTimersByTime(16); });
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(Number(inner.style.transform.match(/scale\(([^)]+)\)/)?.[1])).toBeCloseTo(Math.exp(0.8));
+    expect(inner.style.willChange).toBe("transform");
+    act(() => { vi.advanceTimersByTime(133); });
+    expect(root.style.getPropertyValue("--page-w")).toBe(fitted);
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBeCloseTo(parseFloat(fitted) * Math.exp(0.8));
+    expect(renderer).toHaveBeenCalledTimes(initialCalls);
+    await act(async () => { vi.advanceTimersByTime(249); });
+    expect(renderer).toHaveBeenCalledTimes(initialCalls);
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(renderer).toHaveBeenCalledTimes(initialCalls + 1);
+    expect(inner.style.transform).toBe("");
+    expect(inner.style.willChange).toBe("");
+    expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
+    expect(screen.getAllByTestId("passage-highlight")).toHaveLength(1);
+  } finally { cleanup(); vi.useRealTimers(); }
+});
+
+it("WebKit gestures prevent page zoom, take over wheel without doubling, and clamp", async () => {
+  vi.useFakeTimers();
+  try {
+    render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+    await act(async () => {});
+    const root = screen.getByLabelText("Textbook pages");
+    const fitted = parseFloat(root.style.getPropertyValue("--page-w"));
+    const gesture = (name: string, scale = 1) => {
+      const event = new Event(name, { bubbles: true, cancelable: true });
+      Object.assign(event, { scale, clientX: 100, clientY: 150 });
+      fireEvent(root, event);
+      expect(event.defaultPrevented).toBe(true);
+    };
+    fireEvent.wheel(root, { ctrlKey: true, deltaY: -20 });
+    gesture("gesturestart");
+    gesture("gesturechange", 1.5);
+    fireEvent.wheel(root, { ctrlKey: true, deltaY: -20 });
+    gesture("gestureend", 1.5);
+    fireEvent.wheel(root, { ctrlKey: true, deltaY: -20 });
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBeCloseTo(fitted * 1.5);
+    gesture("gesturestart"); gesture("gesturechange", 100); gesture("gestureend");
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBe(360 * 4);
+    gesture("gesturestart"); gesture("gesturechange", 0.001); gesture("gestureend");
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBe(360 * 0.5);
+  } finally { cleanup(); vi.useRealTimers(); }
 });
 
 it("shows a loading circle until the first image arrives and preserves the error message", async () => {

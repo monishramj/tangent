@@ -189,6 +189,12 @@ it("ignores invalid stored widths and works when storage is unavailable", () => 
 it("pill tabs preserve the badge and support arrow wraparound, Home and End", () => {
   const p = setup({ tab: "checks", checks: <p>checks</p>, textbook: <p>pages</p>, checksBadge: <span data-testid="checks-badge">1/3</span> });
   const checks = screen.getByRole("tab", { name: "Checks" });
+  expect(screen.getByRole("tablist").className).toContain("w-fit");
+  expect(checks.className).toContain("size-10");
+  expect(checks.className).not.toContain("flex-1");
+  const indicator = screen.getByRole("tablist").querySelector<HTMLElement>('[aria-hidden="true"]')!;
+  expect(indicator.style.width).toBe("2.5rem");
+  expect(indicator.style.transform).toBe("translateX(0%)");
   expect(checks.getAttribute("aria-selected")).toBe("true");
   expect(checks.getAttribute("tabindex")).toBe("0");
   expect(checks.contains(screen.getByTestId("checks-badge"))).toBe(true);

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Page from "./PdfPage";
+import { pinchGeometry } from "./pinch";
 import Icon from "@/components/Icon";
 import { pdfPage } from "@/home/api";
 import { boxesAt, hasPassages } from "@/follow/passages";
@@ -10,6 +11,10 @@ import type { FollowScene, RenderPage, TextbookSource } from "@/follow/types";
 export default function Textbook({ source, scenes, time, renderPage = pdfPage }: {
   source: TextbookSource; scenes: FollowScene[]; time: number; renderPage?: RenderPage;
 }) {
+  const content = useRef<HTMLDivElement>(null);
+  const pinching = useRef(false);
+  const finishPinch = useRef(() => {});
+  const pageGap = useRef(12);
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, dispatch] = useReducer(followReducer, initialFollow);
   const panelWidth = useRef(360);
@@ -31,20 +36,27 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
     const ratio = width * value / oldWidth;
     const box = currentRef.current.boxes[0];
     const page = box && root.querySelector<HTMLElement>(`[data-page="${box.page}"]`);
-    const before = page?.getBoundingClientRect();
+    const before = !point ? page?.getBoundingClientRect() : undefined;
     const x = point?.x ?? root.clientWidth / 2, y = point?.y ?? root.clientHeight / 3;
     const left = root.scrollLeft, top = root.scrollTop;
+    const inset = point ? { x: 12, y: content.current!.getBoundingClientRect().top - root.getBoundingClientRect().top + top } : undefined;
     root.dataset.sizing = "true";
+    // Scale the gaps too, so every page lands where the GPU preview left it.
+    if (point) {
+      pageGap.current *= ratio;
+      content.current!.style.setProperty("--page-gap", `${pageGap.current}px`);
+    }
     root.style.setProperty("--page-w", `${width * value}px`);
     panelWidth.current = width;
     zoomRef.current = value;
     // Keep the followed paragraph at the same viewport position; pinch keeps the pointer's content anchored.
-    const after = page?.getBoundingClientRect();
+    const after = !point ? page?.getBoundingClientRect() : undefined;
     if (!point && followingRef.current && box && before && after) {
       root.scrollTo({ left: left + after.left - before.left + (after.width - before.width) * box.bbox[0],
         top: top + after.top - before.top + (after.height - before.height) * box.bbox[1], behavior: "instant" });
     } else {
-      root.scrollTo({ left: (left + x - 12) * ratio - x + 12, top: (top + y) * ratio - y, behavior: "instant" });
+      const target = pinchGeometry({ x, y }, { x: left, y: top }, inset ?? { x: 12, y: 0 }, ratio).scroll;
+      root.scrollTo({ left: target.x, top: target.y, behavior: "instant" });
     }
     clearTimeout(settle.current);
     settle.current = setTimeout(() => {
@@ -54,6 +66,7 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
     }, 250);
   };
   const changeZoom = (next: number, point?: { x: number; y: number }) => {
+    finishPinch.current();
     modeRef.current = "manual";
     const value = Math.max(0.5, Math.min(4, next));
     applySize(value, point);
@@ -66,22 +79,108 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
     const measure = () => {
       if (!frame.current) frame.current = requestAnimationFrame(() => {
         frame.current = 0;
-        if (root.clientWidth) applySizeRef.current(zoomRef.current, undefined, Math.max(1, root.clientWidth - 24));
+        if (!pinching.current && root.clientWidth) applySizeRef.current(zoomRef.current, undefined, Math.max(1, root.clientWidth - 24));
       });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
+    const inner = content.current!;
+    let pinch: { base: number; value: number; point: { x: number; y: number }; origin: { x: number; y: number }; scroll: { x: number; y: number }; inset: { x: number; y: number }; width: number; height: number; viewport: { x: number; y: number } } | undefined;
+    let previewFrame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let gesture = false, gestureBase = 1, lastGesture = -Infinity;
+    const finish = () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(previewFrame);
+      previewFrame = 0;
+      if (!pinch) return;
+      const { value, point } = pinch;
+      inner.style.removeProperty("transform");
+      inner.style.removeProperty("transform-origin");
+      inner.style.removeProperty("will-change");
+      pinch = undefined;
+      pinching.current = false;
+      applySizeRef.current(value, point);
+    };
+    finishPinch.current = finish;
+    const preview = (value: number, clientX: number, clientY: number) => {
+      if (!pinch) {
+        clearTimeout(settle.current);
+        const rect = root.getBoundingClientRect();
+        const point = { x: clientX - rect.left, y: clientY - rect.top };
+        const bounds = inner.getBoundingClientRect();
+        const inset = { x: 12, y: bounds.top - rect.top + root.scrollTop };
+        pinch = { base: zoomRef.current, value: zoomRef.current, point,
+          origin: pinchGeometry(point, { x: root.scrollLeft, y: root.scrollTop }, inset, 1).origin,
+          scroll: { x: root.scrollLeft, y: root.scrollTop }, inset,
+          width: bounds.width, height: bounds.height,
+          viewport: { x: root.clientWidth, y: root.clientHeight } };
+        pinching.current = true;
+        modeRef.current = "manual";
+        inner.style.willChange = "transform";
+      }
+      pinch.value = Math.max(0.5, Math.min(4, value));
+      if (!previewFrame) previewFrame = requestAnimationFrame(() => {
+        previewFrame = 0;
+        if (!pinch) return;
+        inner.style.transformOrigin = `${pinch.origin.x}px ${pinch.origin.y}px`;
+        const scale = pinch.value / pinch.base;
+        const { translate } = pinchGeometry(pinch.point, pinch.scroll, pinch.inset, scale, {
+          x: Math.max(0, 24 + pinch.width * scale - pinch.viewport.x),
+          y: Math.max(0, pinch.inset.y + pinch.height * scale + 64 - pinch.viewport.y),
+        });
+        inner.style.transform = `translate(${translate.x}px, ${translate.y}px) scale(${scale})`;
+      });
+      clearTimeout(timer);
+      timer = setTimeout(finish, 150);
+    };
     const wheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      if (modeRef.current !== "manual") setZoomState({ mode: "manual", zoom: zoomRef.current });
-      modeRef.current = "manual";
-      const rect = root.getBoundingClientRect();
-      applySizeRef.current(Math.max(0.5, Math.min(4, zoomRef.current * Math.exp(-e.deltaY * 0.01))), { x: e.clientX - rect.left, y: e.clientY - rect.top });
+      if (gesture || performance.now() - lastGesture < 150) return;
+      preview((pinch?.value ?? zoomRef.current) * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    };
+    type Gesture = Event & { scale: number; clientX: number; clientY: number };
+    const start = (event: Event) => {
+      event.preventDefault();
+      gesture = true;
+      // WebKit may send wheel before gesturestart; gesture scale takes over the same preview.
+      gestureBase = pinch?.base ?? zoomRef.current;
+    };
+    const change = (event: Event) => {
+      event.preventDefault();
+      const e = event as Gesture;
+      if (!gesture) start(event);
+      preview(gestureBase * e.scale, e.clientX, e.clientY);
+    };
+    const end = (event: Event) => {
+      event.preventDefault();
+      gesture = false;
+      lastGesture = performance.now();
+      clearTimeout(timer);
+      timer = setTimeout(finish, 150);
     };
     root.addEventListener("wheel", wheel, { passive: false });
-    return () => { observer.disconnect(); root.removeEventListener("wheel", wheel); cancelAnimationFrame(frame.current); clearTimeout(settle.current); };
+    root.addEventListener("gesturestart", start, { passive: false });
+    root.addEventListener("gesturechange", change, { passive: false });
+    root.addEventListener("gestureend", end, { passive: false });
+    return () => {
+      observer.disconnect();
+      root.removeEventListener("wheel", wheel);
+      root.removeEventListener("gesturestart", start);
+      root.removeEventListener("gesturechange", change);
+      root.removeEventListener("gestureend", end);
+      cancelAnimationFrame(frame.current);
+      cancelAnimationFrame(previewFrame);
+      clearTimeout(timer);
+      clearTimeout(settle.current);
+      inner.style.removeProperty("transform");
+      inner.style.removeProperty("transform-origin");
+      inner.style.removeProperty("will-change");
+      pinching.current = false;
+      finishPinch.current = () => {};
+    };
   }, []);
   useLayoutEffect(() => {
     if (modeRef.current === "fit") applySizeRef.current(fit.zoom);
@@ -100,7 +199,7 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
   useEffect(() => { dispatch({ type: "beat", beat: current.beat, hasBoxes: current.boxes.length > 0 }); }, [current.beat, current.boxes.length]);
   const scrollCurrent = (behavior: ScrollBehavior) => {
     const box = currentRef.current.boxes[0], root = scroller.current;
-    if (!box || !root || !follow.following) return;
+    if (!box || !root || !follow.following || pinching.current) return;
     const page = root.querySelector<HTMLElement>(`[data-page="${box.page}"]`);
     if (!page) return;
     const rect = page.getBoundingClientRect();
@@ -124,15 +223,17 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
         if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "].includes(e.key)) { stop(); e.stopPropagation(); }
       }}>
       {!mapped && <p className="pb-3 pt-14 text-xs text-muted">Highlights appear on videos made after this feature.</p>}
+      <div ref={content} className="flow-root" style={{ width: "var(--page-w)" }}>
       {pages.map((page, i) => <Page key={`${source.pdfPath}:${page}`} path={source.pdfPath} page={page} first={i === 0} aspect={aspect}
         width={renderWidth} onAspect={setAspect} root={scroller} renderPage={renderPage} boxes={current.boxes.filter(b => b.page === page)} />)}
+      </div>
     </div>
     <div role="toolbar" aria-label="Textbook zoom" className="absolute right-3 top-3 flex items-center gap-1 rounded-full border border-fg/20 bg-bg/95 p-1 text-xs text-fg shadow-lg">
       <span className="px-2 tabular-nums">p. {follow.following ? current.boxes[0]?.page ?? visiblePage : visiblePage}</span>
       <button type="button" aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => changeZoom(zoom / 1.25)} className="grid size-8 place-items-center rounded-full hover:bg-fg/10 disabled:opacity-30"><Icon icon={MinusSignIcon} size={16} /></button>
       <span className="min-w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
       <button type="button" aria-label="Zoom in" disabled={zoom >= 4} onClick={() => changeZoom(zoom * 1.25)} className="grid size-8 place-items-center rounded-full hover:bg-fg/10 disabled:opacity-30"><Icon icon={PlusSignIcon} size={16} /></button>
-      <button type="button" aria-pressed={zoomState.mode === "fit"} title="Zoom so the text fills the panel" onClick={() => { modeRef.current = "fit"; applySize(fit.zoom); setZoomState({ mode: "fit", zoom: fit.zoom }); }} className={`rounded-full px-3 py-2 ${zoomState.mode === "fit" ? "bg-fg text-bg" : "hover:bg-fg/10"}`}>Fit width</button>
+      <button type="button" aria-pressed={zoomState.mode === "fit"} title="Zoom so the text fills the panel" onClick={() => { finishPinch.current(); modeRef.current = "fit"; applySize(fit.zoom); setZoomState({ mode: "fit", zoom: fit.zoom }); }} className={`rounded-full px-3 py-2 ${zoomState.mode === "fit" ? "bg-fg text-bg" : "hover:bg-fg/10"}`}>Fit width</button>
     </div>
     {showBackButton(follow, mapped && current.boxes.length > 0) && <button type="button" onClick={() => dispatch({ type: "backToCurrent" })}
       className="absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-fg/20 bg-bg px-4 py-2 text-sm text-fg shadow-lg transition-transform active:scale-95">Back to current</button>}
