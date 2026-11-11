@@ -39,13 +39,11 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
     const before = !point ? page?.getBoundingClientRect() : undefined;
     const x = point?.x ?? root.clientWidth / 2, y = point?.y ?? root.clientHeight / 3;
     const left = root.scrollLeft, top = root.scrollTop;
-    const inset = point ? { x: 12, y: content.current!.getBoundingClientRect().top - root.getBoundingClientRect().top + top } : undefined;
+    const inset = { x: 12, y: content.current!.getBoundingClientRect().top - root.getBoundingClientRect().top + top };
     root.dataset.sizing = "true";
     // Scale the gaps too, so every page lands where the GPU preview left it.
-    if (point) {
-      pageGap.current *= ratio;
-      content.current!.style.setProperty("--page-gap", `${pageGap.current}px`);
-    }
+    pageGap.current *= ratio;
+    content.current!.style.setProperty("--page-gap", `${pageGap.current}px`);
     root.style.setProperty("--page-w", `${width * value}px`);
     panelWidth.current = width;
     zoomRef.current = value;
@@ -55,7 +53,7 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
       root.scrollTo({ left: left + after.left - before.left + (after.width - before.width) * box.bbox[0],
         top: top + after.top - before.top + (after.height - before.height) * box.bbox[1], behavior: "instant" });
     } else {
-      const target = pinchGeometry({ x, y }, { x: left, y: top }, inset ?? { x: 12, y: 0 }, ratio).scroll;
+      const target = pinchGeometry({ x, y }, { x: left, y: top }, inset, ratio).scroll;
       root.scrollTo({ left: target.x, top: target.y, behavior: "instant" });
     }
     clearTimeout(settle.current);
@@ -183,7 +181,7 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
     };
   }, []);
   useLayoutEffect(() => {
-    if (modeRef.current === "fit") applySizeRef.current(fit.zoom);
+    if (modeRef.current === "fit" && !pinching.current) applySizeRef.current(fit.zoom);
   }, [fit.zoom]);
   const [aspect, setAspect] = useState(0.75);
   const pages = useMemo(() => {
@@ -209,7 +207,7 @@ export default function Textbook({ source, scenes, time, renderPage = pdfPage }:
   useLayoutEffect(() => { scrollCurrent("instant"); }, [aspect]);
   const stop = () => { if (mapped) dispatch({ type: "userScroll" }); };
   return <div className="relative min-h-0 min-w-0 flex-1">
-    <div ref={scroller} style={{ "--page-w": `${360 * fit.zoom}px` } as React.CSSProperties} aria-label="Textbook pages" tabIndex={0} className="h-full overflow-auto px-3 pb-16 [overflow-anchor:none]"
+    <div ref={scroller} aria-label="Textbook pages" tabIndex={0} className="h-full overflow-auto px-3 pb-16 [overflow-anchor:none]"
       onScroll={() => {
         const root = scroller.current!;
         const top = root.getBoundingClientRect().top;
