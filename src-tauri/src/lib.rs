@@ -68,7 +68,7 @@ fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: bool) -> Res
 fn spawn() -> Result<Process, String> {
     let dir = sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from), Path::new(env!("CARGO_MANIFEST_DIR")), cfg!(debug_assertions))?
         .canonicalize().map_err(|e| format!("sidecar directory: {e}"))?;
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = llm::home_dir();
     let dirs = llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let uv = llm::resolve("uv", &dirs).ok_or("uv not found in PATH, ~/.local/bin or /opt/homebrew/bin")?;
     let child = Command::new(uv)

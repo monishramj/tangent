@@ -12,6 +12,16 @@ from tangent_sidecar import handle, main
 from tangent_sidecar import ingest
 
 
+@pytest.mark.parametrize("env,cuda,expected", [
+    ("cpu", True, "cpu"),
+    ("mps", False, "mps"),
+    (None, True, "cuda"),
+    (None, False, "cpu"),  # Includes MPS-only hosts: MPS availability is irrelevant.
+])
+def test_pick_device(env, cuda, expected):
+    assert ingest._pick_device(env, cuda) == expected
+
+
 @pytest.fixture
 def document():
     """Tiny hand-made Docling document; no converter or models involved."""

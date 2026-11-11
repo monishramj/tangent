@@ -15,6 +15,11 @@ from pathlib import Path
 from .postprocess import strip_footers
 
 
+def _pick_device(env, cuda):
+    # Docling's formula model does not support MPS.
+    return env if env is not None else ("cuda" if cuda else "cpu")
+
+
 @lru_cache(maxsize=1)
 def _load_converter():
     from docling.datamodel.accelerator_options import AcceleratorOptions
@@ -24,12 +29,12 @@ def _load_converter():
 
     import torch
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = _pick_device(os.environ.get("TANGENT_DEVICE"), torch.cuda.is_available())
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
         accelerator_options=AcceleratorOptions(
-            device=os.environ.get("TANGENT_DEVICE", device),
+            device=device,
             num_threads=int(os.environ.get("TANGENT_THREADS", "8")),
         ),
     )
