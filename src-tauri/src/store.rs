@@ -71,12 +71,25 @@ pub fn secret_set(base: &Path, name: &str, value: &str) -> Result<(), String> {
         open.mode(0o600);
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
     }
-    std::io::Write::write_all(&mut open.open(&tmp).map_err(|e| e.to_string())?, value.as_bytes()).map_err(|e| e.to_string())?;
+    let mut f = open.open(&tmp).map_err(|e| e.to_string())?;
+    // mode() only applies on create: a stale .tmp left by a crash keeps its old bits, so force 0600 before writing.
+    #[cfg(unix)]
+    { use std::os::unix::fs::PermissionsExt; f.set_permissions(fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?; }
+    std::io::Write::write_all(&mut f, value.as_bytes()).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &file).map_err(|e| e.to_string())
 }
 
+/// Secrets the webview may read back. GIPHY keys are meant for client-side use (GIPHY's docs: call it from the client,
+/// never proxy), so JS may fetch with it. Anything else (future paid API keys) is write-only from JS and only read in Rust,
+/// so an injected script in the webview can't exfiltrate it.
+const WEBVIEW_READABLE: &[&str] = &["giphy"];
+fn webview_get(base: &Path, name: &str) -> Result<Option<String>, String> {
+    if !WEBVIEW_READABLE.contains(&name) { return Err(format!("secret {name:?} is not readable from the webview")); }
+    secret_get(base, name)
+}
+
 #[tauri::command]
-pub fn get_secret(app: AppHandle, name: String) -> Result<Option<String>, String> { secret_get(&base(&app)?, &name) }
+pub fn get_secret(app: AppHandle, name: String) -> Result<Option<String>, String> { webview_get(&base(&app)?, &name) }
 #[tauri::command]
 pub fn set_secret(app: AppHandle, name: String, value: String) -> Result<(), String> { secret_set(&base(&app)?, &name, &value) }
 
@@ -139,6 +152,31 @@ mod tests {
         secret_set(&base, "giphy", "").unwrap();
         secret_set(&base, "giphy", "").unwrap();
         assert_eq!(secret_get(&base, "giphy").unwrap(), None);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn webview_reads_only_allowlisted_secrets() {
+        let base = tmp("webview");
+        secret_set(&base, "giphy", "g").unwrap();
+        secret_set(&base, "anthropic", "a").unwrap();
+        assert_eq!(webview_get(&base, "giphy").unwrap(), Some("g".into()));
+        assert!(webview_get(&base, "anthropic").is_err());
+        assert_eq!(secret_get(&base, "anthropic").unwrap(), Some("a".into())); // Rust side still reads it
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_world_readable_tmp_is_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tmp("staletmp");
+        fs::create_dir_all(base.join("secrets")).unwrap();
+        let stale = base.join("secrets/giphy.tmp");
+        fs::write(&stale, b"old").unwrap();
+        fs::set_permissions(&stale, fs::Permissions::from_mode(0o644)).unwrap();
+        secret_set(&base, "giphy", "new").unwrap();
+        assert_eq!(fs::metadata(base.join("secrets/giphy")).unwrap().permissions().mode() & 0o777, 0o600);
         let _ = fs::remove_dir_all(&base);
     }
 
