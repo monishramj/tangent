@@ -127,10 +127,10 @@ Visuals are scheduled *to* the audio, never the reverse.
 - Local cache of hits + a **banned list** (blocked gifs/terms). Gifs render framed in the style pack (vignette/frame), not raw.
 
 ### Voices (open source, local)
+- **Current choice: PocketTTS `alba`** (MIT code, CC-BY-4.0 weights), local CPU synthesis. Selected in the narration comparison; MMS_FA still supplies word timestamps.
 - Narration is generated ahead of playback, so it only needs to beat real time on average.
 - **Candidates to benchmark on the M4 Max:**
   - **Chatterbox Turbo** (MIT, 350M): expressive, voice cloning, paralinguistic tags, top open-weight model on TTS Arena; ~1.1× real time on an M4 GPU, which is tight for streaming. Outputs are watermarked (irrelevant for personal use).
-  - **Kokoro-82M** (Apache 2.0): ~14× real time on an M4, solid English, no cloning. Default for the **tutor fast path** and the fallback when Chatterbox falls behind.
   - Qwen3-TTS (Apache 2.0, steerable delivery): too slow on Apple Silicon right now (~0.2×).
 - TTS sits behind a provider interface; models are swappable.
 - **Math-to-speech step:** LaTeX/symbols → spoken English before TTS (`O(n \log n)` → "big O of n log n").
@@ -141,7 +141,7 @@ Visuals are scheduled *to* the audio, never the reverse.
 - Parallelize: TTS for beat k runs while the DSL for beat k−1 is generated/compiled.
 
 ### Tutor / interrupts
-- Fast path: on pause + question, respond within ~2 s (voice, Kokoro) and start **drawing annotations on the current scene via the DSL** (circle, highlight, arrow to `object.id`).
+- Fast path: on pause + question, respond within ~2 s (voice, PocketTTS) and start **drawing annotations on the current scene via the DSL** (circle, highlight, arrow to `object.id`).
 - Context passed: IR section, transcript up to the current word, the live scene graph (object IDs + states), prior questions this session.
 - The instant response can't depend on Claude Code CLI cold start → a small local model (Ollama) handles acknowledge + annotate, and Claude produces the substantive answer.
 - v1 slow path: stream an **animated branch** through the same scene pipeline, then rejoin.
@@ -184,7 +184,7 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 - Black × Code Report style pack v0 (reaction gifs optional in MVP if time allows)
 - Scene-by-scene streaming
 - **Typed** interrupt → tutor voice answer + annotations on the current scene
-- Providers: Claude Code CLI + Ollama behind one interface; TTS: Chatterbox/Kokoro behind one interface
+- Providers: Claude Code CLI + Ollama behind one interface; TTS: PocketTTS Alba with MMS_FA alignment
 - **Out of MVP:** voice input, animated branches, checkpoints, non-PDF adapters, export, editor
 
 ### v1
@@ -204,7 +204,7 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## First tasks (in order)
 1. **Repo scaffold:** Tauri + TS frontend + PixiJS; `uv` Python sidecar with a typed IPC boundary.
-2. **TTS + alignment spike:** Chatterbox Turbo vs Kokoro on the M4 Max (real-time factor, quality on technical narration, math-to-speech output), plus a forced-alignment accuracy check. Decides the default narration voice.
+2. **TTS + alignment:** PocketTTS Alba on the M4 Max, with MMS_FA word alignment. Recheck real-time factor and technical narration when upgrading the model.
 3. **PDF benchmark:** Docling vs Marker on 3 chapters → pick the parser, which settles the license direction.
 4. **DSL v0 finalize:** JSON Schema + validator + timeline compiler, hand-written scenes first (no LLM) to prove the player/sync.
 5. **LLM → DSL:** generate scenes for one golden CS 251 section; measure validity rate + generation time vs playback.
@@ -328,7 +328,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 ## Packaging: one downloadable app
 - Goal: a single installer. Nothing the user must install or hunt for (no brew, no separate Python, no ollama).
 - Bundle as Tauri `externalBin` sidecars: the Python sidecar (frozen with PyInstaller or an embedded uv Python), `llama-server` (llama.cpp, small), ffmpeg if needed.
-- Large model weights (TTS, VLM, alignment) are NOT in the installer. Download once on first run into the app data dir, with a progress UI and checksum. Small models (Kokoro ~330 MB) may be bundled if installer size allows.
+- Large model weights (TTS, VLM, alignment) are NOT in the installer. Download once on first run into the app data dir, with a progress UI and checksum. Small models (PocketTTS English ~225 MB including the Alba preset) may be bundled if installer size allows.
 - Licence limits what we bundle: Marker weights are restricted (no bundle, opt-in only); Docling is MIT and can ship.
 - Remove the dev-only hardcoded sidecar path in `src-tauri/src/lib.rs` before any packaged build.
 
@@ -338,7 +338,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 
 ## Decisions (Monish)
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
-- Narration voice: **Kokoro `af_heart`** (female). Chatterbox not pursued for now.
+- Narration voice: **PocketTTS `alba`** (local, CPU), preferred in the voice comparison. Chatterbox not pursued for now.
 - LLM for generation: **Claude Code `haiku`** (2026-11-04), chosen to conserve usage; **script stage on `sonnet`** (2026-11-05) for script quality.
 - Retaking a check replaces the earlier answer; Escape closes the speed menu and the side panel together (2026-11-05).
 - Picture templates over flowcharts (2026-11-10): at most one diagram per scene; the recurring Tangenter appears ~1 in 3–4 beats; colour comes from full-colour emoji + the one accent (icons stay white line art). Dominoes stays only if it stays good.

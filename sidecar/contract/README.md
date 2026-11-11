@@ -6,15 +6,16 @@ to stderr. Requests run serially in the long-lived process. Errors use
 `{"id": <request id>, "error": "<message>"}`; the process keeps accepting requests.
 
 - `ping {}` → `"pong"` (existing fixture: `ping.json`). No models loaded.
-- `tts_align {"text": "Hello world.", "out_path": "/tmp/hello.wav", "voice": "af_heart"}`
+- `tts_align {"text": "Hello world.", "out_path": "/tmp/hello.wav", "voice": "alba"}`
   → `{"wav_path": "/tmp/hello.wav", "sec": 1.0, "words": [{"word": "Hello", "start": 0.02, "end": 0.4}, {"word": "world.", "start": 0.4, "end": 0.9}]}`
   (illustrative timings).
 
-`text` and `out_path` are required nonempty strings; `voice` defaults to female
-American English `af_heart`. Uses Kokoro-82M at 24 kHz, then torchaudio MMS_FA
+`text` and `out_path` are required nonempty strings; `voice` defaults to
+PocketTTS `alba`. Uses PocketTTS at 24 kHz, then torchaudio MMS_FA
 against the known text at its native sample rate. Models load lazily once per
-process; Kokoro uses MPS when available and MMS_FA uses CPU, as in the spike.
-First use may download model weights; the English spaCy language package is a uv dependency.
+process; PocketTTS and MMS_FA use CPU. The selected voice state is cached too.
+First use may download model weights and the preset voice embedding.
+PocketTTS code is MIT; its public preset-model weights are [CC-BY-4.0](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning).
 Torch/TorchAudio are pinned to the locally available spike versions with MMS_FA.
 
 The output is mono PCM WAV. Paths are interpreted relative to the sidecar's

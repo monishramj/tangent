@@ -28,7 +28,7 @@ export async function sidecarTts(segments: string[], options?: { signal?: AbortS
   checkAbort();
   const response = await invoke<unknown>("sidecar_call", {
     method: "tts_align",
-    params: { segments, out_path: outPath, voice: "af_heart", gap_sec: options?.gapSec ?? BEAT_GAP_SEC },
+    params: { segments, out_path: outPath, voice: "alba", gap_sec: options?.gapSec ?? BEAT_GAP_SEC },
     timeoutMs: 300_000,
   });
   checkAbort();
