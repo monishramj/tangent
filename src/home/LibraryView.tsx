@@ -103,7 +103,7 @@ export default function LibraryView(props: LibraryViewProps) {
   return <LibraryShell onHome={home}>
     {(folder || allFolders) && <button className="tl-back" onClick={() => { cancelOpening(); if (folder) onBack(); else setAllFolders(false); }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
     <div className="tl-content" key={folder?.id ?? (allFolders ? 'all' : 'home')}>
-      <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'Your library.'}</h1><p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : isAllFolders ? 'Everything, in its place.' : 'A little reading. A new way to see it.'}</p></div>
+      <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'Library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
         {folder ? <details className="tl-menu"><summary aria-label="Folder actions"><Icon icon={MoreHorizontalIcon} size={20} /></summary><div><button onClick={() => startForm('rename')}>Rename folder</button><button onClick={() => startForm('delete')}>Delete folder</button></div></details>
           : <button className="tl-text-button" onClick={() => startForm('create')}><Icon icon={Add01Icon} size={17} />New folder</button>}
       </div>
@@ -131,11 +131,13 @@ export default function LibraryView(props: LibraryViewProps) {
           style={{ '--spotlight-card-surface': dragOver || props.over ? 'rgba(255,255,255,0.05)' : 'transparent', '--spotlight-card-border': dragOver || props.over ? '#888' : 'var(--line)', '--spotlight-card-shadow': 'none' } as CSSProperties}
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files?.[0]; if (file && !props.loading) props.onDropFile(file); }}>
           {props.loading ? <div className="tl-loading" role="status"><ShinyText text={props.loading} color="#999" shineColor="#fff" />{props.progress && <><progress aria-label="Reading PDF" value={props.progress.fraction} max={1} /><small>{props.progress.label}</small></>}</div>
-            : <><Icon icon={Upload04Icon} size={23} /><div><strong>Drop a PDF here</strong><span>{folder ? `Add reading material to ${folder.name}.` : 'Give your next idea a place to start.'}</span></div><button className="tl-quiet" onClick={() => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); }}>Choose PDF <Icon icon={Add01Icon} size={16} /></button></>}
+            : <><Icon icon={Upload04Icon} size={23} /><div><strong>Drop a PDF here</strong>{folder && <span>Add reading material to {folder.name}.</span>}</div><button className="tl-quiet" onClick={() => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); }}>Choose PDF <Icon icon={Add01Icon} size={16} /></button></>}
           <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={e => { const file = e.target.files?.[0]; if (file) props.onDropFile(file); e.target.value = ''; }} />
         </SpotlightCard>
-        {!folder && <section className="tl-section"><h2>Loose pages<span>Not in a folder</span></h2>{sourceList()}</section>}
-        <section className="tl-section"><h2>Recent videos</h2><VideoList videos={videos} onOpen={onOpenVideo} onDelete={props.onDeleteVideo} /></section>
+        <div className={folder ? undefined : 'tl-library-columns'}>
+          {!folder && <section className="tl-section"><h2>Loose pages</h2>{sourceList()}</section>}
+          <section className="tl-section"><h2>Recent videos</h2><VideoList videos={videos} onOpen={onOpenVideo} onDelete={props.onDeleteVideo} /></section>
+        </div>
       </>}
     </div>
   </LibraryShell>;
