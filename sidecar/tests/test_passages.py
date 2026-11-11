@@ -127,6 +127,7 @@ def test_pdf_page_renders_one_page_at_a_target_width(tmp_path):
                                     {"page": 1, "width": 0}, {"page": 1, "width": 5000}, {"page": "1", "width": 100}])
 def test_pdf_page_validates(tmp_path, params):
     path = _pdf(tmp_path)
-    if isinstance(params, dict) and "page" in params and "path" not in params:
+    # {"page": 1, "width": 100} is the valid request minus its path: it must stay pathless to fail.
+    if isinstance(params, dict) and "page" in params and "path" not in params and params != {"page": 1, "width": 100}:
         params = {**params, "path": str(path)}
     assert "error" in handle({"id": 2, "method": "pdf_page", "params": params})

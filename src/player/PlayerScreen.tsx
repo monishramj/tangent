@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ArrowLeft02Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft02Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
@@ -19,6 +19,8 @@ import { SceneQueue } from "@motion/player/queue";
 import { bufferClock, unlockAudioOnGesture } from "@motion/player/bufferClock";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
+import Textbook from "./Textbook";
+import type { TextbookSource } from "@/follow/types";
 import Captions, { captionCues } from "./Captions";
 import Checks, { type CheckStatus } from "./Checks";
 import CheckpointCard, { results, type CheckpointResult } from "./CheckpointCard";
@@ -54,9 +56,10 @@ export type PlayerProps = {
   onBack?: () => void;
   autoPlay?: boolean;
   initialError?: string;
+  textbook?: TextbookSource;
 };
 
-export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError }: PlayerProps) {
+export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError, textbook }: PlayerProps) {
   const [scenes, setScenes] = useState<StreamedScene[]>([]);
   const [current, setCurrent] = useState<StreamedScene | null>(null);
   const [time, setTime] = useState(0);
@@ -393,6 +396,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             <Icon icon={CheckListIcon} size={22} />
             <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
           </button>}
+          {textbook && <button type="button" aria-label="Textbook" aria-pressed={tab === "textbook"} title="Textbook" onClick={() => openTab("textbook")} className={iconBtn}><Icon icon={BookOpen01Icon} size={22} /></button>}
           <button type="button" aria-label="Transcript" aria-pressed={tab === "transcript"} title="Transcript" onClick={() => openTab("transcript")} className={iconBtn}><Icon icon={TextAlignLeftIcon} size={22} /></button>
           <button type="button" aria-label="Ask" aria-pressed={tab === "ask"} title="Ask a question" onClick={() => openTab("ask")} className={iconBtn}><Icon icon={BubbleChatIcon} size={22} /></button>
           <button type="button" aria-label="Toggle fullscreen" title="Fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} size={22} /></button>
@@ -454,6 +458,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
 
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}
         onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume}
+        textbook={textbook ? <Textbook source={textbook} scenes={scenes} time={time} /> : undefined}
         checks={checkpoints.length ? <Checks checkpoints={checkpoints} status={status} active={activeCp?.id} onOpen={openCp} isReady={isReady} onQuiz={openQuiz} complete={done} /> : undefined} />}
 
       {quiz && <Quiz checkpoints={quiz} provider={provider} thumbs={thumbs} onResult={saveResult} onClose={() => setQuiz(null)} onJump={jumpToScene} />}

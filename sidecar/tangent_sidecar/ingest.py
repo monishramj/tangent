@@ -73,6 +73,36 @@ def pdf_info(params):
         pdf.close()
 
 
+def pdf_page(params):
+    """Render one page as a PNG data URL at a target pixel width; also returns the page size in points."""
+    if not isinstance(params, dict) or not isinstance(params.get("path"), str) or not params["path"].strip():
+        raise ValueError("path must be a non-empty local PDF path")
+    page_no, width = params.get("page"), params.get("width")
+    if type(page_no) is not int or type(width) is not int or not 1 <= width <= 4000:
+        raise ValueError("page must be an int and width an int in 1..4000")
+    import pypdfium2
+
+    pdf = pypdfium2.PdfDocument(str(Path(params["path"]).expanduser().resolve(strict=True)))
+    try:
+        if not 1 <= page_no <= len(pdf):
+            raise ValueError(f"page must be in 1..{len(pdf)}")
+        page = pdf[page_no - 1]
+        try:
+            w, h = page.get_size()
+            bitmap = page.render(scale=width / w)
+            try:
+                output = io.BytesIO()
+                bitmap.to_pil().save(output, format="PNG")
+            finally:
+                bitmap.close()
+        finally:
+            page.close()
+        return {"url": "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii"),
+                "width": round(w), "height": round(h)}
+    finally:
+        pdf.close()
+
+
 def _assets_root():
     return Path(__file__).resolve().parents[1] / ".ingest"
 
@@ -135,6 +165,22 @@ def _repeated_margins(document, items):
     return {ref: lines & repeated for ref, lines in candidates.items()}
 
 
+def _boxes(document, item):
+    """One box per provenance entry: [x0, y0, x1, y1] as page fractions, top-left origin."""
+    boxes = []
+    for prov in item.prov:
+        page = document.pages.get(prov.page_no)
+        if page is None or not page.size.width or not page.size.height:
+            continue
+        b = prov.bbox.to_top_left_origin(page_height=page.size.height)
+        x0, x1 = sorted((b.l, b.r))
+        y0, y1 = sorted((b.t, b.b))
+        w, h = page.size.width, page.size.height
+        box = [round(min(1.0, max(0.0, v)), 4) for v in (x0 / w, y0 / h, x1 / w, y1 / h)]
+        boxes.append({"page": prov.page_no, "bbox": box})
+    return boxes
+
+
 def document_to_ir(document, assets, pdf_path=None):
     from docling_core.transforms.serializer.markdown import MarkdownDocSerializer
     from docling_core.types.doc import ContentLayer
@@ -151,13 +197,15 @@ def document_to_ir(document, assets, pdf_path=None):
     sections, stack = [], []
     exercise = None
     figure_count = 0
+    passage_count = 0
 
     def section(title, level):
         nonlocal exercise
         while stack and stack[-1]["level"] >= level:
             stack.pop()
         node = {"id": f"section-{len(all_sections) + 1}", "title": title, "level": level,
-                "markdown": "", "figures": [], "exercises": [], "anchors": [], "children": []}
+                "markdown": "", "figures": [], "exercises": [], "anchors": [], "children": [],
+                "passages": []}
         (stack[-1]["children"] if stack else sections).append(node)
         stack.append(node)
         all_sections.append(node)
@@ -202,6 +250,8 @@ def document_to_ir(document, assets, pdf_path=None):
         if not markdown:
             continue
         current["markdown"] += ("\n\n" if current["markdown"] else "") + markdown
+        passage_count += 1
+        current["passages"].append({"id": f"p{passage_count}", "markdown": markdown, "boxes": _boxes(document, item)})
 
         if any(EXERCISE_HEADING.search(s["title"]) for s in stack):
             if (exercise is None or getattr(item, "enumerated", False)

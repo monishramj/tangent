@@ -73,6 +73,10 @@ def _figures(sec):
         uri = Path(f["image_path"]).as_uri()
         sec["markdown"] = "\n\n".join(p for p in sec["markdown"].split("\n\n") if uri not in p)
     sec["figures"] = keep
+    captioned = {f["image_path"] for f in keep if f["caption"]}
+    if "passages" in sec:
+        dropped = [Path(f["image_path"]).as_uri() for f in drop]
+        sec["passages"] = [p for p in sec["passages"] if not any(u in p["markdown"] for u in dropped)]
     # reattach detached captions to the nearest preceding captionless figure
     paras, last, out = sec["markdown"].split("\n\n"), None, []
     by_uri = {Path(f["image_path"]).as_uri(): f for f in keep}
@@ -88,6 +92,20 @@ def _figures(sec):
             continue
         out.append(p)
     sec["markdown"] = "\n\n".join(out)
+    if "passages" in sec:  # same reattach on passages: fold the caption passage (and boxes) into its figure
+        last, out = None, []
+        for p in sec["passages"]:
+            for uri, f in by_uri.items():
+                if p["markdown"].startswith("![") and f"]({uri})" in p["markdown"]:
+                    last = (f, p)
+            if last and CAPTION.match(p["markdown"]) and last[0]["image_path"] not in captioned:
+                f, fig = last
+                fig["markdown"] = re.sub(r"^!\[[^\]]*\]", lambda _: f"![{p['markdown'].strip()}]", fig["markdown"])
+                fig["boxes"] += p["boxes"]
+                last = None
+                continue
+            out.append(p)
+        sec["passages"] = out
 
 
 # Watermark/footer stripping must run before any text can reach a model (see src/gen/sanitize.ts).
@@ -112,6 +130,15 @@ def strip_footers(markdown):
 def _clean(n):
     n["title"] = " ".join(strip_footers(JUNK.sub("", n["title"])).split())
     n["markdown"] = strip_footers(JUNK.sub("", n["markdown"]))
+    _map_passages(n, lambda t: strip_footers(JUNK.sub("", t)))
+
+
+def _map_passages(n, fn):
+    """Apply a markdown transform to each passage; passages that end up empty are dropped."""
+    if "passages" in n:
+        for p in n["passages"]:
+            p["markdown"] = fn(p["markdown"])
+        n["passages"] = [p for p in n["passages"] if p["markdown"].strip()]
 
 
 def _norm(t):
@@ -159,6 +186,8 @@ def _merge_content(host, node):
         host["markdown"] += ("\n\n" if host["markdown"] else "") + f"**{node['title']}**"
     if node["markdown"]:
         host["markdown"] += "\n\n" + node["markdown"]
+    host.setdefault("passages", [])
+    host["passages"] += node.get("passages", [])
     host["figures"] += node["figures"]
     host["exercises"] += node["exercises"]
     host.setdefault("activities", []).append(node["title"].strip())
@@ -269,6 +298,8 @@ def postprocess(ir, pdf_path=None):
         stack.append(n)
         _figures(n)
         n["markdown"] = _fix_ligatures(n["markdown"])
+        _map_passages(n, _fix_ligatures)
+        _map_passages(n, lambda t: DUP_MATH.sub(r"\g<g>", t))
         n["markdown"], hits = DUP_MATH.subn(r"\g<g>", n["markdown"])
         if hits:
             n["needs_math_check"] = True

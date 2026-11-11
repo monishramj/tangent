@@ -7,11 +7,13 @@ import { splitBeatAudio, type Segment } from "./splitAudio";
 import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "@motion/dsl/ops";
 import { resolveAnchor, type Timeline, type Word } from "@motion/dsl/compile";
+import { boxesFor } from "../follow/passages";
+import type { BeatBoxes, Passage } from "../follow/types";
 import type { LLMProvider } from "../llm/provider";
 import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
 
 export type PipelineEvent =
-  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number }
+  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes }
   | { type: "error"; sceneId: string; error: Error }
   | { type: "checkpoints"; items: Checkpoint[] };
 
@@ -35,6 +37,8 @@ type Options = {
   /** Scenes allowed to be in flight or ready beyond the one being played. */
   lookahead?: number;
   figures?: Figure[];
+  /** Source blocks with page boxes (textbook follow-along); beats name them and scenes carry their boxes. */
+  passages?: Passage[];
   exercises?: Exercise[];
   /** How much of the section the script covers (see DetailLevel). */
   detail?: DetailLevel;
@@ -45,7 +49,7 @@ type Options = {
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], passages = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -137,7 +141,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         // pause 0: beats are contiguous slices of the single wav (each clip already ends with its pause).
         const timeline = compileOps(scene, clips, 0);
         ready_++; progress("ready", index);
-        return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start };
+        return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
+          // Aligned with scene.beats (like `spoken`); absent when the IR has no passages.
+          ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)) } : {}) };
       } catch (cause) {
         checkAbort();
         error = cause instanceof Error ? cause : new Error(String(cause));
@@ -166,7 +172,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       checkAbort();
       onStatus?.("writing script");
       progress("script", 0);
-      const script = await generateScript({ sectionMarkdown, provider: complete, detail });
+      const script = await generateScript({ sectionMarkdown, provider: complete, detail, passages });
       if (!script.beats || script.violations.length) throw new Error("Invalid script: " + script.violations.slice(0, 5).map(v => `beat ${v.beat} ${v.rule}: ${v.message}`).join(" | "));
       const beats = script.beats;
       says = beats.map(b => b.say);

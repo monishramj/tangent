@@ -7,7 +7,7 @@ import type { Thread } from "@/storage/store";
 import type { Line } from "@/tutor/narration";
 import RichText from "./RichText";
 
-export type Tab = "ask" | "transcript" | "checks";
+export type Tab = "ask" | "transcript" | "checks" | "textbook";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const chip = "inline-flex min-h-8 items-center rounded-full border border-line px-3 text-xs text-subtle tabular-nums transition-colors hover:bg-fg/10 hover:text-fg";
 
@@ -18,6 +18,7 @@ type Props = {
   onSeek: (t: number) => void; onResume: (t: number) => void;
   /** The Checks tab's content; the tab shows only when given. */
   checks?: ReactNode;
+  textbook?: ReactNode;
 };
 
 // Docked beside the video (never over it). Tinted glass, chat-style threads pinned to video moments.
@@ -27,7 +28,7 @@ export default function SidePanel(p: Props) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : [])];
+  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : []), ...(p.textbook ? [["textbook", "Textbook"] as [Tab, string]] : [])];
   return (
     // Always docked beside the video (its width grows open, so the video eases smaller instead of jumping).
     // backgroundOpacity gives the frost a visible tint even with only black behind it.
@@ -35,15 +36,16 @@ export default function SidePanel(p: Props) {
     <GlassSurface width="min(400px,45vw)" height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
-        <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">
+        <div role="tablist" className="flex min-w-0 flex-1 gap-0.5 rounded-full border border-line p-1">
           {tabs.map(([t, label]) => <button key={t} role="tab" type="button" aria-selected={p.tab === t} onClick={() => p.onTab(t)}
-            className={`h-10 rounded-full px-3.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}>{label}</button>)}
+            className={`h-10 min-w-0 flex-1 rounded-full px-1.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}>{label}</button>)}
         </div>
-        <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
+        <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
       </header>
       {p.tab === "ask" && <Ask {...p} />}
       {p.tab === "transcript" && <Transcript {...p} />}
       {p.tab === "checks" && p.checks}
+      {p.tab === "textbook" && p.textbook}
     </div>
     </GlassSurface>
     </div>

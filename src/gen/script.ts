@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { LLMProvider } from "../llm/provider";
 import { dataBlock, dataReminder, dataRule, stripWatermarks } from "./sanitize";
 
-export const Beat = z.object({ say: z.string().min(1), visualIntent: z.string().min(1), cite: z.string().optional() });
-export type Beat = z.infer<typeof Beat>;
+// `passages` is parsed loosely (z.unknown) so a malformed value never fails the beat; normalised in generateScript.
+export const Beat = z.object({ say: z.string().min(1), visualIntent: z.string().min(1), cite: z.string().optional(), passages: z.unknown().optional() });
+export type Beat = Omit<z.infer<typeof Beat>, "passages"> & { passages?: string[] };
 export type Violation = { beat: number; rule: string; message: string };
 export type ScriptResult = { beats: Beat[] | null; attempts: number; violations: Violation[] };
 
@@ -65,8 +66,8 @@ export function cleanSay(say: string): string {
     .trim();
 }
 
-function scriptPrompt(sectionMarkdown: string, detail: DetailLevel): string {
-  return `Rewrite the textbook section below as a spoken script for a narrated explainer video. This is a rewrite for the ear, not a summary and not prose read aloud. Return JSON only, without commentary or fences: an array of beats, each {"say": string, "visualIntent": string, "cite"?: string}.
+function scriptPrompt(sectionMarkdown: string, detail: DetailLevel, tagged: boolean, beatsFrom: string): string {
+  return `Rewrite the textbook section below as a spoken script for a narrated explainer video. This is a rewrite for the ear, not a summary and not prose read aloud. Return JSON only, without commentary or fences: an array of beats, each {"say": string, "visualIntent": string, "cite"?: string${tagged ? ', "passages": string[]' : ""}}.
 
 Voice: a fast, witty tech explainer in the style of Fireship's "The Code Report". Open with a hook: a surprising fact, a bold claim or a question. Keep it punchy and conversational, use vivid analogies and the occasional dry joke, set up tension ("but here's the catch"), and land each idea with a short memorable line. End with a quick recap of the key idea. Never trade accuracy for a joke.
 
@@ -79,10 +80,11 @@ Speech rules, all mandatory:
 6. Lightly repeat the key idea at the start and end of its explanation.
 7. say is plain spoken English only. No markdown: no asterisks, backticks, # headings or bullet points. No square brackets, so say a list as words ("3, 9 and 7", not "[3, 9, 7]"). No emoji. Digits are fine, and so is simple math.
 
-${detailRules(detail, targetBeats(sectionMarkdown, detail))}
+${detailRules(detail, targetBeats(beatsFrom, detail))}
 
 visualIntent is a short plain description of what should be on screen while the beat is spoken (motion, diagram, highlight). Energy comes from visuals, never from packing more ideas into a sentence. cite is optional: copy a source anchor like "p. 287" only if the section supplies one; never invent one.
-Do not add claims the section does not make.
+Do not add claims the section does not make.${tagged ? `
+The source is split into blocks, each starting with its id like [p3]. passages lists the ids of the blocks the beat rewrites, usually 1 or 2, in order. Ids go only in passages, never in say.` : ""}
 
 ${dataRule(["source"])}
 
@@ -95,7 +97,7 @@ function parse(response: string): { beats?: Beat[]; error?: string } {
   const text = response.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1").trim();
   try {
     const r = z.array(Beat).min(1).safeParse(JSON.parse(text));
-    return r.success ? { beats: r.data.map(b => ({ ...b, say: cleanSay(b.say) })) } : { error: r.error.message };
+    return r.success ? { beats: r.data.map(({ passages, ...b }) => ({ ...b, say: cleanSay(b.say), ...(passages === undefined ? {} : { passages: passages as string[] }) })) } : { error: r.error.message };
   } catch (e) {
     return { error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -104,14 +106,23 @@ function parse(response: string): { beats?: Beat[]; error?: string } {
 // Sonnet writes the script: Haiku's scripts didn't hold the speech-first rules. Slower, so a longer timeout.
 export const SCRIPT_OPTS = { model: "sonnet", timeoutMs: 300_000 } as const;
 
-export async function generateScript({ sectionMarkdown, provider, detail = "standard" }: { sectionMarkdown: string; provider: LLMProvider; detail?: DetailLevel }): Promise<ScriptResult> {
-  const base = scriptPrompt(stripWatermarks(sectionMarkdown), detail);
+export async function generateScript({ sectionMarkdown, provider, detail = "standard", passages }: { sectionMarkdown: string; provider: LLMProvider; detail?: DetailLevel; passages?: { id: string; markdown: string }[] }): Promise<ScriptResult> {
+  const tagged = !!passages?.length;
+  const known = new Set(passages?.map(p => p.id));
+  const source = tagged ? passages.map(p => `[${p.id}] ${stripWatermarks(p.markdown)}`).join("\n\n") : stripWatermarks(sectionMarkdown);
+  const base = scriptPrompt(source, detail, tagged, sectionMarkdown);
+  // Known ids only, deduped; anything else (or a malformed field) becomes []. Without passages the field is removed.
+  const normalise = (b: Beat): Beat => {
+    const { passages: raw, ...rest } = b;
+    if (!tagged) return rest;
+    return { ...rest, passages: [...new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string" && known.has(x)) : [])] };
+  };
   let prompt = base;
   let beats: Beat[] | null = null;
   let violations: Violation[] = [];
   for (let attempts = 1; attempts <= 2; attempts++) {
     const { beats: b, error } = parse(await provider.complete(prompt, SCRIPT_OPTS));
-    beats = b ?? null;
+    beats = b ? b.map(normalise) : null;
     violations = b ? checkScript(b) : [{ beat: -1, rule: "format", message: error ?? "Invalid output" }];
     if (violations.length === 0) return { beats, attempts, violations };
     prompt = `${base}\n\nYour previous answer broke these rules. Fix every one, keep everything else, and return the full JSON array again:\n${JSON.stringify(violations)}`;
