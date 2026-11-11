@@ -73,7 +73,7 @@ export function dominoLayout(n: number, grow: boolean) {
  * `room`, font, padding and gaps shrink together. Messages are capped at 4 lines. */
 export function chatLayout(texts: string[], colW: number, room: number, f0: number) {
   const build = (f: number) => {
-    const cw = .45 * f * AR, padX = .8 * f * AR, padY = .5 * f, lineH = 1.15 * f, gap = .7 * f, maxChars = Math.max(6, Math.floor((colW * .78 - 2 * padX) / cw));
+    const cw = .5 * f * AR, padX = .8 * f * AR, padY = .5 * f, lineH = 1.15 * f, gap = .7 * f, maxChars = Math.max(6, Math.floor((colW * .78 - 2 * padX) / cw));
     let y = 0;
     const items = texts.map(t => {
       const lines: string[] = [];
@@ -145,7 +145,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
         frac(.03 * i), { style: "grow", duration: .45, easing: "outCubic" }); // rises out of the floor
       if (last) c.key(id);
       const lx = Math.min(.95 - maxW / 2, Math.max(.05 + maxW / 2, x));
-      const size = n >= 5 ? .025 : .03, labelText = dominoLabel(it.text, Math.floor(maxW / (.52 * size * AR)));
+      const size = n >= 5 ? .028 : .04, labelText = dominoLabel(it.text, Math.floor(maxW / (.52 * size * AR)));
       const label = text(c, "dom_label", labelText, lx, FLOOR + .08, size, frac(.03 * i), { text: labelText, maxW, maxH: .105, opacity: 1, color: "#5c5c5c" }); // dim until its domino falls
       const icon = visualAt(c, "dom_icon", it, x, FLOOR - hh - .075, .06, frac(.03 * i));
       const t = A[i], delay = i ? 0 : .18; // the first one waits for the hand
@@ -182,7 +182,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
       visualAt(c, "chat_avatar", p, x, y - S * .51 - .055, .06, frac(.04));
       return id;
     });
-    const msgs = chatLayout(d.messages.map(m => m.text), R - L, bottom - top, phone ? .036 : .044);
+    const msgs = chatLayout(d.messages.map(m => m.text), R - L, bottom - top, phone ? .042 : .05);
     const ev = d.messages.flatMap((m, i) => m.typing ? [{ i, typing: true, at: undefined }, { i, typing: false, at: m.at }] : [{ i, typing: false, at: m.at }]);
     const A = orderedAnchors(c.say, spread(ev.length, .1, .86), ev.map(e => e.at));
     const typingAt = new Map<number, string>(), posed = new Map<string, string>(), poses = ["explain", "point"] as const;
@@ -201,7 +201,7 @@ export const EXPAND: { [K in keyof T]: (c: C, d: z.infer<T[K]>, v: string) => vo
       const x0 = left ? L : R - b.w, y = top + b.y + b.h / 2;
       c.key(c.add({ id: c.id("chat_message"), type: "shape", shape: "rect", radius: msgs.lineH / 2 + msgs.padY, ...(left ? { color: "#9a9a9a" } : look),
         x: x0 + b.w / 2, y, width: b.w, height: b.h }, when, slide));
-      c.add({ id: c.id("chat_text"), type: "text", text: b.text, align: "left", x: x0 + msgs.padX, y, size: msgs.f, maxW: b.w - 2 * msgs.padX + .006, maxH: b.h, opacity: 1,
+      c.add({ id: c.id("chat_text"), type: "text", text: b.text, align: "left", x: x0 + msgs.padX, y, size: msgs.f, maxW: b.w - 2 * msgs.padX + .02, maxH: b.h, opacity: 1,
         ...(left ? {} : { color: "#000000" }) }, when, slide);
       const pose = poses[Number(posed.get(fig) === "explain")];
       c.act({ at: when, do: "pose", target: fig, to: pose, duration: .35 }); posed.set(fig, pose);

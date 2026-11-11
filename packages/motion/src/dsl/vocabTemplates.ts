@@ -259,11 +259,11 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
       // each item gets its own row inside the circle's exclusive region: long text shrinks to fit rather than spilling out
       // two sets: centre the items in the crescent between this circle's outer edge and the overlap
       const R = D * AR / 2, ox = three ? 0 : centers[1 - i][0], ix0 = three ? x + inner[i][0] : (x + ox) / 2 + (i ? R : -R); // midpoint of [outer edge, overlap edge]
-      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, ix0, y + (three ? inner[i][1] : out[i][1]) + (j - (st.items.length - 1) / 2) * .07, .032, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : Math.abs(ox - x) * .8, maxH: .064, opacity: .85 }));
+      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, ix0, y + (three ? inner[i][1] : out[i][1]) + (j - (st.items.length - 1) / 2) * .075, .04, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : Math.abs(ox - x) * .8, maxH: .07, opacity: .85 }));
     });
     const [ix, iy] = three ? [.5, .5] : [.5, .55];
     d.both.forEach((it, j) => {
-      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .065, .032, frac(.65 + .06 * j), { maxW: three ? .08 : .1, maxH: .06, opacity: 1, weight: "bold" });
+      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .07, .038, frac(.65 + .06 * j), { maxW: three ? .08 : .11, maxH: .066, opacity: 1, weight: "bold" });
       if (j === 0) c.key(id);
     });
     if (v === "focus") {
