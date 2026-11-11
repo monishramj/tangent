@@ -1,10 +1,11 @@
 // Pure, deterministic layout: where each object sits (stage fractions) and how text is wrapped/sized. No Pixi, no DOM:
 // text width comes from an injected `measure`, so the renderer passes real font metrics and tests pass a fake.
-export const MIN_FONT = 18;
+export const MIN_FONT = 18; // px at a 900px-tall stage; smaller stages scale it down (minFont) so text still fits its box
+export const minFont = (h: number) => Math.min(MIN_FONT, h * 0.02);
 const LH = 1.15; // line height factor
 const PAD = 0.05; // outer margin, fraction of h
 export type Measure = (s: string, size: number, bold: boolean) => number;
-export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown; size?: number; maxW?: number; weight?: string; variant?: string };
+export type LItem = { id: string; type: string; text?: string; x?: unknown; y?: unknown; size?: number; maxW?: number; maxH?: number; weight?: string; variant?: string };
 /** x,y: centre as stage fractions. auto: renderer-owned position (no explicit x/y). Text items also get wrapped text + fontSize (px). */
 export type Placed = { x: number; y: number; auto: boolean; text?: string; fontSize?: number; /** visual cell size (px) */ cw?: number; ch?: number };
 
@@ -33,20 +34,21 @@ function wrap(text: string, size: number, bold: boolean, maxW: number, m: Measur
   return lines.length ? lines : [""];
 }
 
-/** Wrap to maxW, shrinking the font (never below MIN_FONT) until the block is at most maxH tall and no line is too wide. */
-function fit(text: string, base: number, bold: boolean, maxW: number, maxH: number, m: Measure) {
-  let size = Math.max(MIN_FONT, Math.floor(base));
+/** Wrap to maxW, shrinking the font (never below `min`) until the block is at most maxH tall and no line is too wide. */
+function fit(text: string, base: number, bold: boolean, maxW: number, maxH: number, m: Measure, min = MIN_FONT) {
+  let size = Math.max(min, Math.floor(base));
   for (;;) {
     const lines = wrap(text, size, bold, maxW, m);
     const h = lines.length * size * LH;
     const wide = Math.max(...lines.map((l) => m(l, size, bold))) > maxW;
-    if ((h <= maxH && !wide) || size <= MIN_FONT) return { text: lines.join("\n"), size, h };
-    size = Math.max(MIN_FONT, Math.floor(size * 0.92));
+    if ((h <= maxH && !wide) || size <= min) return { text: lines.join("\n"), size, h };
+    size = Math.max(min, Math.floor(size * 0.92));
   }
 }
 
 export function layoutScene(items: LItem[], w: number, h: number, m: Measure): Map<string, Placed> {
   const out = new Map<string, Placed>();
+  const minF = minFont(h);
   const isText = (i: LItem) => i.type === "text" || i.type === "KineticText";
   const isTitle = (i: LItem) => i.type === "KineticText";
   const flowed = items.filter((i) => isText(i) && !isNum(i.y));
@@ -56,7 +58,7 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   const base = (i: LItem, f: number) => (i.size ? i.size : isTitle(i) ? 0.12 : 0.045) * h * f;
   const fitOne = (i: LItem, f: number) => {
     const text = stack(i) ? (i.text ?? "").split(/\s+/).join("\n") : i.text ?? "";
-    return fit(text, base(i, f), bold(i), (i.maxW ?? 0.8) * w, (stack(i) ? 0.5 : i.size ? 0.6 : isTitle(i) ? 0.3 : 0.18) * h, m);
+    return fit(text, base(i, f), bold(i), (i.maxW ?? 0.8) * w, (i.maxH ?? (stack(i) ? 0.5 : i.size ? 0.6 : isTitle(i) ? 0.3 : 0.18)) * h, m, minF);
   };
 
   // explicit-y texts: fitted but outside the flow
@@ -72,7 +74,7 @@ export function layoutScene(items: LItem[], w: number, h: number, m: Measure): M
   let f = n > 3 ? Math.max(0.5, 3 / n + 0.2) : 1;
   let fits = flowed.map((i) => fitOne(i, f));
   const total = () => fits.reduce((s, r) => s + r.h, 0) + gap * Math.max(0, n - 1);
-  while (total() > room && fits.some((r) => r.size > MIN_FONT)) {
+  while (total() > room && fits.some((r) => r.size > minF)) {
     f *= 0.92;
     fits = flowed.map((i) => fitOne(i, f));
   }

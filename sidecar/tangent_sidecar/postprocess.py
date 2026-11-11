@@ -154,20 +154,42 @@ def _pdf_font_sizes(pdf_path, nodes):
         pdf.close()
 
 
+def _merge_content(host, node):
+    if node["title"]:
+        host["markdown"] += ("\n\n" if host["markdown"] else "") + f"**{node['title']}**"
+    if node["markdown"]:
+        host["markdown"] += "\n\n" + node["markdown"]
+    host["figures"] += node["figures"]
+    host["exercises"] += node["exercises"]
+    host.setdefault("activities", []).append(node["title"].strip())
+    host["anchors"] = [{"page": p} for p in sorted({a["page"] for a in host["anchors"] + node["anchors"]})]
+
+
 def _apply_outline(kept, outline):
     """Outline depth defines top levels; other headings nest under the latest outline entry."""
     pages = [a["page"] for n in kept for a in n["anchors"]]
     lo, hi = (min(pages), max(pages)) if pages else (0, 0)
     pos, last, out_ids = 0, None, set()
+    ids = {n["id"] for n in kept}
+    def bare(title):
+        return re.sub(r"^(?:chapter|part)\s+(?:\d+|[ivxlcdm]+)\s*[:.]?\s*", "", title, flags=re.I)
+
     for depth, title, page in outline:
         if not lo <= page <= hi:
             continue
         cands = [i for i in range(pos, len(kept)) if kept[i]["level"] > 0 and _norm(kept[i]["title"]) == _norm(title)]
         i = next((i for i in cands if any(a["page"] == page for a in kept[i]["anchors"])), cands[0] if cands else None)
         if i is None:
+            i = next((i for i in range(pos, len(kept)) if any(a["page"] == page for a in kept[i]["anchors"])
+                      and _norm(bare(kept[i]["title"])) == _norm(bare(title))), None)
+        if i is None:
             i = next((i for i in range(pos, len(kept)) if kept[i]["anchors"] and kept[i]["anchors"][0]["page"] >= page),
                      len(kept))
-            kept.insert(i, {"id": f"outline-{len(out_ids) + 1}", "title": title, "level": depth, "markdown": "",
+            new_id = f"outline-{len(out_ids) + 1}"
+            while new_id in ids:
+                new_id += "-new"
+            ids.add(new_id)
+            kept.insert(i, {"id": new_id, "title": title, "level": depth, "markdown": "",
                             "figures": [], "exercises": [], "anchors": [{"page": page}], "children": []})
         kept[i]["level"] = depth
         out_ids.add(id(kept[i]))
@@ -177,6 +199,27 @@ def _apply_outline(kept, outline):
             last = n
         elif last and n["level"] > 0:
             n["level"] += last["level"]
+    return out_ids
+
+
+def _outline_fragments(kept, outline_ids):
+    """TOC lines and obvious prose fragments stay as content, not selectable sections."""
+    out, contents = [], False
+    for n in kept:
+        entry = id(n) in outline_ids
+        if entry:
+            contents = _norm(n["title"]) in {"cover", "brief contents", "contents"}
+        previous = out[-1] if out else None
+        fragment = (n["title"].endswith(":") or (len(n["title"].split()) > 14 and n["title"].endswith((".", "!", "?")))
+                    or re.match(r"(?:same )?questioner:", n["title"], re.I)
+                    or (not n["markdown"] and re.fullmatch(r"(?:case|argument)\s+\d+", n["title"], re.I)))
+        author = (previous and not previous["markdown"] and _norm(previous["title"]) not in {"reading", "readings"}
+                  and re.fullmatch(r"[A-Z]+(?: [A-Z]+){1,3}", n["title"]))
+        if previous and not entry and (contents or fragment or author):
+            _merge_content(previous, n)
+        else:
+            out.append(n)
+    return out
 
 
 def postprocess(ir, pdf_path=None):
@@ -200,16 +243,7 @@ def postprocess(ir, pdf_path=None):
     for n in flat:
         if n["level"] > 0 and kept and (not n["title"] or CAPTION.match(n["title"])
                                             or NON_STRUCTURAL.fullmatch(n["title"])):
-            host = kept[-1]
-            if n["title"]:
-                host["markdown"] += ("\n\n" if host["markdown"] else "") + f"**{n['title']}**"
-            if n["markdown"]:
-                host["markdown"] += "\n\n" + n["markdown"]
-            host["figures"] += n["figures"]
-            host["exercises"] += n["exercises"]
-            host.setdefault("activities", []).append(n["title"].strip())
-            pages = {a["page"] for a in host["anchors"] + n["anchors"]}
-            host["anchors"] = [{"page": p} for p in sorted(pages)]
+            _merge_content(kept[-1], n)
             continue
         if n["level"] > 0:
             n["level"] = _level(n, kept[-1]["level"] if kept else 0, sizes)
@@ -226,7 +260,8 @@ def postprocess(ir, pdf_path=None):
                 n["level"] = numbered["level"] + 1
         kept.append(n)
     if outline:
-        _apply_outline(kept, outline)
+        outline_ids = _apply_outline(kept, outline)
+        kept = _outline_fragments(kept, outline_ids)
     for n in kept:
         while stack and stack[-1]["level"] >= n["level"]:
             stack.pop()
@@ -241,4 +276,4 @@ def postprocess(ir, pdf_path=None):
     for n in reversed(kept):
         n["anchors"] = [{"page": p} for p in sorted(
             {a["page"] for s in [n, *n["children"]] for a in s["anchors"]})]
-    return {**ir, "sections": roots}
+    return {**ir, "sections": roots, "outline_version": 1}

@@ -1,5 +1,8 @@
 // One data sample per template (valid for every variant). Shared by templates.test.ts and the dev showcase.
 import type { TemplateName } from "../templates";
+import { SAMPLES as CODEX } from "../tpl/codex";
+import { SAMPLES as AGY } from "../tpl/antigravity";
+import { SAMPLES as CLAUDE } from "../tpl/claude";
 
 export const SAMPLE_SAY = "First the parent compares with both children, then the bigger child swaps up and we check again.";
 export const TEMPLATE_SAMPLES: Record<TemplateName, unknown> = {
@@ -38,4 +41,5 @@ export const TEMPLATE_SAMPLES: Record<TemplateName, unknown> = {
   linkedlist: { label: "list", values: [4, 8, 15], ops: [{ op: "insert", args: [1, 6], at: "parent" }, { op: "delete", args: [3], at: "swaps" }] },
   graph: { nodes: [{ id: "A" }, { id: "B" }, { id: "C" }, { id: "D" }, { id: "E" }, { id: "F" }], edges: [["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"], ["C", "E"], ["D", "F"], ["E", "F"]],
     ops: [{ op: "bfs", args: ["A"], at: "parent" }] },
+  ...CODEX, ...AGY, ...CLAUDE,
 };

@@ -2,7 +2,8 @@
 import { parseTarget, type Scene } from "../dsl/schema";
 import type { Timeline, TimelineEvent } from "../dsl/compile";
 import { seqItems, type SeqSnap } from "../dsl/components";
-import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01 } from "./motion";
+import { gesture } from "./person";
+import { ease, progress, defaultStyle, pathPoint, type Style, type Ease, type Point, focusAt, type Focus, MOTION, clamp01, window01 } from "./motion";
 
 export type Slot = { value: number | string; hl: number; to?: number; p: number; ring?: number }; // to/p: mid-move toward slot `to`
 export type ObjState = {
@@ -12,6 +13,8 @@ export type ObjState = {
   x: number; // stage fractions 0..1
   y: number;
   scale: number;
+  sx?: number; // extra horizontal scale (card flips); 1 when absent
+  sy?: number; // extra vertical scale (grow); 1 when absent
   reveal?: number;
   style?: Style;
   gap?: number;
@@ -29,7 +32,9 @@ export type ObjState = {
   snap?: unknown; snapFrom?: unknown; snapP?: number; // computed components: current snapshot, previous one, blend 0..1
   keyHl?: Record<string, number>; // Stack/Queue/LinkedList: highlight by item key (follows the item as it moves)
   pulse?: number; // arrow/line: 0..1 position of the travelling dot, only while a pulse event runs
-  pose?: string; poseFrom?: string; poseP?: number; // person: target pose, previous pose, blend progress
+  tangenter?: boolean;
+  aim?: Point;
+  pose?: string; poseFrom?: string; poseP?: number; poseAge?: number; // person: target pose, previous pose, blend progress
   born?: number; // start time of the create event (transitions tell incoming objects from outgoing ones)
   exitFrom?: number; // opacity just before a transition's clear faded it out
   dx?: number; // transition offset (stage widths) already added to x; connectors with fixed endpoints add it too
@@ -60,7 +65,7 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     if (o.type === "Tree" || o.type === "Graph") s.valHl = {};
     if (o.type === "Stack" || o.type === "Queue" || o.type === "LinkedList") { s.snap = { items: seqItems(o) }; s.keyHl = {}; }
     if (o.type === "Graph") s.snap = { visited: [], frontier: [], tree: [] };
-    if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; }
+    if (o.type === "person") { s.pose = s.poseFrom = o.pose; s.poseP = 1; s.aim = o.aim; s.tangenter = o.tangenter; }
     objects.set(o.id, s);
   }
   const kind = new Map(scene.objects.map((o) => [o.id, o]));
@@ -73,7 +78,7 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     if (e.start > t) break;
     const p = progress(t, e.start, e.end);
     if (e.verb === "camera") {
-      const camera = st.camera!, k = ease(p, e.args.easing as Ease ?? "inOutQuad");
+      const camera = st.camera!, k = ease(p, e.args.easing as Ease ?? "inOutCubic");
       camera.x = lerp(camera.x, num(e.args.x, camera.x), k);
       camera.y = lerp(camera.y, num(e.args.y, camera.y), k);
       camera.zoom = lerp(camera.zoom, num(e.args.zoom, camera.zoom), k);
@@ -125,14 +130,23 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       o.style = style; o.gap = num(e.args.gap, num(def.gap, .12)); o.age = t - e.start; o.born = e.start;
       // type/stagger reveal linearly (the renderer staggers words/children with its own curve); draw traces at an even pace
       o.reveal = (style === "type" || style === "stagger") && !easing ? p : style === "draw" && !easing ? ease(p, "inOutSine") : clamp01(k);
-      o.visible = true; o.opacity = clamp01(p * 3);
+      // Entrance transforms (fade, scale, slide) run for a fixed MOTION.in however long the reveal (count-up, trace) takes.
+      const q = progress(t, e.start, Math.min(e.end, e.start + MOTION.in)), isText = def.type === "text" || def.type === "KineticText";
+      o.visible = true; o.opacity = clamp01(q * 3);
       const variant = def.type === "KineticText" && e.args.style === undefined && def.style === undefined ? def.variant : undefined;
       if (variant === "slam") { o.scale = 1 + .6 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // big -> 1x, no bounce
-      else if (variant === "punch") o.scale = 1 + .5 * (1 - ease(p, "outBack")); // hits, dips just under 1x, settles
+      else if (variant === "punch") { o.scale = 1 + .45 * (1 - ease(p, "outExpo")); o.opacity = clamp01(p * 6); } // hits and sits still: text never overshoots
       else if (variant === "words" || variant === "stack") o.reveal = p; // the renderer reveals each word at its share
-      else if (style === "pop") o.scale = .6 + .4 * ease(p, easing ?? "outBack");
+      else if (style === "stamp") { // slams down from big, squashes just under 1x, settles into its tilt
+        const rot = num((def as { rotation?: unknown }).rotation, 0);
+        o.scale = 1 + 1.4 * (1 - ease(p, "outBack")); o.opacity = clamp01(p * 5); o.rotation = rot * (1 + .6 * (1 - ease(p, "outCubic")));
+      }
+      else if (style === "flip") { o.opacity = p < .5 ? 0 : 1; o.sx = ease(window01(p, .5, 1), "outCubic"); } // the old face shrinks first
+      else if (style === "grow") { o.opacity = 1; if ((def as { pivot?: string }).pivot === "left") o.sx = k; else o.sy = k; }
+      // pop / bounce: the house landing. Objects settle with the soft overshoot; text only eases in. No tilt, no squash.
+      else if (style === "pop" || style === "bounce") { if (!o.tangenter) o.scale = (style === "pop" ? .82 : .6) + (style === "pop" ? .18 : .4) * ease(q, easing ?? (isText ? "outQuart" : "outBack")); }
       else if (style === "slide") {
-        const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(p, easing ?? "outExpo"));
+        const edge = e.args.edge ?? "left", d = MOTION.slide * (1 - ease(q, easing ?? "outQuart"));
         if (edge === "left" || edge === "right") o.x += edge === "left" ? -d : d;
         else o.y += edge === "top" ? -d : d;
       }
@@ -158,6 +172,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       }
       o.scale = lerp(o.scale, num(e.args.scale, o.scale), k);
       o.rotation = lerp(o.rotation ?? 0, num(e.args.rotate, o.rotation ?? 0), k);
+      if (e.args.scaleX !== undefined) o.sx = lerp(o.sx ?? 1, num(e.args.scaleX, 1), k);
       if (typeof e.args.color === "string") {
         const from = o.color ?? 0xffffff, to = parseInt(e.args.color.slice(1), 16);
         let color = 0;
@@ -179,7 +194,7 @@ function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, de
       break;
     }
     case "pulse": if (p < 1) o.pulse = p; break;
-    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseP = k; break;
+    case "pose": o.poseFrom = o.pose; o.pose = String(e.args.to); o.poseAge = t - e.start; o.poseP = e.args.easing ? k : gesture(p); if (Array.isArray(e.args.aim)) o.aim = e.args.aim as Point; break; // gesture: wind up, react, settle
     case "indicate": o.hl = Math.max(o.hl, pulse); o.ring = p < 1 ? p : 0; break;
   }
 }
@@ -212,6 +227,7 @@ function applyTransition(st: SceneState, type: string, p: number, start: number,
   const out = -e, inc = 1 - e;
   if (whip) st.camera!.stretch = 1 + .5 * Math.sin(Math.PI * p) ** 2; // a horizontal smear that peaks with the speed
   for (const o of st.objects.values()) {
+    if (o.tangenter) continue;
     if (exiting.has(o.id)) {
       if (o.exitFrom !== undefined) o.opacity = o.exitFrom;
       if (whip) o.opacity *= 1 - .7 * e;

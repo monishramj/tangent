@@ -1,5 +1,5 @@
 // Parse a PDF once (cached IR, figures in app data), with honest progress.
-import { figuresDir, ingestPdf, pdfInfo, type IR } from "./home/api";
+import { figuresDir, ingestPdf, pdfInfo, repairSections, type IR } from "./home/api";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
 
 export type LoadProgress = { fraction: number; label: string };
@@ -10,7 +10,13 @@ const rate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 1.2;
 export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => void, store: JsonStore = tauriJsonStore): Promise<IR> {
   const source = sourceFor(pdfPath);
   const cached = await irCache(store).get(source.id).catch(() => null);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.outline_version === 1) return cached;
+    // A running dev sidecar may still use the old handlers; retry the upgrade on next open.
+    const repaired = await repairSections(cached, pdfPath).catch(() => cached);
+    if (repaired !== cached) await irCache(store).set(source.id, repaired);
+    return repaired;
+  }
   const pages = await pdfInfo(pdfPath).then(r => r.pages, () => 0);
   const expected = Math.max(10, pages * rate()), start = Date.now();
   const tick = () => {

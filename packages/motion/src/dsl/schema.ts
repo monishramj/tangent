@@ -5,8 +5,8 @@ import { TREE_OPS } from "./treeOps";
 
 const id = z.string().regex(/^[A-Za-z_][\w-]*$/);
 const num2 = z.tuple([z.number(), z.number()]);
-export const CreateStyle = z.enum(["draw", "pop", "type", "slide", "stagger"]);
-export const Easing = z.enum(["outCubic", "outBack", "inOutQuad", "outQuart", "outExpo", "inOutCubic", "inOutExpo", "inExpo", "inOutSine"]);
+export const CreateStyle = z.enum(["draw", "pop", "bounce", "type", "slide", "stagger", "stamp", "flip", "grow"]); // stamp: big -> 1x with a squash + settle into def.rotation; flip: hidden half, then grows in x (second half of a card flip); grow: shape grows out of its pivot (y, or x for pivot "left"), e.g. liquid filling
+export const Easing = z.enum(["outCubic", "outBack", "inOutQuad", "outQuart", "outExpo", "inOutCubic", "inOutExpo", "inExpo", "inOutSine", "inCubic", "linear"]);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const animation = { style: CreateStyle.optional(), easing: Easing.optional(), gap: z.number().min(0).max(.9).optional() };
 const index = z.number().int().nonnegative();
@@ -63,13 +63,13 @@ export type TreeObject = z.infer<typeof tree>;
 
 export const SceneObject = z.discriminatedUnion("type", [
   // size: font size as a fraction of stage height; weight/mono/align/maxW only matter for explicitly placed text.
-  obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), opacity: unit.optional() }),
+  obj("text", { text: z.string(), size, weight: z.enum(["normal", "bold"]).optional(), mono: z.boolean().optional(), align: z.enum(["left", "center", "right"]).optional(), maxW: unit.optional(), maxH: unit.optional(), opacity: unit.optional() }), // maxH: explicitly placed text shrinks to fit this height
   obj("KineticText", { text: z.string(), variant: z.string().optional(), size, maxW: unit.optional() }), // variant: slam | punch | words | stack
   obj("Math", { tex: z.string(), size }), // KaTeX
-  obj("shape", { shape: z.enum(SHAPES), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), tail: z.enum(["left", "right"]).optional() }), // tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
+  obj("shape", { shape: z.enum(SHAPES), points: z.array(num2).min(3).max(128).optional(), label: z.string().optional(), sublabel: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(), filled: z.boolean().optional(), ghost: z.boolean().optional(), pivot: z.enum(["bottom", "top", "left", "corner"]).optional(), tail: z.enum(["left", "right"]).optional(), radius: unit.optional(), typing: z.boolean().optional() }), // pivot: rotate/grow about the bottom/top edge, left edge, or bottom-right corner (a domino tipping right); radius: corner radius (fraction of stage height, capped at half the short side); typing: three bouncing dots inside (chat typing indicator); tail: speech-bubble pointer under the shape; ghost: translucent fill (overlaps show, e.g. venn)
   obj("icon", { name: z.string().min(1), size, label: z.string().optional() }), // Hugeicons name, e.g. "laptop", "database", "user"
   obj("emoji", { char: z.string().min(1).max(16), size, label: z.string().optional() }),
-  obj("person", { pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
+  obj("person", { tangenter: z.boolean().optional(), aim: num2.optional(), pose: Pose.default("stand"), size, facing: z.enum(["left", "right"]).default("right"), label: z.string().optional() }), // stick figure
   obj("gif", { query: z.string().optional(), src: z.string().optional(), caption: z.string().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }),
   obj("chart", { kind: z.enum(["bar", "line"]).default("bar"), labels: z.array(z.string()).min(1), values: z.array(z.number()).min(1), max: z.number().positive().optional(), width: z.number().positive().optional(), height: z.number().positive().optional() }).superRefine((o, ctx) => {
     if (o.labels.length !== o.values.length) ctx.addIssue({ code: "custom", message: "chart needs one label per value" });
@@ -96,7 +96,7 @@ export const SceneObject = z.discriminatedUnion("type", [
   }),
   obj("stack", { frames: z.array(z.object({ label: z.string(), items: z.array(z.string()) })).min(1) }),
   obj("arrow", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
-  obj("line", { from: point, to: point, label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional() }),
+  obj("line", { from: point, to: point, points: z.array(num2).min(2).max(128).optional(), label: z.string().optional(), route: z.enum(["straight", "elbow", "curve"]).optional(), dashed: z.boolean().optional(), weight: z.enum(["hair"]).optional() }), // hair: leader ticks, guides
   obj("axes", { x: num2, y: num2 }),
   obj("numberline", { min: z.number(), max: z.number(), step: z.number().positive().optional(), width: unit.optional() }).superRefine((o, ctx) => {
     if (!(o.min < o.max) || (o.max - o.min) / (o.step ?? 1) > 24) ctx.addIssue({ code: "custom", message: "numberline needs min < max and at most 24 ticks" });
@@ -131,18 +131,18 @@ export const SceneObject = z.discriminatedUnion("type", [
 export const FRACTION_ANCHOR = /^@(0(\.\d+)?|1(\.0+)?)$/;
 const anchor = z.string().min(1);
 const act = <K extends string, T extends z.ZodRawShape>(verb: K, shape: T, targetRequired = true) =>
-  z.looseObject({ at: anchor, do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), easing: Easing.optional(), duration: z.number().positive().optional(), ...shape });
+  z.looseObject({ at: anchor, do: z.literal(verb), target: targetRequired ? z.string() : z.string().optional(), easing: Easing.optional(), duration: z.number().positive().optional(), delay: z.number().min(0).max(5).optional(), ...shape }); // delay: start this many seconds after the anchor word (choreography inside one word gap)
 
 export const Action = z.discriminatedUnion("do", [
   act("create", { ...animation, edge: z.enum(["left", "right", "top", "bottom"]).optional() }),
   act("fade", { to: z.number().min(0).max(1).optional() }), // opacity only (default 0); a faded object stays addressable
   act("move", { to: z.union([z.string(), num2]).optional(), path: z.array(num2).min(2).optional(), arc: z.number().optional() }),
-  act("transform", { scale: z.number().positive().optional(), rotate: z.number().optional(), color: color.optional() }),
+  act("transform", { scale: z.number().positive().optional(), scaleX: z.number().min(0).optional(), rotate: z.number().optional(), color: color.optional() }),
   act("highlight", { row: index.optional(), col: index.optional(), range: range.optional() }),
   act("indicate", {}),
   act("camera", { x: z.number().optional(), y: z.number().optional(), zoom: z.number().positive().optional(), shake: z.number().min(0).max(.1).optional() }, false), // OPEN QUESTION: camera DSL undecided, loosely typed on purpose
   act("wait", {}, false),
-  act("pose", { to: Pose }), // person: animate to a new pose
+  act("pose", { to: Pose, aim: num2.optional() }), // person: animate to a new pose
   act("pulse", {}), // arrow/line: a dot travels from -> to (signal flow)
   act("op", { op: z.string(), args: z.array(z.unknown()).default([]) }),
 ]);

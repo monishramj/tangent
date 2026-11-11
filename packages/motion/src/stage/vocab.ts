@@ -7,6 +7,7 @@ import { NL_SPAN, density, domain, peak, type Dist } from "../dsl/stats";
 import type { ObjState } from "./scene";
 import { FONT, MONO, box, fitText, fmtNum, strokePath } from "./visuals";
 import { clamp01, ease, staggerProgress, strokeW, window01, type Point } from "./motion";
+import { body, circleLoop, rectLoop } from "./look";
 
 type Cell = { cw?: number; ch?: number } | undefined;
 type O<T extends string> = Extract<SceneObject, { type: T }>;
@@ -75,9 +76,8 @@ export function buildSeq(o: O<"Stack" | "Queue" | "LinkedList">, fg: string, bg:
       const alpha = a * e, hl = s.keyHl?.[key] ?? 0, { g, t } = get(key);
       if (alpha <= 0) continue;
       const lift = (1 - ease(e, "outExpo")) * S * .25, x = p[0], y = p[1] + lift, r = S * .16;
-      g.visible = t.visible = true; g.alpha = t.alpha = alpha;
-      g.clear().roundRect(x - iw / 2, y - ih / 2, iw, ih, r).fill({ color: bg }).roundRect(x - iw / 2, y - ih / 2, iw, ih, r)
-        .fill({ color: fg, alpha: .07 + .85 * hl }).stroke({ width: sw, color: fg, alpha: .8, join: "round" });
+      g.visible = t.visible = true; g.alpha = a; t.alpha = a * window01(e, .35, .9);
+      g.clear(); body(g, rectLoop(iw, ih, r), x, y, h, fg, bg, { p: e, hl, sw }); // drawn, then solid
       if (list) g.moveTo(x + iw / 2 - S * .42, y - ih / 2).lineTo(x + iw / 2 - S * .42, y + ih / 2).stroke({ width: sw, color: hl > .5 ? bg : fg, alpha: .5 })
         .circle(x + iw / 2 - S * .21, y, S * .07).fill({ color: hl > .5 ? bg : fg });
       fitOnce(t, String(v), (list ? iw - S * .5 : iw) * .82, ih * .7, S * .42);
@@ -93,7 +93,7 @@ export function buildSeq(o: O<"Stack" | "Queue" | "LinkedList">, fg: string, bg:
         arrowHead(ink, [x1, y], [1, 0], sw * 3, fg, alpha * la);
       };
       items.forEach((it, i) => { const nx = items[i + 1]; if (nx) pointer(it.p[0] + iw / 2 - S * .21, nx.p[0] - iw / 2 - S * .08, (it.p[1] + nx.p[1]) / 2, Math.min(it.a, nx.a)); });
-      const first = items[0], last = items[items.length - 1], hx = (first?.p[0] ?? at(0)[0]) - iw / 2 - S * 1.1;
+      const first = items[0], last = [...pos.values()].filter(q => q.a > 0).reduce<typeof first | undefined>((m, q) => !m || q.p[0] > m.p[0] ? q : m, undefined), hx = (first?.p[0] ?? at(0)[0]) - iw / 2 - S * 1.1;
       set(ends[0], "head", S * .3); ends[0].position.set(hx - S * .1, 0); ends[0].alpha = la;
       if (first) pointer(hx + S * .45, first.p[0] - iw / 2 - S * .08, 0, first.a);
       set(ends[1], "null", S * .3); ends[1].alpha = la;
@@ -167,8 +167,7 @@ export function buildGraph(o: O<"Graph">, fg: string, bg: string, cell: () => Ce
       const visited = mix(g => g.visited.includes(nd.id)), cur = mix(g => g.current === nd.id), fr = mix(g => g.frontier.includes(nd.id) && !g.visited.includes(nd.id));
       const hl = Math.max(visited, s.valHl?.[nd.id] ?? 0), rr = r * (.6 + .4 * e) * (1 + .14 * cur);
       if (p > 0) {
-        dots.circle(x, y, rr).fill({ color: bg }).circle(x, y, rr).fill({ color: fg, alpha: .07 + .85 * hl })
-          .stroke({ width: sw * (1 + fr), color: fg, alpha: .8 * Math.min(1, p * 3) });
+        body(dots, circleLoop(rr), x, y, h, fg, bg, { p, hl, sw: sw * (1 + fr) });
         if (fr > 0) dots.circle(x, y, rr + sw * 3).stroke({ width: sw * .8, color: fg, alpha: .5 * fr });
         if (cur > 0) dots.circle(x, y, rr + sw * 4.5).stroke({ width: sw * 1.4, color: fg, alpha: cur });
       }

@@ -30,7 +30,7 @@ describe("generateGroupScene", () => {
     expect(r.attempts).toBe(1);
     expect(validateScene(r.scene)).toEqual([]);
     const p = provider.complete.mock.calls[0][0];
-    expect(TEMPLATE_GUIDE.length).toBeLessThan(7000); // prompt budget
+    expect(TEMPLATE_GUIDE.length).toBeLessThan(8500); // prompt budget
     for (const t of ["Code Report", "versus", "diagram", "datapath", "verbatim", "siftDown"]) expect(p).toContain(t);
   });
 
@@ -49,6 +49,15 @@ describe("generateGroupScene", () => {
     expect(r.errors).toHaveLength(2);
   });
 
+  it("keeps the recurring presenter occasional", () => {
+    const crowded = TemplateScene.parse({ beats: good.beats.map(b => ({ ...b, tangenter: { pose: "point" } })) });
+    expect(checkTemplateScene(crowded, beats).map(e => e.message).join(" ")).toContain("tangenter on at most half");
+    crowded.beats[1].tangenter = undefined;
+    expect(checkTemplateScene(crowded, beats).some(e => e.message.includes("tangenter"))).toBe(true);
+    crowded.beats[2].tangenter = undefined;
+    expect(checkTemplateScene(crowded, beats)).toEqual([]);
+  });
+
   it("quality gate: variety, gifs, figure srcs", () => {
     const same = { objects: [], beats: beats.map(b => ({ say: b.say, template: "callout" as const, variant: "box", data: { text: "x" } })) };
     const msgs = checkTemplateScene(same, beats).map(e => e.message).join(" ");
@@ -58,6 +67,8 @@ describe("generateGroupScene", () => {
     const gif = (say: string) => ({ say, template: "gif" as const, data: { query: "traffic jam" } });
     expect(checkTemplateScene({ objects: [], beats: [gif(beats[0].say), gif(beats[1].say)] }, beats.slice(0, 2)).map(e => e.message)).toContain("no two gif beats in a row");
     expect(checkTemplateScene(fig, beats.slice(0, 1), [{ id: "f", caption: "", src: "y.png" }])[0].message).toContain("figure src");
+    const dia = (say: string, variant: string) => ({ say, template: "diagram" as const, variant, data: {} });
+    expect(checkTemplateScene({ objects: [], beats: [dia(beats[0].say, "flow-h"), dia(beats[1].say, "cycle")] }, beats.slice(0, 2)).map(e => e.message).join(" ")).toContain("at most one diagram");
   });
 });
 

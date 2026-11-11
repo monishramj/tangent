@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Pose, type Action, type SceneObject } from "./schema";
 import { expandOp } from "./ops";
 import { area, numberlineX, type Dist } from "./stats";
-import { type C, Op, at, frac, ident, orderedAnchors, s, spread, visual, visualAt } from "./tplkit";
+import { type C, Op, at, frac, heading, ident, orderedAnchors, s, spread, visual, visualAt } from "./tplkit";
 
 const Visual = z.object({ label: s, ...visual });
 const Ops = z.array(Op).max(4).default([]);
@@ -51,7 +51,7 @@ export const VOCAB_VARIANTS: Record<keyof V, string[]> = {
 const AR = 9 / 16; // a width that is d stage-heights wide, as a fraction of stage width: d * AR
 const text = (c: C, base: string, t: string, x: number, y: number, size: number, when: string, o: Record<string, unknown> = {}) =>
   c.add({ id: c.id(base), type: "text", text: t, x, y, size, ...o }, when, { style: "type" });
-const head = (c: C, title: string | undefined, y = .1) => title ? c.key(text(c, "title", title, .5, y, .05, frac(0), { weight: "bold", opacity: 1, maxW: .8 })) : undefined;
+const head = (c: C, title: string | undefined, y = .1) => title ? c.key(heading(c, "title", title, y)) : undefined;
 const dot = (c: C, base: string, x: number, y: number, d: number, when: string, filled = true, label?: string) =>
   c.add({ id: c.id(base), type: "shape", shape: "circle", x, y, width: d * AR, height: d, filled, label }, when, { style: "pop" });
 const opLabel = (o: { op: string; args: unknown[] }) => `${o.op}(${o.args.map(a => typeof a === "string" ? a : String(a)).join(", ")})`;
@@ -95,7 +95,7 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
       const x = x0 + gap * i, up = n > 4 && i % 2 === 1, mw = Math.min(.26, gap * (n > 4 ? 1.8 : .95));
       dot(c, `tl_dot${i}`, x, y, .036, when[i]);
       text(c, `tl_date${i}`, e.date, x, up ? y + .08 : y - .08, .045, when[i], { weight: "bold", opacity: 1, maxW: mw });
-      text(c, `tl_text${i}`, e.text, x, up ? y + .17 : y + .1, .034, when[i], { maxW: mw, opacity: .8 });
+      text(c, `tl_text${i}`, e.text, x, up ? y + .17 : y + .1, .038, when[i], { maxW: mw, opacity: .85 });
       visualAt(c, `tl_v${i}`, e, x, up ? y - .14 : y - .2, .09, when[i]);
     });
   },
@@ -113,8 +113,8 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     c.key(c.add({ id: c.id("def_term"), type: "KineticText", text: d.term, variant: card ? "words" : "slam", x: .5, y: card ? .34 : .36, size: card ? .085 : .14, maxW: .66 }, frac(.05)));
     if (d.kind) text(c, "def_kind", d.kind, .5, card ? .25 : .2, .032, frac(.05), { opacity: .5 });
     if (card) c.add({ id: c.id("def_rule"), type: "line", from: [.3, .42], to: [.7, .42] }, frac(.15), { style: "draw", duration: .4 });
-    text(c, "def_meaning", d.meaning, .5, card ? .56 : .6, .048, frac(.2), { maxW: .64, opacity: .95 });
-    if (d.example) text(c, "def_ex", `e.g. ${d.example}`, .5, card ? .74 : .78, .036, c.anchor(.6, d.example), { maxW: .64, opacity: .6 });
+    text(c, "def_meaning", d.meaning, .5, card ? .56 : .6, .056, frac(.2), { maxW: .64, maxH: .2, opacity: .95 });
+    if (d.example) text(c, "def_ex", `e.g. ${d.example}`, .5, card ? .75 : .79, .042, c.anchor(.6, d.example), { maxW: .64, opacity: .6 });
   },
   analogy(c, d, v) {
     const side = (it: z.infer<typeof Visual>, x: number, when: string, base: string) =>
@@ -136,23 +136,23 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
       if (v === "vertical") {
         const y0 = d.title ? .26 : .16, y = y0 + (.86 - y0) * i / Math.max(1, n - 1);
         ids.push(dot(c, `step${i}`, .22, y, .085, when[i], true, String(i + 1)));
-        text(c, `step${i}_t`, st.text, .29, st.sub ? y - .025 : y, .046, when[i], { align: "left", maxW: .58, opacity: 1, weight: "bold" });
-        if (st.sub) text(c, `step${i}_s`, st.sub, .29, y + .035, .032, when[i], { align: "left", maxW: .58, opacity: .6 });
+        text(c, `step${i}_t`, st.text, .29, st.sub ? y - .028 : y, .052, when[i], { align: "left", maxW: .58, opacity: 1, weight: "bold" });
+        if (st.sub) text(c, `step${i}_s`, st.sub, .29, y + .038, .038, when[i], { align: "left", maxW: .58, opacity: .6 });
         visualAt(c, `step${i}_v`, st, .86, y, .08, when[i]);
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "line", from: ids[i - 1], to: ids[i] }, when[i], { style: "draw", duration: .3 });
       } else if (v === "ladder") {
         const x = .17 + .66 * i / Math.max(1, n - 1), y = .78 - .5 * i / Math.max(1, n - 1);
-        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", label: st.text, sublabel: st.sub, x, y, width: Math.min(.2, .62 / n), height: .14 }, when[i], { style: "draw", duration: .5 }));
-        c.add({ id: c.id(`step${i}_n`), type: "text", text: String(i + 1), x, y: y - .12, size: .05, weight: "bold", opacity: .55 }, when[i], { style: "pop" });
+        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", label: st.text, sublabel: st.sub, x, y, width: Math.min(.22, .7 / n), height: .17 }, when[i], { style: "draw", duration: .45 }));
+        c.add({ id: c.id(`step${i}_n`), type: "text", text: String(i + 1), x, y: y - .135, size: .055, weight: "bold", opacity: .6 }, when[i], { style: "pop" });
         if (i > 0) c.add({ id: c.id(`step${i}_e`), type: "arrow", from: ids[i - 1], to: ids[i], route: "elbow" }, when[i], { style: "draw", duration: .35 });
       } else {
         const cw = Math.min(.21, .86 / n - .025), x = .5 + (i - (n - 1) / 2) * (cw + .025), y = .56;
-        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", x, y, width: cw, height: .5 }, when[i], { style: "draw", duration: .5 }));
+        ids.push(c.add({ id: c.id(`step${i}`), type: "shape", shape: "rect", x, y, width: cw, height: .56 }, when[i], { style: "draw", duration: .45 }));
         const vis = !!(st.icon || st.emoji);
-        c.add({ id: c.id(`step${i}_n`), type: "KineticText", text: String(i + 1), variant: "punch", x, y: y - .15, size: .1 }, when[i]);
-        visualAt(c, `step${i}_v`, st, x, y - .03, .07, when[i]);
-        text(c, `step${i}_t`, st.text, x, y + (vis ? .08 : .04), .036, when[i], { maxW: cw * .86, opacity: 1, weight: "bold" });
-        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .17 : .15), .028, when[i], { maxW: cw * .86, opacity: .6 });
+        c.add({ id: c.id(`step${i}_n`), type: "KineticText", text: String(i + 1), variant: "punch", x, y: y - .17, size: .11 }, when[i]);
+        visualAt(c, `step${i}_v`, st, x, y - .035, .085, when[i]);
+        text(c, `step${i}_t`, st.text, x, y + (vis ? .09 : .04), .052, when[i], { maxW: cw * .86, maxH: .12, opacity: 1, weight: "bold" });
+        if (st.sub) text(c, `step${i}_s`, st.sub, x, y + (vis ? .19 : .15), .038, when[i], { maxW: cw * .86, maxH: .08, opacity: .6 });
       }
     });
     c.key(ids[n - 1]);
@@ -166,11 +166,11 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     cols.forEach(([label, items, x, mark], side) => {
       const t0 = frac(when[k++]);
       if (v === "cards") c.add({ id: c.id(`pc_card${side}`), type: "shape", shape: "rect", x, y: (top + .9) / 2 + .02, width: .42, height: .9 - top + .08 }, t0, { style: "draw", duration: .6 });
-      text(c, `pc_head${side}`, label, x, top + .03, .045, t0, { weight: "bold", opacity: 1 });
+      text(c, `pc_head${side}`, label, x, top + .03, .058, t0, { weight: "bold", opacity: 1 });
       items.forEach((it, i) => {
         const y = top + .15 + i * Math.min(.15, .56 / items.length), t = frac(when[k++]);
         c.add({ id: c.id(`pc_m${side}_${i}`), type: "shape", shape: mark, x: x - .16, y, width: .035 * AR * 1.4, height: .045 }, t, { style: "draw", duration: .35 });
-        text(c, `pc_i${side}_${i}`, it, x - .12, y, .038, t, { align: "left", maxW: .3, opacity: .9 });
+        text(c, `pc_i${side}_${i}`, it, x - .12, y, .052, t, { align: "left", maxW: .3, opacity: .95 });
       });
     });
   },
@@ -183,7 +183,7 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     }
     c.add({ id: c.id("q_mark"), type: "text", text: "“", x: .5, y: .24, size: .26, weight: "bold", opacity: .3 }, frac(0), { style: "pop" });
     c.key(c.add({ id: c.id("q_text"), type: "KineticText", text: d.text, variant: "words", x: .5, y: .52, size: .07, maxW: .76 }, frac(.05)));
-    if (d.by) text(c, "q_by", `— ${d.by}`, .5, .8, .036, frac(.6), { opacity: .6 });
+    if (d.by) text(c, "q_by", `— ${d.by}`, .5, .8, .042, frac(.6), { opacity: .65 });
   },
   hook(c, d, v) {
     if (v === "character") {
@@ -249,17 +249,21 @@ export const VOCAB_EXPAND: { [K in keyof V]: (c: C, d: z.infer<V[K]>, v: string)
     const three = d.sets.length === 3, D = three ? .48 : .6;
     const centers: [number, number][] = three ? [[.42, .42], [.58, .42], [.5, .66]] : [[.39, .55], [.61, .55]];
     const out: [number, number][] = three ? [[-.13, -.06], [.13, -.06], [0, .14]] : [[-.11, 0], [.11, 0]];
+    const inner: [number, number][] = [[-.055, -.06], [.055, -.06], [0, .11]]; // three sets: items sit inside each circle's own region
     const circles: string[] = [];
     d.sets.forEach((st, i) => {
       const [x, y] = centers[i], f = frac(.05 + .2 * i);
       circles[i] = c.add({ id: c.id(`venn${i}`), type: "shape", shape: "circle", ghost: true, x, y, width: D * AR, height: D }, f, { style: "draw", duration: .6 });
       const lx = x + out[i][0] * (three ? 1.6 : 1.5), ly = three ? (i < 2 ? y - D / 2 - .04 : y + D / 2 + .04) : y - D / 2 - .05;
-      text(c, `venn${i}_l`, st.label, three ? lx : x + out[i][0] * .9, ly, .045, f, { weight: "bold", opacity: 1, maxW: .24 });
-      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, x + out[i][0], y + out[i][1] + (j - (st.items.length - 1) / 2) * .07, .032, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : .16, opacity: .85 }));
+      text(c, `venn${i}_l`, st.label, three ? lx : x + out[i][0] * .9, ly, .045, f, { weight: "bold", opacity: 1, maxW: .24, maxH: .1 });
+      // each item gets its own row inside the circle's exclusive region: long text shrinks to fit rather than spilling out
+      // two sets: centre the items in the crescent between this circle's outer edge and the overlap
+      const R = D * AR / 2, ox = three ? 0 : centers[1 - i][0], ix0 = three ? x + inner[i][0] : (x + ox) / 2 + (i ? R : -R); // midpoint of [outer edge, overlap edge]
+      st.items.forEach((it, j) => text(c, `venn${i}_i${j}`, it, ix0, y + (three ? inner[i][1] : out[i][1]) + (j - (st.items.length - 1) / 2) * .075, .04, frac(.12 + .2 * i + .05 * j), { maxW: three ? .12 : Math.abs(ox - x) * .8, maxH: .07, opacity: .85 }));
     });
     const [ix, iy] = three ? [.5, .5] : [.5, .55];
     d.both.forEach((it, j) => {
-      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .065, .032, frac(.65 + .06 * j), { maxW: three ? .09 : .1, opacity: 1, weight: "bold" });
+      const id = text(c, `venn_both${j}`, it, ix, iy + (j - (d.both.length - 1) / 2) * .07, .038, frac(.65 + .06 * j), { maxW: three ? .08 : .11, maxH: .066, opacity: 1, weight: "bold" });
       if (j === 0) c.key(id);
     });
     if (v === "focus") {

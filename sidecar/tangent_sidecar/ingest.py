@@ -1,5 +1,7 @@
 """Docling PDF adapter. The IR contains only JSON values and local figure paths."""
 
+import base64
+import io
 import math
 import os
 import re
@@ -55,7 +57,18 @@ def pdf_info(params):
 
     pdf = pypdfium2.PdfDocument(str(Path(params["path"]).expanduser().resolve(strict=True)))
     try:
-        return {"pages": len(pdf)}
+        result = {"pages": len(pdf)}
+        if params.get("preview") and len(pdf):
+            page = pdf[0]
+            bitmap = page.render(scale=0.35)
+            try:
+                output = io.BytesIO()
+                bitmap.to_pil().save(output, format="PNG")
+                result["thumbnailUrl"] = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+            finally:
+                bitmap.close()
+                page.close()
+        return result
     finally:
         pdf.close()
 
@@ -251,3 +264,28 @@ def section_text(params_or_ir, section_id=None):
     if node is None:
         raise ValueError(f"unknown section: {section_id}")
     return strip_footers("\n\n".join(t for t in texts(node) if t))
+
+
+def original_pdf(params):
+    if not isinstance(params, dict) or not isinstance(params.get("path"), str):
+        raise ValueError("path must be a local PDF path")
+    # shortcut: preview copies the whole PDF through IPC, use scoped asset streaming for very large books.
+    data = Path(params["path"]).expanduser().resolve(strict=True).read_bytes()
+    if not data[:1024].lstrip().startswith(b"%PDF-"):
+        raise ValueError("path must contain a PDF")
+    return base64.b64encode(data).decode("ascii")
+
+
+def repair_sections(params):
+    """Upgrade flat cached outlines when the PDF has a bookmark tree."""
+    import copy
+    from .postprocess import pdf_outline, postprocess
+    list_sections(params)
+    if not isinstance(params.get("path"), str):
+        raise ValueError("path must be a PDF path")
+    ir = params["ir"]
+    if any(n.get("children") for n in ir["sections"]) or not pdf_outline(params["path"]):
+        return {**ir, "outline_version": 1}
+    result = postprocess(copy.deepcopy(ir), params["path"])
+    list_sections({"ir": result})
+    return result

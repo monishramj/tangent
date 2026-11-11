@@ -138,3 +138,43 @@ def test_outline_skeleton(monkeypatch):
     assert [(n["title"], n["level"]) for n in flat(out)] == [
         ("Part One", 1), ("chapter 1 start", 2), ("Sub topic", 3), ("Another", 3), ("Chapter 2", 2), ("Deep", 3)]
     assert len(out) == 1 and len(out[0]["children"]) == 2
+
+
+def test_cached_flat_book_repair_preserves_content_and_generation_scopes(monkeypatch):
+    import copy
+    from tangent_sidecar import postprocess as pp
+    from tangent_sidecar.ingest import repair_sections, section_text, list_sections
+    monkeypatch.setattr(pp, "pdf_outline", lambda p: [(1, "Contents", 1), (1, "Part 1", 3),
+                                                      (2, "Chapter 1 Ethics", 3), (2, "Chapter 2 Consent", 6)])
+    ir = {"sections": [node("CONTENTS", pages=(1,), md="table"),
+                       node("Chapter 2", pages=(1,)), node("Consent 6", pages=(2,), md="toc row"),
+                       node("Ethics", pages=(3,), md="chapter one"), node("Autonomy", pages=(4,), md="autonomy text"),
+                       node("The report concurs:", pages=(4,), md="quotation"),
+                       node("Consent", pages=(6,), md="chapter two"),
+                       node("A Reading", pages=(7,)), node("JANE DOE", pages=(7,), md="article text")]}
+    original = copy.deepcopy(ir)
+    out = repair_sections({"ir": ir, "path": "book.pdf"})
+    assert ir == original
+    rows = list_sections({"ir": out})
+    assert [(s["title"], s["level"]) for s in rows] == [
+        ("CONTENTS", 1), ("Part 1", 1), ("Ethics", 2), ("Autonomy", 3), ("Consent", 2), ("A Reading", 3)]
+    assert out["outline_version"] == 1
+    assert "toc row" in section_text(out, "s-CONTENTS")
+    assert "quotation" in section_text(out, "s-Autonomy")
+    assert "article text" in section_text(out, "s-A Reading")
+    assert "chapter two" not in section_text(out, "s-Ethics")
+    all_text = "\n".join(n["markdown"] for n in flat(out["sections"]))
+    for text in ["table", "toc row", "chapter one", "autonomy text", "quotation", "chapter two", "article text"]:
+        assert all_text.count(text) == 1
+    assert [s["id"] for s in rows if not s["id"].startswith("outline-")] == [
+        "s-CONTENTS", "s-Ethics", "s-Autonomy", "s-Consent", "s-A Reading"]
+
+
+def test_outline_upgrade_leaves_existing_tree_intact(monkeypatch):
+    from tangent_sidecar import postprocess as pp
+    from tangent_sidecar.ingest import repair_sections
+    monkeypatch.setattr(pp, "pdf_outline", lambda p: [(1, "Chapter", 1)])
+    parent = node("Chapter", md="body")
+    parent["children"] = [node("Nested", level=2, md="nested body")]
+    ir = {"sections": [parent]}
+    assert repair_sections({"ir": ir, "path": "book.pdf"}) == {**ir, "outline_version": 1}

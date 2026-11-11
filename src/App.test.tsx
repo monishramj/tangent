@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
-import { memoryJsonStore } from "./storage/store";
+import { memoryJsonStore, sourceFor } from "./storage/store";
 import { fakeVideoStore, type VideoBundle } from "./storage/videos";
 import { scene, timeline } from "@motion/stage/demo";
 
@@ -27,23 +27,13 @@ const vid: VideoBundle = { id: "v1", title: "Heaps", createdAt: 5, complete: tru
   scenes: [{ sceneId: "s1", scene, timeline, audioFile: "/a.wav", durationSec: timeline.totalSec }] };
 const provider = { complete: vi.fn() };
 
-it("home is the barebones start screen: no projects, a drop zone, saved videos and the demo", async () => {
+it("home opens the sources-first library with saved videos and no demo", async () => {
   render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([vid])} />);
-  expect(screen.getByRole("heading", { name: "Tangent" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Your library." })).toBeTruthy();
   expect(screen.getByTestId("dropzone")).toBeTruthy();
   expect(screen.queryByText(/project/i)).toBeNull();
-  expect(await screen.findByRole("list", { name: "Your videos" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Heapify demo" })).toBeTruthy();
-});
-
-it("the demo link opens the player titled Heapify, and Back returns home", async () => {
-  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Heapify demo" }));
-  expect(await screen.findByRole("heading", { name: "Heapify" })).toBeTruthy();
-  expect(screen.getByTestId("video").className).toContain("aspect-video");
-  expect(await screen.findByRole("button", { name: /^(Play|Pause)$/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByRole("button", { name: "Heapify demo" })).toBeTruthy();
+  expect(await screen.findByRole("list", { name: "Recent videos" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /demo/i })).toBeNull();
 });
 
 it("opening a saved video plays it under its title; Back returns home", async () => {
@@ -52,5 +42,18 @@ it("opening a saved video plays it under its title; Back returns home", async ()
   expect(await screen.findByRole("heading", { name: "Heaps" })).toBeTruthy();
   expect(await screen.findByRole("slider")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByRole("heading", { name: "Tangent" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Your library." })).toBeTruthy();
+});
+
+it("Back from a saved video restores the source and its folder", async () => {
+  const source = { ...sourceFor('/b.pdf'), folderId: 'f1' };
+  const store = memoryJsonStore({ library: { folders: [{ id: 'f1', name: 'Course', emoji: '📚', openedAt: 1 }], sources: [source] }, [`ir-${source.id}`]: { sections: [] } });
+  vi.mocked(invoke).mockImplementation(async cmd => cmd === 'sidecar_call' ? [] : null);
+  render(<App provider={provider} store={store} videoStore={fakeVideoStore([vid])} initial={{ s: 'source', sourceId: source.id, folderId: 'f1' }} />);
+  fireEvent.click(await screen.findByText('Heaps'));
+  await screen.findByRole('slider');
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  expect(await screen.findByRole('heading', { name: 'b.pdf' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Course' }));
+  expect(await screen.findByRole('heading', { name: /Course/ })).toBeTruthy();
 });

@@ -182,7 +182,7 @@ export function startAtTop(p: Point[]): Point[] {
 }
 
 /** Display outline: rounded corners, starting top-centre so it can be traced symmetrically; optional speech-bubble tail. */
-export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity): Outline & { sym: boolean } {
+export function smoothOutline(kind: string, w: number, h: number, tail?: "left" | "right", maxR = Infinity, round = false): Outline & { sym: boolean } {
   const base = shapeOutline(kind, w, h);
   if (kind === "cylinder" || base.open) return { ...base, sym: false };
   if (kind === "bubble") tail ??= "left";
@@ -198,7 +198,7 @@ export function smoothOutline(kind: string, w: number, h: number, tail?: "left" 
     }
   }
   const k = { rect: .16, bubble: .3, star: .03, gear: .015, tag: .1, chip: .1, document: .06 }[kind] ?? .1;
-  const r = ["circle", "ring", "cloud", "thought"].includes(kind) ? 0 : Math.min(maxR, Math.min(w, h) * k);
+  const r = ["circle", "ring", "cloud", "thought"].includes(kind) ? 0 : Math.min(maxR, Math.min(w, h) * (round ? .5 : k)); // round: maxR is an explicit radius
   const fill = r ? roundPoly(poly, r) : poly;
   return { pts: startAtTop(fill), fill, extra: base.extra, sym: true };
 }
@@ -208,4 +208,37 @@ export function symmetricTrace(closed: Point[], p: number): Point[] {
   if (p >= 1) return closed;
   const fwd = partialPath(closed, p / 2), back = partialPath([...closed].reverse(), p / 2);
   return [...fwd.reverse(), ...back.slice(1)];
+}
+
+/** Clip a polygon below a horizontal surface (used by bottom-up liquid reveals). */
+export function clipBelow(points: Point[], top: number): Point[] {
+  return points.flatMap((a, i) => {
+    const b = points[(i + 1) % points.length], inside = a[1] >= top, next = b[1] >= top;
+    const out: Point[] = inside ? [a] : [];
+    if (inside !== next) out.push([a[0] + (b[0] - a[0]) * (top - a[1]) / (b[1] - a[1]), top]);
+    return out;
+  });
+}
+
+/** The hand: a fixed, low-frequency wobble along a path's normal (amplitude `amp` px, wavelength ~`wave` px), fading to
+ * zero at both ends so joins stay exact. Static per seed (never animated): the line is imperfect, not alive. */
+export function handPath(p: Point[], amp: number, wave: number, seed = 0): Point[] {
+  const total = pathLength(p);
+  if (p.length < 2 || amp <= 0 || total < wave * .3) return p;
+  const step = wave / 8, out: Point[] = [];
+  let d = 0;
+  const f = 2 * Math.PI / wave, ph = seed * 40;
+  const push = (x: number, y: number, nx: number, ny: number, at: number) => {
+    const taper = Math.min(1, at / (wave * .25), (total - at) / (wave * .25));
+    const k = amp * taper * (Math.sin(at * f + ph) + .3 * Math.sin(at * f * 2.3 + ph * 1.7)) / 1.3;
+    out.push([x + nx * k, y + ny * k]);
+  };
+  for (let i = 1; i < p.length; i++) {
+    const [ax, ay] = p[i - 1], [bx, by] = p[i], len = Math.hypot(bx - ax, by - ay);
+    if (!len) continue;
+    const nx = -(by - ay) / len, ny = (bx - ax) / len, n = Math.max(1, Math.ceil(len / step));
+    for (let j = i === 1 ? 0 : 1; j <= n; j++) push(ax + (bx - ax) * j / n, ay + (by - ay) * j / n, nx, ny, d + len * j / n);
+    d += len;
+  }
+  return out;
 }

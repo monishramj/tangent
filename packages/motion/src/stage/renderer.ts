@@ -1,5 +1,6 @@
 // Pixi v8 drawing of SceneState. Display objects are built once per scene object and mutated per frame; no clocks here.
-import { CanvasTextMetrics, Container, Graphics, Text, TextStyle, type Application } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, Sprite, Text, TextStyle, type Application } from "pixi.js";
+import { backdropTexture, body, BODY, circleLoop, leaderTick, litRuns, overlayTexture, rectLoop, SHADOW } from "./look";
 import katex from "katex";
 import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
 import { fromLevel } from "../dsl/trees/shared";
@@ -10,8 +11,8 @@ import { layoutScene, type Placed } from "./layout";
 import { buildVisual, fitText } from "./visuals";
 import { buildCounter, buildEmoji, buildGif, buildIcon, buildPerson } from "./extras";
 import { buildDistribution, buildGraph, buildMatrix, buildNumberline, buildSeq, buildTexture } from "./vocab";
-import { LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
-import { ease, pathPoint, staggerProgress, strokeW, window01, type Point } from "./motion";
+import { clipBelow, handPath, LABEL_BOX, dashPolylines, partialPath, pathDir, pathLength, routePoints, smoothOutline, symmetricTrace, trimPath, wordPlacements } from "./geometry";
+import { ease, pathPoint, RADIUS, seedOf, STROKE, staggerProgress, strokeW, window01, type Point } from "./motion";
 
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -20,6 +21,8 @@ type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) =>
 export class SceneRenderer {
   private root = new Container();
   private bgLayer = new Container(); // textures: under everything, connectors included
+  private backdrop?: Sprite; // soft tonal background (drifts a little against camera moves)
+  private overlay?: Sprite; // film grain + vignette over everything
   private draws = new Map<string, { node: Container | HTMLElement; draw: Drawer }>();
   private reaction: Text;
   private fg: string;
@@ -39,6 +42,8 @@ export class SceneRenderer {
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
     this.fg = css("--fg");
     this.bg = css("--bg");
+    const back = backdropTexture(), over = overlayTexture();
+    if (back) { this.backdrop = new Sprite(back); this.backdrop.anchor.set(.5); app.stage.addChild(this.backdrop); }
     app.stage.addChild(this.root);
     this.root.addChild(this.bgLayer);
     for (const o of scene.objects) {
@@ -49,6 +54,7 @@ export class SceneRenderer {
     this.reaction = this.text("", 64, "bold");
     this.reaction.anchor.set(0.5);
     this.root.addChild(this.reaction);
+    if (over) { this.overlay = new Sprite(over); app.stage.addChild(this.overlay); }
     app.stage.addChild(this.annG); // above root so transitions don't move marks
   }
 
@@ -65,7 +71,7 @@ export class SceneRenderer {
       node.visible = s.visible;
       node.alpha = s.opacity;
       node.position.set(s.x * w, s.y * h);
-      node.scale.set(s.scale);
+      node.scale.set(s.scale * (s.sx ?? 1), s.scale * (s.sy ?? 1));
       node.rotation = s.rotation ?? 0;
       node.tint = s.color ?? 0xffffff;
     };
@@ -151,9 +157,15 @@ export class SceneRenderer {
           const wide = o.shape === "rect" || o.shape === "pill" || o.shape === "parallelogram";
           const width = Math.min((o.width ?? (wide ? .36 : .24 * h / w)) * w, cell?.cw ? cell.cw * .88 : Infinity);
           const height = Math.min((o.height ?? .24) * h, cell?.ch ? cell.ch * .8 : Infinity);
+          if (o.pivot) { // the layout position stays the centre; the pivot point is fixed in place while the shape rotates/scales
+            const px = o.pivot === "left" ? -width / 2 : o.pivot === "corner" ? width / 2 : 0, py = o.pivot === "left" ? 0 : o.pivot === "top" ? -height / 2 : height / 2;
+            c.pivot.set(px, py); c.x += px * s.scale; c.y += py * s.scale;
+          }
           if (width !== bw || height !== bh) {
             bw = width; bh = height;
-            out = smoothOutline(o.shape, bw, bh, o.tail, h * .025);
+            out = smoothOutline(o.shape, bw, bh, o.tail, o.radius !== undefined ? o.radius * h : h * RADIUS, o.radius !== undefined);
+            // the hand: a fixed slight wobble on outlines big enough to show it (small marks, pivots and computed polygons stay exact)
+            if (out.sym && !o.pivot && !o.points && Math.min(bw, bh) > h * .07) { const pts = handPath(out.pts, strokeW(h) * .4, h * .3, seedOf(o.id)); out = { ...out, pts, fill: pts.slice(0, -1) }; }
             const [fw, fh, dx, dy] = LABEL_BOX[o.shape] ?? LABEL_BOX.rect, cy = bh * dy;
             fitText(label, o.label ?? "", bw * fw, bh * fh * (o.sublabel ? .62 : 1), h * .045);
             sub.visible = !!o.sublabel;
@@ -163,19 +175,40 @@ export class SceneRenderer {
             } else label.y = cy;
             label.x = sub.x = bw * dx;
           }
+          if (o.points) {
+            const pts = o.points.map(([x, y]) => [x * width, y * height] as Point);
+            const k = s.style === "grow" ? s.sy ?? 1 : 1;
+            const fill = clipBelow(pts, height * (.5 - k));
+            out = { pts: fill.length ? [...fill, fill[0]] : [], fill, sym: false };
+            // Reveal the fixed polygon instead of squashing its taper with the grow transform.
+            c.scale.y = s.scale; c.y = s.y * h;
+            if (o.pivot) c.y += height / 2 * s.scale;
+          }
           // Outline traces first (both ways from the top, meeting at the bottom), then the fill, detail strokes and label fade in.
           const r = s.style === "draw" ? s.reveal ?? 1 : 1, fillA = s.style === "draw" ? window01(r, .7, 1) : 1, sw = strokeW(h);
-          const stroke = { width: sw, color: this.fg, alpha: .75 + .25 * s.hl, cap: "round", join: "round" } as const;
+          const stroke = { width: sw, color: this.fg, alpha: .9 + .1 * s.hl, cap: "round", join: "round" } as const;
           const tick = o.shape === "check" || o.shape === "cross" ? { ...stroke, width: sw * 2.2 } : stroke;
           g.clear();
+          // A body: flat hard shadow down-right, a grey surface, a dim rim with the lit (top-left) side picked out in white.
+          const solid = !out.open && !o.ghost && !o.pivot && !o.rotation && Math.min(bw, bh) > h * .07;
           if (fillA > 0 && !out.open) {
+            const d = h * SHADOW;
+            if (solid) g.poly(out.fill.flatMap(([x, y]) => [x + d * .75, y + d])).fill({ color: 0x000000, alpha: BODY.shadow * fillA });
             if (!o.ghost) g.poly(out.fill.flat()).fill({ color: this.bg, alpha: fillA });
-            g.poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .92 * fillA } : { color: this.fg, alpha: ((o.ghost ? .1 : .07) + .15 * s.hl) * fillA });
+            g.poly(out.fill.flat()).fill(o.filled ? { color: this.fg, alpha: .92 * fillA } : { color: this.fg, alpha: ((o.ghost ? .1 : solid ? BODY.fill : .04) + .15 * s.hl) * fillA });
           }
-          if (r >= 1 && out.sym) g.poly(out.pts.slice(0, -1).flat(), true).stroke(stroke);
-          else if (r > 0) { const part = out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, out.open && out.extra ? Math.min(1, r * 2) : r); if (part.length > 1) g.poly(part.flat(), false).stroke(tick); }
+          const rim = solid && !o.filled, edge = rim ? { ...stroke, alpha: BODY.rimDark + (1 - BODY.rimDark) * s.hl } : stroke;
+          const part = r >= 1 && out.sym ? out.pts : r > 0 ? out.sym ? symmetricTrace(out.pts, r) : partialPath(out.pts, out.open && out.extra ? Math.min(1, r * 2) : r) : [];
+          if (part.length > 1) {
+            if (r >= 1 && out.sym) g.poly(out.pts.slice(0, -1).flat(), true).stroke(edge); else g.poly(part.flat(), false).stroke(out.sym ? edge : tick);
+            if (rim) for (const run of litRuns(part, bw / 2, bh / 2)) g.poly(run.flat(), false).stroke(stroke);
+          }
           const xr = out.open ? window01(r, .5, 1) : window01(r, .55, 1);
           if (xr > 0) for (const x of o.shape === "gear" && o.label ? [] : out.extra ?? []) { const part = partialPath(x, xr); if (part.length > 1) g.poly(part.flat(), false).stroke(o.filled ? { ...tick, color: this.bg } : tick); }
+          if (o.typing) { // three dots bouncing in turn (looping on the object's age; the whole bubble stays still)
+            const r = bh * .1, age = s.age ?? 0;
+            for (let i = 0; i < 3; i++) g.circle((i - 1) * r * 3.2, -Math.max(0, Math.sin(age * 8 - i * 1.1)) * bh * .16, r).fill({ color: o.filled ? this.bg : this.fg, alpha: fillA });
+          }
           this.ext.set(o.id, [bw / 2 * s.scale, bh / 2 * s.scale]);
           label.style.fill = sub.style.fill = o.filled ? this.bg : this.fg;
           label.alpha = s.style === "draw" ? window01(r, .35, .9) : 1; sub.alpha = label.alpha * .65;
@@ -184,9 +217,11 @@ export class SceneRenderer {
       case "arrow":
       case "line": {
         const g = new Graphics(), lbl = this.text(o.label ?? "", 24);
-        lbl.anchor.set(.5); c.addChild(g, lbl); this.root.addChildAt(c, 1); // connectors sit under the boxes they join (above textures)
+        lbl.anchor.set(.5); c.addChild(g, lbl);
+        // connectors sit under the boxes they join (above textures); free lines (guides, strata, leader ticks) keep their order
+        if (Array.isArray(o.from) && Array.isArray(o.to)) this.root.addChild(c); else this.root.addChildAt(c, 1);
         return { node: c, draw: (s, w, h, all) => {
-          c.visible = s.visible; c.alpha = s.opacity;
+          c.visible = s.visible; c.alpha = s.opacity; c.tint = s.color ?? 0xffffff;
           const pt = (p: string | [number, number]): [number, number] | null => {
             if (Array.isArray(p)) return [(p[0] + (s.dx ?? 0)) * w, p[1] * h]; // fixed endpoints ride along with a transition
             const t = all.get(p);
@@ -195,7 +230,7 @@ export class SceneRenderer {
           const a0 = pt(o.from), b0 = pt(o.to);
           g.clear(); lbl.visible = false;
           if (!a0 || !b0) return; // endpoint missing or hidden: draw nothing rather than a line to the centre
-          const full = routePoints(a0, b0, o.route), len = pathLength(full);
+          const full = o.type === "line" && o.points ? o.points.map(p => pt(p)!) : routePoints(a0, b0, o.route), len = pathLength(full);
           const trim = (p: string | [number, number], dir: Point) => {
             if (Array.isArray(p)) return 0;
             const [hw, hh] = this.ext.get(p) ?? [.04 * h, .04 * h];
@@ -203,27 +238,31 @@ export class SceneRenderer {
           };
           const ta = Math.min(trim(o.from, pathDir(full, false)), len / 2 - 1), tb = Math.min(trim(o.to, pathDir(full, true)), len / 2 - 1);
           if (ta + tb >= len - 4) return; // boxes overlap: no room for a connector
-          const path = trimPath(full, ta, tb);
-          if (path.length < 2) return;
-          const p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = strokeW(h), head = o.type === "arrow" ? sw * 3.2 : 0;
+          const cut = trimPath(full, ta, tb);
+          if (cut.length < 2) return;
+          // long free lines get the hand wobble (tapered to zero at both ends); lines joining objects (beams, needles) stay exact
+          const free = Array.isArray(o.from) && Array.isArray(o.to) && pathLength(cut) > h * .2;
+          const path = free ? handPath(cut, strokeW(h) * .4, h * .3, seedOf(o.id)) : cut;
+          const hair = o.type === "line" && o.weight === "hair", p = s.style === "draw" ? s.reveal ?? 1 : 1, sw = hair ? Math.max(1, h * STROKE.hair) : strokeW(h, 1), head = o.type === "arrow" ? sw * 3.2 : 0;
           // the shaft stops short of the tip so the filled head stays sharp; the head rides the drawing front
           const part = partialPath(path, p), tip = part[part.length - 1], dir = part.length > 1 ? pathDir(part, true) : [1, 0];
           const shaft = head && p > 0 ? trimPath(part, 0, Math.min(head * .8, pathLength(part))) : part;
           if (shaft.length > 1) {
             for (const d of o.dashed ? dashPolylines(shaft, sw * 4, sw * 2.6) : [shaft]) g.poly(d.flat(), false);
-            g.stroke({ width: sw, color: this.fg, alpha: .85, cap: "round", join: "round" });
+            g.stroke({ width: sw, color: this.fg, alpha: hair ? .7 : .9, cap: "round", join: "round" });
           }
           if (head && p > 0 && part.length > 1) {
             const k = head * Math.min(1, p * 4), [ux, uy] = dir, [x2, y2] = tip;
             g.poly([x2, y2, x2 - ux * k * 1.5 - uy * k * .75, y2 - uy * k * 1.5 + ux * k * .75, x2 - ux * k * 1.5 + uy * k * .75, y2 - uy * k * 1.5 - ux * k * .75]).fill({ color: this.fg, alpha: .85 });
           }
-          if (o.label && p >= .5) { // label beside the midpoint, on a bg backing so it stays readable over other marks
-            const fs = .028 * h, [mx, my] = pathPoint(path, .5), [x0, y0] = pathPoint(path, .49), [x1, y1] = pathPoint(path, .51);
+          if (o.label && p >= .5) { // edge label set off the line on a short leader tick (on a soft chip so it stays readable)
+            const fs = .032 * h, [mx, my] = pathPoint(path, .5), [x0, y0] = pathPoint(path, .49), [x1, y1] = pathPoint(path, .51);
             let nx = -(y1 - y0), ny = x1 - x0; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
             if (ny > 0) { nx = -nx; ny = -ny; }
-            const lx = mx + nx * fs * 1.1, ly = my + ny * fs * 1.1, tw = this.measure(o.label, fs, false) + fs;
-            g.roundRect(lx - tw / 2, ly - fs * .75, tw, fs * 1.5, 4).fill({ color: this.bg });
-            lbl.visible = true; lbl.text = o.label; lbl.style.fontSize = fs; lbl.position.set(lx, ly); lbl.alpha = Math.min(1, (p - .5) * 4);
+            const off = fs * .75 + h * .045, lx = mx + nx * off, ly = my + ny * off, tw = this.measure(o.label, fs, false) + fs, a = Math.min(1, (p - .5) * 4);
+            leaderTick(g, [mx + nx * h * .045, my + ny * h * .045], [mx + nx * sw * 2, my + ny * sw * 2], h, this.fg, a);
+            g.roundRect(lx - tw / 2, ly - fs * .75, tw, fs * 1.5, fs * .4).fill({ color: 0x141414, alpha: .92 * a });
+            lbl.visible = true; lbl.text = o.label; lbl.style.fontSize = fs; lbl.position.set(lx, ly); lbl.alpha = a;
           }
           if (s.pulse !== undefined) { // signal dot travelling from -> to
             const [x, y] = pathPoint(path, s.pulse);
@@ -254,14 +293,12 @@ export class SceneRenderer {
           const n = cells.length, size = Math.min(0.17 * h, (w * 0.9) / (n * 1.15)), step = size * 1.15, x0 = -((n - 1) * step) / 2;
           cells.forEach(({ g, t }, i) => {
             const enter = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, n, s.gap) : s.reveal ?? 1;
-            g.alpha = enter; t.alpha = enter;
+            t.alpha = window01(enter, .35, .9);
             const slot = s.slots![i];
-            const x = x0 + (slot.to === undefined ? i : i + (slot.to - i) * slot.p) * step;
-            const lift = (slot.to === undefined ? 0 : -Math.sin(Math.PI * slot.p) * size * 0.35) + (1 - ease(enter, "outExpo")) * size * .25; // hop so swaps read
-            g.clear().roundRect(-size / 2, -size / 2, size, size, size * 0.16)
-              .fill({ color: this.bg }).roundRect(-size / 2, -size / 2, size, size, size * 0.16)
-              .fill({ color: this.fg, alpha: .07 + .85 * slot.hl })
-              .stroke({ width: strokeW(h), color: this.fg, alpha: 0.75, join: "round" });
+            // a swap lifts clear (right-mover up, left-mover down), slides past the cells between, then lands
+            const x = x0 + (slot.to === undefined ? i : i + (slot.to - i) * ease(window01(slot.p, .2, .8), "inOutCubic")) * step;
+            const lift = slot.to === undefined ? 0 : (slot.to > i ? -1 : 1) * ease(Math.min(1, slot.p / .2, (1 - slot.p) / .2), "outCubic") * size * 1.1;
+            g.clear(); body(g, rectLoop(size, size, size * .16), 0, 0, h, this.fg, this.bg, { p: enter, hl: slot.hl }); // drawn, then solid
             if (slot.ring) g.circle(0, 0, size*(.6+.25*slot.ring)).stroke({ color: this.fg, width: strokeW(h), alpha: 1-slot.ring });
             g.position.set(x, lift);
             const value = String(slot.value);
@@ -295,7 +332,7 @@ export class SceneRenderer {
         const depth = Math.max(1, ...nodes.map((p) => p.y + 1));
         return { node: c, draw: (s, w, h) => {
           place(s, w, h);
-          const r = Math.min(0.05 * h, (w * 0.8) / (2.4 * Math.max(1, nodes.length))), dx = r * 2.4, dy = Math.min(0.14 * h, (0.5 * h) / depth);
+          const r = Math.min(0.075 * h, (w * 0.8) / (2.6 * Math.max(1, nodes.length))), dx = r * 2.6, dy = Math.min(0.22 * h, (0.58 * h) / depth);
           const at = (i: number): [number, number] => [(nodes[i].x - (nodes.length - 1) / 2) * dx, nodes[i].y * dy - ((depth - 1) * dy) / 2];
           g.clear();
           nodes.forEach(({ n }, i) => {
@@ -308,10 +345,9 @@ export class SceneRenderer {
           nodes.forEach(({ n }, i) => {
             const hl = s.valHl?.[n.keys[0]] ?? 0, [x, y] = at(i);
             const reveal = s.style === "stagger" ? staggerProgress(s.reveal ?? 1, i, nodes.length, s.gap) : s.reveal ?? 1;
-            const rr = r * (.6 + .4 * ease(reveal, "outBack"));
-            if (reveal > 0) g.circle(x, y, rr).fill({ color: this.bg }).circle(x, y, rr).fill({ color: this.fg, alpha: .07 + .85 * hl }).stroke({ width: strokeW(h), color: this.fg, alpha: 0.75 * Math.min(1, reveal * 3) });
+            body(g, circleLoop(r), x, y, h, this.fg, this.bg, { p: reveal, hl });
             labels[i].position.set(x, y);
-            labels[i].alpha = reveal;
+            labels[i].alpha = window01(reveal, .35, .9);
             if (labels[i].label !== String(r)) { fitText(labels[i], n.keys.join(","), r*1.4, r*1.4, r*.9); labels[i].label = String(r); }
             labels[i].style.fill = hl > 0.5 ? this.bg : this.fg;
             for (const k of n.keys) this.setPoint(`${o.id}.val(${k})`, s.x*w+x*s.scale, s.y*h+y*s.scale, r*s.scale);
@@ -422,6 +458,12 @@ export class SceneRenderer {
     const tx = w/2 + (camera.stretch ?? 1) * (-camera.x*w*camera.zoom + camera.shake*w);
     const ty = h/2 - camera.y*h*camera.zoom + (camera.shakeY ?? camera.shake)*h;
     this.root.scale.set(sx, camera.zoom); this.root.position.set(tx, ty); this.root.alpha = 1;
+    if (this.backdrop) { // parallax: the backdrop moves and zooms a quarter as much as the content
+      const k = 1.12 * (1 + (camera.zoom - 1) * .25);
+      this.backdrop.width = w * k; this.backdrop.height = h * k;
+      this.backdrop.position.set(w / 2 - (camera.x - .5) * w * .25, h / 2 - (camera.y - .5) * h * .25);
+    }
+    if (this.overlay) { this.overlay.width = w; this.overlay.height = h; }
     this.mathLayer.style.transformOrigin = "0 0";
     this.mathLayer.style.transform = `matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
     this.mathLayer.style.opacity = String(this.root.alpha);
@@ -460,7 +502,7 @@ export class SceneRenderer {
     this.annTexts.forEach((x) => x.destroy());
     this.draws.forEach((d) => d.node instanceof HTMLElement && d.node.remove());
     this.lastState = undefined;
-    this.annG.destroy();
+    this.annG.destroy(); this.backdrop?.destroy(); this.overlay?.destroy();
     this.mathLayer.style.transform = ""; this.mathLayer.style.opacity = "";
     this.root.destroy({ children: true });
   }

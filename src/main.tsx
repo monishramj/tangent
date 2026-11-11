@@ -7,6 +7,6 @@ import "./devlog";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {import.meta.env.DEV && location.search.includes("showcase") ? <Showcase /> : <App />}
+    {import.meta.env.DEV && /showcase|reel/.test(location.search) ? <Showcase /> : <App />}
   </React.StrictMode>,
 );

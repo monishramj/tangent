@@ -3,7 +3,8 @@ import { Assets, CanvasTextMetrics, Container, Graphics, Sprite, Text, TextStyle
 import type { SceneObject } from "../dsl/schema";
 import type { ObjState } from "./scene";
 import { fitLabel } from "./layout";
-import { ease, staggerProgress, type Point } from "./motion";
+import { ease, RADIUS, STROKE, staggerProgress, strokeW, type Point } from "./motion";
+import { body, leaderTick, rectLoop } from "./look";
 
 export const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 export const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -58,8 +59,8 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
     }).catch(() => { if (!node.destroyed) { fallback.text = "Figure unavailable"; refresh(); } });
     return { node, draw(s: ObjState, w: number, h: number) {
       const [bw, bh] = box(o, w, h, w * .72, h * .48);
-      mask.clear().rect(-bw/2, -bh/2, bw, bh).fill(0xffffff);
-      frame.clear().rect(-bw/2, -bh/2, bw, bh).stroke({ color: fg, width: 1, alpha: .4 });
+      mask.clear().roundRect(-bw/2, -bh/2, bw, bh, h * RADIUS).fill(0xffffff);
+      frame.clear().roundRect(-bw/2, -bh/2, bw, bh, h * RADIUS).stroke({ color: fg, width: strokeW(h), alpha: .6, join: "round" });
       if (!ready) return;
       const [x, y, right, bottom] = s.focus ?? [0, 0, 1, 1];
       const scale = Math.min(bw / ((right - x) * image.texture.width), bh / ((bottom - y) * image.texture.height));
@@ -80,9 +81,9 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
         c.x = c.def.x === undefined ? (i - (cells.length-1)/2) * fw / cells.length : (c.def.x - .5) * fw;
         c.y = c.def.y === undefined ? 0 : (c.def.y - .5) * fh;
         const p = childProgress(s, Math.min(cells.length + o.edges.length - 1, i * 2), cells.length + o.edges.length);
-        c.g.clear().roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: bg }).roundRect(-bw/2, -bh/2, bw, bh, 8).fill({ color: fg, alpha: .035 + s.hl * .12 }).stroke({ color: fg, width: 2 });
-        c.g.position.set(c.x, c.y + (1 - ease(p)) * 18); c.g.alpha = p;
-        c.t.position.copyFrom(c.g.position); c.t.alpha = p;
+        c.g.clear(); body(c.g, rectLoop(bw, bh, h * RADIUS), 0, 0, h, fg, bg, { p, hl: s.hl * .15 }); // drawn, then solid
+        c.g.position.set(c.x, c.y);
+        c.t.position.copyFrom(c.g.position); c.t.alpha = Math.max(0, Math.min(1, (p - .35) / .55));
         if (resize) fitText(c.t, c.def.label, bw * .84, bh * .75, h * .035);
       });
       ink.clear();
@@ -93,10 +94,13 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
         const x1 = a.x + dx/len * trim, y1 = a.y + dy/len * trim, x2 = b.x - dx/len * trim, y2 = b.y - dy/len * trim;
         const p = childProgress(s, Math.min(cells.length + o.edges.length - 1, i * 2 + 1), cells.length + o.edges.length);
         const x = x1 + (x2-x1)*p, y = y1 + (y2-y1)*p, angle = Math.atan2(dy, dx);
-        ink.moveTo(x1, y1).lineTo(x, y).stroke({ color: fg, width: 2, alpha: .75 });
-        if (p > 0) ink.moveTo(x - 10*Math.cos(angle-.5), y - 10*Math.sin(angle-.5)).lineTo(x,y).lineTo(x - 10*Math.cos(angle+.5), y - 10*Math.sin(angle+.5)).stroke({ color: fg, width: 2, alpha: p });
-        edgeLabels[i].position.set((x1+x2)/2, (y1+y2)/2 - 20); edgeLabels[i].alpha = p;
-        if (resize) fitText(edgeLabels[i], e.label ?? "", Math.max(20, len - 2*trim), 30, h*.025);
+        ink.moveTo(x1, y1).lineTo(x, y).stroke({ color: fg, width: strokeW(h), alpha: .85, cap: "round" });
+        if (p > 0) ink.moveTo(x - 10*Math.cos(angle-.5), y - 10*Math.sin(angle-.5)).lineTo(x,y).lineTo(x - 10*Math.cos(angle+.5), y - 10*Math.sin(angle+.5)).stroke({ color: fg, width: strokeW(h), alpha: p, cap: "round", join: "round" });
+        // edge label on a short leader tick, pointing down at the edge's midpoint
+        const mx = (x1+x2)/2, my = (y1+y2)/2, lift = h * .075;
+        edgeLabels[i].position.set(mx, my - lift); edgeLabels[i].alpha = p;
+        if (e.label) leaderTick(ink, [mx, my - lift + h * .025], [mx, my - h * .008], h, fg, p);
+        if (resize) fitText(edgeLabels[i], e.label ?? "", Math.max(h * .2, len - 2*trim), h * .05, h * .032);
       });
       lastW = w; lastH = h;
     } };
@@ -113,21 +117,24 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       const slot = bw / n, base = bh / 2, resize = w !== lastW || h !== lastH;
       const hc = s.col, pts: Point[] = o.values.map((v, i) => [-bw / 2 + (i + .5) * slot, base - Math.max(0, v) / max * bh]);
       ink.clear();
-      ink.moveTo(-bw / 2, base).lineTo(bw / 2, base);
-      if (line) ink.moveTo(-bw / 2, base).lineTo(-bw / 2, base - bh);
-      ink.stroke({ color: fg, width: 2, alpha: .5 });
+      // axes are drawn on first (baseline left to right, then the y axis upward), in the hair weight
+      const rv = s.reveal ?? 1, ax = Math.min(1, rv * 3.5), sw = strokeW(h);
+      strokePath(ink, [[-bw / 2, base], [bw / 2, base]], ax, fg, sw * .7, .55, true);
+      if (line) strokePath(ink, [[-bw / 2, base], [-bw / 2, base - bh]], ax, fg, sw * .7, .55, true);
       if (line) {
-        strokePath(ink, pts, s.reveal ?? 1, fg, 4, .9, true);
-        pts.forEach(([x, y], i) => { if ((s.reveal ?? 1) >= i / Math.max(1, n - 1)) ink.circle(x, y, h * .008 + (hc === i ? h * .008 * s.hl : 0)).fill({ color: fg }); });
+        strokePath(ink, pts, rv, fg, sw * 1.3, 1, true);
+        pts.forEach(([x, y], i) => { if (rv >= i / Math.max(1, n - 1)) ink.circle(x, y, sw * 1.6 + (hc === i ? sw * 1.6 * s.hl : 0)).fill({ color: fg }); });
       }
       o.values.forEach((v, i) => {
-        const p = line ? (s.reveal ?? 1) >= i / Math.max(1, n - 1) ? 1 : 0 : staggerProgress(s.reveal ?? 1, i, n, s.gap), [x, y] = pts[i];
-        const bar = (base - y) * ease(p), on = hc === i ? s.hl : 0, dim = hc === undefined ? 1 : 1 - .6 * s.hl;
-        if (!line) ink.roundRect(x - slot * .3, base - bar, slot * .6, bar, 4).fill({ color: fg, alpha: (.18 + .77 * on) * dim }).stroke({ color: fg, width: 2, alpha: .85 * dim });
-        vals[i].position.set(x, (line ? y : base - bar) - h * .03); vals[i].alpha = p * dim;
+        const p = line ? rv >= i / Math.max(1, n - 1) ? 1 : 0 : staggerProgress(rv, i, n, s.gap), [x, y] = pts[i];
+        const bar = (base - y) * ease(p, "outQuart"), on = hc === i ? s.hl : 0, dim = hc === undefined ? 1 : 1 - .6 * s.hl, r = Math.min(h * RADIUS * .5, slot * .12);
+        if (!line && bar > 0) body(ink, rectLoop(slot * .6, bar, Math.min(r, bar / 2)), x, base - bar / 2, h, fg, bg, { hl: on, face: .23, alpha: dim, sw }); // face = TONE.high
+        const top = line ? y : base - bar, side = on * slot * .32; // the highlighted value steps aside onto a leader tick
+        vals[i].position.set(x + side, top - h * .04 - on * h * .035); vals[i].alpha = p * dim;
+        if (on > 0) leaderTick(ink, [x + side - h * .01, top - h * .05], [x + slot * .15, top - h * .005], h, fg, on);
         if (vals[i].text !== fmtNum(v)) vals[i].text = fmtNum(v);
-        cats[i].position.set(x, base + h * .035); cats[i].alpha = (line ? 1 : p) * dim;
-        if (resize) { fitText(cats[i], o.labels[i], slot * .9, h * .06, h * .028); fitText(vals[i], fmtNum(v), slot * .9, h * .04, h * .03); }
+        cats[i].position.set(x, base + h * .045); cats[i].alpha = (line ? ax : p) * dim * .75;
+        if (resize) { fitText(cats[i], o.labels[i], slot * .9, h * .07, h * .042); fitText(vals[i], fmtNum(v), slot * .9, h * .06, h * .05); }
       });
       lastW = w; lastH = h;
       return [bw / 2, bh / 2 + h * .05] as [number, number];
@@ -155,7 +162,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       const active = o.type === "table" ? cell.r === 0 || (hr !== undefined && cell.r === hr+1) || hc === cell.col
         : o.type === "code" && range ? cell.r >= range[0] && cell.r <= range[1] : false;
       if (o.type === "code") { // one editor-like panel: left-aligned lines, indentation kept, highlight bars only
-        if (i === 0) ink.roundRect(-bw/2, -bh/2, bw, bh, Math.min(16, h * .02)).fill({ color: fg, alpha: .05 }).stroke({ color: fg, width: 1, alpha: .25 });
+        if (i === 0) ink.roundRect(-bw/2, -bh/2, bw, bh, h * RADIUS).fill({ color: fg, alpha: .04 }).stroke({ color: fg, width: strokeW(h), alpha: .55, join: "round" });
         if (active) ink.roundRect(-bw/2 + 4, y-rh/2, bw - 8, rh, 4).fill({ color: fg, alpha: .14 });
         cell.t.anchor.set(0, .5);
         cell.t.position.set(-bw/2 + Math.min(28, bw * .045), y);
@@ -166,7 +173,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
           cell.t.style.fontSize = size; cell.t.style.whiteSpace = "pre"; cell.fitted = cell.text;
         }
       } else {
-        ink.rect(x-cw/2, y-rh/2, cw, rh).fill({ color: fg, alpha: p * (active ? .22 : .035) }).stroke({ color: fg, width: 1, alpha: .3 * p });
+        ink.rect(x-cw/2, y-rh/2, cw, rh).fill({ color: fg, alpha: p * (active ? .2 : .03) }).stroke({ color: fg, width: Math.max(1, h * STROKE.hair), alpha: .4 * p });
         cell.t.position.set(x, y + (1-ease(p))*10); cell.t.alpha = p;
         if (resize) {
           fitText(cell.t, cell.text, cw * .88, rh * .8, h * (o.type === "bits" ? .04 : .038));
@@ -188,7 +195,7 @@ export function buildVisual(o: Visual, fg: string, refresh: () => void, bg = "#0
       for (const group of o.groups.slice(0,-1)) {
         col += group;
         const x = -bw/2 + col*cw;
-        ink.moveTo(x, -bh/2-7).lineTo(x, bh/2+7).stroke({ color: fg, width: 3, alpha: s.reveal ?? 1 });
+        ink.moveTo(x, -bh/2-7).lineTo(x, bh/2+7).stroke({ color: fg, width: strokeW(h), alpha: s.reveal ?? 1, cap: "round" });
       }
     }
     if (bitLabel) { bitLabel.position.set(0, -bh/2 - h*.045); if (resize) fitText(bitLabel, o.type === "bits" ? o.label! : "", bw, h*.05, h*.03); }

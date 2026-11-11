@@ -19,16 +19,16 @@ export const POSE_JOINTS: Record<string, Joints> = {
 };
 export const poseJoints = (name: string | undefined): Joints => POSE_JOINTS[name ?? ""] ?? POSE_JOINTS.stand;
 
+/** k may leave 0..1: a gesture winds up slightly the other way, then overshoots and settles. */
 export function blendPose(from: Joints, to: Joints, k: number): Joints {
-  k = clamp01(k);
   return from.map((v, i) => v + (to[i] - v) * k) as Joints;
 }
 
 /** Looping motion added on top of a pose (weight w fades it in/out while blending). */
-export function animate(j: Joints, pose: string, age: number, w: number): Joints {
+export function animate(j: Joints, pose: string, age: number, w: number, since = age): Joints {
   const out = [...j] as Joints;
   out[0] += Math.sin(age * 2) * 1 * w; // breathing
-  if (pose === "wave") out[3] += Math.sin(age * 9) * 35 * w;
+  if (pose === "wave" && since < WAVES) out[3] += Math.sin(since * 7) * 24 * w; // two waves from when the pose began, then rest
   if (pose === "walk") {
     const s = Math.sin(age * 5);
     out[6] += s * 30 * w; out[7] += (Math.max(0, -s) * -35) * w; out[8] -= s * 30 * w; out[9] += (Math.max(0, s) * -35) * w;
@@ -37,18 +37,43 @@ export function animate(j: Joints, pose: string, age: number, w: number): Joints
   return out;
 }
 
-/** Joints for a (possibly mid-blend) pose state at time `age`. */
-export function jointsAt(pose: string | undefined, from: string | undefined, p: number, age: number): Joints {
+/** The gesture curve for pose changes (linear progress in): 15% anticipation the other way (8% of the travel),
+ * then out with a 6% overshoot that settles. Exact at 0 and 1. */
+export function gesture(p: number) {
+  p = clamp01(p);
+  if (p <= 0) return 0;
+  if (p < .15) return -.08 * Math.sin(Math.PI * p / .15);
+  const u = (p - .15) / .85, s = 1.3;
+  return 1 + (s + 1) * (u - 1) ** 3 + s * (u - 1) ** 2;
+}
+/** Joints for a (possibly mid-blend) pose state at time `age`. p is the blend (may overshoot 0..1 slightly). */
+export function jointsAt(pose: string | undefined, from: string | undefined, p: number, age: number, since = age): Joints {
   const k = clamp01(p);
-  return blendPose(animate(poseJoints(from), from ?? "stand", age, 1 - k), animate(poseJoints(pose), pose ?? "stand", age, k), k);
+  return blendPose(animate(poseJoints(from), from ?? "stand", age, 1 - k), animate(poseJoints(pose), pose ?? "stand", age, k, since), p);
 }
 
+/** Presenter motion uses the same walk, breathing and pose blend as the full-size stickman. */
+export function tangenterJoints(pose: string | undefined, from: string | undefined, p: number, age: number, aim?: Point, since = age): Joints {
+  let joints = jointsAt(pose, from, p, age, since);
+  if (aim) {
+    const k = clamp01(p);
+    const pointing = (name: string | undefined) => name === "point" || name === "explain";
+    const weight = (pointing(pose) ? k : 0) + (pointing(from) ? 1 - k : 0);
+    const angle = Math.atan2(aim[0], aim[1]) / (Math.PI / 180);
+    joints[2] += (angle - joints[2]) * weight; joints[3] *= 1 - weight;
+  }
+  if (age < WALK_IN) joints = blendPose(jointsAt("walk", "walk", 1, age * 2.4), joints, clamp01((age - WALK_IN * .7) / (WALK_IN * .3))); // two steps, then settle into the pose
+  return joints;
+}
+
+const WAVES = 4 * Math.PI / 7; // two full waves at 7 rad/s (ends at a zero crossing, so it rests without a jump)
+export const WALK_IN = .6; // seconds the presenter takes to walk in from the edge
 export const PERSON_PARTS = 6; // head, torso, arm1, arm2, leg1, leg2 (draw order)
 const rad = Math.PI / 180;
 
 /** Polylines for each part, figure height H, centred at (0,0). Head is a ring of points. */
-export function personParts(j: Joints, H: number, facing: "left" | "right" = "right"): { parts: Point[][]; head: Point; headR: number; bob: number } {
-  const dir = facing === "left" ? -1 : 1, r = H * .08;
+export function personParts(j: Joints, H: number, facing: "left" | "right" = "right"): { parts: Point[][]; head: Point; headR: number; bob: number; body: Point[] } {
+  const dir = facing === "left" ? -1 : 1, r = H * .095;
   const hip: Point = [0, H * .08], lean = j[0] * rad;
   const neck: Point = [hip[0] + Math.sin(lean) * H * .42, hip[1] - Math.cos(lean) * H * .42];
   const shoulder: Point = [hip[0] + Math.sin(lean) * H * .33, hip[1] - Math.cos(lean) * H * .33];
@@ -62,5 +87,9 @@ export function personParts(j: Joints, H: number, facing: "left" | "right" = "ri
   const parts = [ring, [hip, neck], limb(shoulder, j[2], j[3], H * .17, H * .15), limb(shoulder, j[4], j[5], H * .17, H * .15),
     limb(hip, j[6], j[7], H * .21, H * .21), limb(hip, j[8], j[9], H * .21, H * .21)]
     .map(p => p.map(([x, y]) => [x * dir, y] as Point));
-  return { parts, head: [head[0] * dir, head[1]], headR: r, bob: 0 };
+  // Body: a bean (tapered capsule) from hip to shoulders, wider at the shoulders.
+  const ux = Math.sin(lean), uy = -Math.cos(lean), rs = H * .0375, rh = H * .03, ch: Point = [hip[0] + ux * H * .04, hip[1] + uy * H * .04];
+  const cap = (c: Point, rr: number, a0: number): Point[] => Array.from({ length: 13 }, (_, i) => { const a = a0 + i / 12 * Math.PI; return [c[0] + rr * (Math.cos(a) * -uy + Math.sin(a) * ux), c[1] + rr * (Math.cos(a) * ux + Math.sin(a) * uy)] as Point; });
+  const body = [...cap(shoulder, rs, 0), ...cap(ch, rh, Math.PI)].map(([x, y]) => [x * dir, y] as Point);
+  return { parts, head: [head[0] * dir, head[1]], headR: r, bob: 0, body };
 }

@@ -197,3 +197,13 @@ describe("compile: fitting motion without inserting silence", () => {
     expect(() => compile(sc, [fakeAudio("one three")], 0)).toThrow(/two/);
   });
 });
+
+it("delay shifts an action past its anchor word, and a delayed repeat on the same word is not a conflict", () => {
+  const sc = Scene.parse({ scene: "d", objects: [{ id: "a", type: "text", text: "hi" }], beats: [{ say: "one two three", actions: [
+    { at: "one", do: "create", target: "a" }, { at: "one", do: "fade", target: "a", to: .5, delay: .7 }] }] });
+  expect(validateScene(sc)).toEqual([]);
+  const words = ["one", "two", "three"].map((word, i) => ({ word, start: i, end: i + .8 }));
+  const fade = compile(sc, [{ words, duration: 3 }]).events.find(e => e.verb === "fade")!;
+  expect(fade.start).toBeCloseTo(.7);
+  expect(fade.args.delay).toBeUndefined();
+});
