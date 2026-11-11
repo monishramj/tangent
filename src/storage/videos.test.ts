@@ -85,3 +85,23 @@ it("stores checkpoints on the bundle without marking it incomplete, and replays 
   expect(events.map(e => e.type)).toEqual(["scene", "checkpoints"]);
   expect(events[1]).toMatchObject({ items: [{ id: "cp1" }] });
 });
+
+// Textbook follow-along (docs/textbook-follow.md): beat → passage boxes persist so replay needs no regeneration.
+it("persists and replays per-beat passage boxes; old bundles replay without them", async () => {
+  const boxes = [[{ page: 3, bbox: [0.1, 0.2, 0.9, 0.3] as [number, number, number, number] }], []];
+  const store = fakeVideoStore();
+  await drain(recordStream(of([{ ...ev(1), passages: boxes } as PipelineEvent, ev(2)]), { id: "v", title: "t", source }, store));
+  await new Promise(r => setTimeout(r, 0));
+  const saved = await store.load("v");
+  expect(saved.scenes[0].passages).toEqual(boxes);
+  expect(saved.scenes[1].passages).toBeUndefined();
+  const replayed: PipelineEvent[] = [];
+  for await (const e of replayStream(saved)) replayed.push(e);
+  expect(replayed[0]).toMatchObject({ type: "scene", passages: boxes });
+  expect("passages" in replayed[1]).toBe(false);
+  // A bundle saved before this feature (no passages anywhere) still replays scene for scene.
+  const old = { ...saved, scenes: saved.scenes.map(({ passages: _p, ...s }) => s) };
+  const oldEvents: PipelineEvent[] = [];
+  for await (const e of replayStream(old)) oldEvents.push(e);
+  expect(oldEvents.map(e => e.type === "scene" && "passages" in e)).toEqual([false, false]);
+});

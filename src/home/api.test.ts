@@ -75,3 +75,43 @@ it("sectionsText: single id is untouched; several get ## titles in order", async
   expect(await sectionsText(ir, ["a"])).toBe("body a");
   expect(await sectionsText(ir, ["a", "a1"])).toBe("## A\n\nbody a\n\n## A1\n\nbody a1");
 });
+
+// Textbook follow-along (docs/textbook-follow.md).
+describe("sectionsPassages / sectionPages / pdfPage", () => {
+  const box = (page: number) => ({ page, bbox: [0, 0, 1, 1] as [number, number, number, number] });
+  const p = (id: string, page = 1) => ({ id, markdown: id, boxes: [box(page)] });
+  const child = { id: "c", title: "c", level: 3, anchors: [{ page: 4 }], children: [], passages: [p("p3", 4)] };
+  const ir = { sections: [
+    { id: "a", title: "a", level: 2, anchors: [{ page: 2 }, { page: 4 }], children: [child], passages: [p("p1", 2), p("p2", 2)] },
+    { id: "b", title: "b", level: 2, anchors: [{ page: 9 }], children: [], passages: [p("p4", 9)] },
+    { id: "old", title: "old", level: 2, anchors: [{ page: 7 }], children: [] },
+  ] };
+
+  it("collects passages of the sections and their descendants in the given order, without duplicates", async () => {
+    const { sectionsPassages } = await import("./api");
+    expect(sectionsPassages(ir, ["a"]).map(x => x.id)).toEqual(["p1", "p2", "p3"]);
+    expect(sectionsPassages(ir, ["b", "a", "c"]).map(x => x.id)).toEqual(["p4", "p1", "p2", "p3"]);
+    expect(sectionsPassages(ir, ["old"])).toEqual([]); // IR cached before passages existed
+    expect(sectionsPassages(ir, ["nope"])).toEqual([]);
+  });
+
+  it("drops malformed passages from a hand-edited or partial cache", async () => {
+    const { sectionsPassages } = await import("./api");
+    const bad = { sections: [{ id: "x", title: "x", level: 1, anchors: [], children: [], passages: [p("ok"), { id: 3 }, { id: "nobox", markdown: "m" }, null] }] };
+    expect(sectionsPassages(bad as never, ["x"]).map(x => x.id)).toEqual(["ok"]);
+  });
+
+  it("sectionPages: sorted unique pages for a joined video section id", async () => {
+    const { sectionPages } = await import("./api");
+    expect(sectionPages(ir, "a")).toEqual([2, 4]);
+    expect(sectionPages(ir, "b+a")).toEqual([2, 4, 9]);
+    expect(sectionPages(ir, "missing")).toEqual([]);
+  });
+
+  it("pdfPage wraps the sidecar pdf_page call", async () => {
+    const { pdfPage } = await import("./api");
+    vi.mocked(invoke).mockResolvedValueOnce({ url: "data:image/png;base64,x", width: 600, height: 800 });
+    expect(await pdfPage("/b.pdf", 3, 640)).toEqual({ url: "data:image/png;base64,x", width: 600, height: 800 });
+    expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "pdf_page", params: { path: "/b.pdf", page: 3, width: 640 } });
+  });
+});

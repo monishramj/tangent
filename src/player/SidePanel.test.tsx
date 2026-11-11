@@ -118,3 +118,15 @@ it("tutor answers render inline LaTeX with KaTeX and keep markup as text", () =>
   expect(dialog.textContent).toContain("<script>alert(1)</script>");
   expect(dialog.textContent).toContain("<b>hi</b>");
 });
+
+it("shows a Textbook tab only when textbook content is given", () => {
+  setup();
+  expect(screen.queryByRole("tab", { name: "Textbook" })).toBeNull();
+  cleanup();
+  const p = setup({ textbook: <div>PDF pages</div> });
+  fireEvent.click(screen.getByRole("tab", { name: "Textbook" }));
+  expect(p.onTab).toHaveBeenCalledWith("textbook");
+  cleanup();
+  setup({ tab: "textbook", textbook: <div>PDF pages</div> });
+  expect(screen.getByText("PDF pages")).toBeTruthy();
+});

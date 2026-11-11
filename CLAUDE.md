@@ -212,6 +212,8 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## Current state (keep this section current)
 
+**Textbook follow-along: design + failing tests (2026-11-11):** Player side-panel tab "Textbook" showing the source PDF pages with the passage the current beat rewrites highlighted (auto-follow, free scroll, "Back to current"). Design and the two parallel work packages (A data: sidecar passages + `pdf_page`, script ids, bundle; B UI: tab, overlay, follow reducer) are in `docs/textbook-follow.md`; the shared contract is `src/follow/types.ts`. Tests are written first and fail until the packages land: `sidecar/tests/test_passages.py`, `src/follow/*.test.ts`, `src/player/Textbook.test.tsx`, plus new blocks in the script, api, videos, streamVideo and SidePanel tests. `tsc` fails on those test files until both packages merge. Pages are rendered by the sidecar (pypdfium2), not the blob iframe, because an overlay can't be positioned on WebKit's built-in PDF viewer.
+
 **Library layout follow-up (2026-11-11):** Only the big home heading is lowercase (“library”). Buttons, labels, section headers, titles and names retain their normal case; the shared library shell no longer transforms text. Loose pages and recent videos keep equal-width bordered panels, matching minimum heights, and aligned row heights; the shared grid stretches both panels to the taller content.
 
 **Library layout cleanup (2026-11-11):** Home is titled “library” with the introductory and dropzone taglines removed. Folders and the PDF dropzone stay above two columns: loose pages left, recent videos right; below 700px the columns stack. All 17 Home tests and the production build pass. Browser verification covered the empty desktop layout; populated native data remains unchecked because the browser has no Tauri bridge.
@@ -345,6 +347,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Array heaps: max by default, `heap: "min"` option.
 
 ## Decisions (Monish)
+- Textbook follow-along (2026-11-11): passage-level highlights, auto-follow + free scroll with Back to current, mapping saved in the bundle, old bundles show pages without highlights. Cached IRs are not re-ingested automatically.
 - Library follow-up (2026-11-11): lowercase is the home heading only (“library”); everything else keeps normal case. Keep equally sized loose-page and recent-video panels.
 - Library home (2026-11-11): concise copy, folders above loose pages and recent videos in two columns, with the PDF dropzone retained.
 - PDF parser: **Docling** (MIT, bundles cleanly). Marker dropped.
