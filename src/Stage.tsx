@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import "pixi.js/unsafe-eval"; // CSP has no 'unsafe-eval': Pixi's eval-free shader/uniform path
 import { Application } from "pixi.js";
 import "katex/dist/katex.min.css";
 import type { Timeline } from "@motion/dsl/compile";

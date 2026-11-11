@@ -5,4 +5,6 @@ export const devlog = (msg: string) => { if (on) void invoke("dev_log", { msg: `
 if (on) {
   window.addEventListener("error", e => devlog(`window.error ${e.message} @${e.filename}:${e.lineno}`));
   window.addEventListener("unhandledrejection", e => devlog(`unhandledrejection ${String(e.reason)}`));
+  // CSP (tauri.conf.json devCsp) blocks show up here instead of silently breaking a gif, figure or audio load.
+  document.addEventListener("securitypolicyviolation", e => devlog(`CSP blocked ${e.effectiveDirective} ${e.blockedURI || "(inline)"} @${e.sourceFile}:${e.lineNumber}`));
 }
