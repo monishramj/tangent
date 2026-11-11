@@ -190,3 +190,56 @@ it("debounces sharper renders, keeps the old image visible, and never rerenders 
     scroll.mockRestore();
   } finally { vi.useRealTimers(); }
 });
+
+const streamed: FollowScene[] = [...mapped, { ...mapped[0], passages: [[{ page: 12, bbox: [0, 0.2, 1, 0.3] }], [{ page: 13, bbox: [0, 0.2, 1, 0.3] }]] }];
+
+it.each(["Zoom in", "Zoom out"])("preserves manual %s when streamed passages change fit", async (button) => {
+  const view = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  await screen.findByAltText("Page 12");
+  const root = screen.getByLabelText("Textbook pages");
+  fireEvent.click(screen.getByRole("button", { name: button }));
+  const manual = root.style.getPropertyValue("--page-w");
+  view.rerender(<Textbook source={source} scenes={streamed} time={0.5} renderPage={renderPage} />);
+  expect(root.style.getPropertyValue("--page-w")).toBe(manual);
+  fireEvent.click(screen.getByRole("button", { name: "Fit width" }));
+  expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBe(360);
+  view.rerender(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  expect(parseFloat(root.style.getPropertyValue("--page-w"))).toBeCloseTo(360 * 0.94 / 0.8);
+});
+
+it("preserves pinch preview and committed zoom across streamed fit changes", async () => {
+  vi.useFakeTimers();
+  try {
+    const view = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+    await act(async () => {});
+    const root = screen.getByLabelText("Textbook pages");
+    const inner = root.querySelector<HTMLElement>(".flow-root")!;
+    const fitted = root.style.getPropertyValue("--page-w");
+    fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, clientX: 100, clientY: 150 });
+    act(() => { vi.advanceTimersByTime(16); });
+    const preview = inner.style.transform;
+    view.rerender(<Textbook source={source} scenes={streamed} time={0.5} renderPage={renderPage} />);
+    expect(root.style.getPropertyValue("--page-w")).toBe(fitted);
+    expect(inner.style.transform).toBe(preview);
+    await act(async () => { vi.advanceTimersByTime(400); });
+    const manual = root.style.getPropertyValue("--page-w");
+    expect(parseFloat(manual)).toBeCloseTo(parseFloat(fitted) * Math.exp(0.2));
+    view.rerender(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+    expect(root.style.getPropertyValue("--page-w")).toBe(manual);
+    expect(screen.getByRole("button", { name: "Fit width" }).getAttribute("aria-pressed")).toBe("false");
+  } finally { cleanup(); vi.useRealTimers(); }
+});
+
+it("button zoom scales page gaps and anchors free scrolling after the content inset", async () => {
+  render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
+  await screen.findByAltText("Page 12");
+  const root = screen.getByLabelText("Textbook pages");
+  const inner = root.querySelector<HTMLElement>(".flow-root")!;
+  root.scrollTop = 20000;
+  vi.spyOn(inner, "getBoundingClientRect").mockReturnValue({ top: 72 - root.scrollTop } as DOMRect);
+  const scroll = vi.spyOn(root, "scrollTo");
+  fireEvent.wheel(root, { deltaY: 200 });
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(inner.style.getPropertyValue("--page-gap")).toBe("15px");
+  expect(scroll).toHaveBeenLastCalledWith({ left: -3, top: 72 + (20000 - 72) * 1.25, behavior: "instant" });
+});

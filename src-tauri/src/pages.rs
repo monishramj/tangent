@@ -216,11 +216,37 @@ fn atomic_write(path: &Path, write: impl FnOnce(&mut File) -> Result<(), String>
     let result = (|| {
         let mut file = File::options().write(true).create_new(true).open(&tmp).map_err(|e| e.to_string())?;
         write(&mut file)?;
+        file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
-        fs::rename(&tmp, path).map_err(|e| e.to_string())
+        fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        File::open(path.parent().ok_or("cache path has no parent")?).and_then(|dir| dir.sync_all()).map_err(|e| e.to_string())?;
+        Ok(())
     })();
     if result.is_err() { let _ = fs::remove_file(tmp); }
     result
+}
+
+fn cache_hit(png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
+    let file = match File::open(png) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    // Read only PNG metadata; incomplete headers are disposable cache misses.
+    let decoder = png::Decoder::new(std::io::BufReader::new(&file));
+    if decoder.read_info().is_err() { return Ok(None); }
+    if let Ok(text) = fs::read_to_string(size) {
+        let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+        if let [w, h, count] = dims.as_slice() {
+            if page > *count { return Err(format!("page must be in 1..={count}")); }
+            let now = SystemTime::now();
+            let _ = file.set_modified(now);
+            let _ = File::open(size).and_then(|f| f.set_modified(now));
+            return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
+        }
+    }
+    Ok(None)
 }
 
 fn cached_page(base: &Path, path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result<Page, String> {
@@ -229,18 +255,7 @@ fn cached_page(base: &Path, path: &Path, page: u32, width: u32, resource: Option
     let dir = root.join(cache_key(path)?);
     let png = dir.join(format!("{page}-{width}.png"));
     let size = dir.join(format!("{page}.size"));
-    if png.is_file() {
-        if let Ok(text) = fs::read_to_string(&size) {
-            let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
-            if let [w, h, count] = dims.as_slice() {
-                if page > *count { return Err(format!("page must be in 1..={count}")); }
-                let now = SystemTime::now();
-                File::open(&png).and_then(|f| f.set_modified(now)).map_err(|e| e.to_string())?;
-                File::open(&size).and_then(|f| f.set_modified(now)).map_err(|e| e.to_string())?;
-                return Ok(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h });
-            }
-        }
-    }
+    if let Some(hit) = cache_hit(&png, &size, page)? { return Ok(hit); }
     let (rgb, pixels_high, w, h, count) = render(path, page, width, resource)?;
     let _write_lock = CACHE_WRITE_LOCK.lock().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -387,8 +402,8 @@ mod tests {
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 0, 0]));
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 255, 255]));
         File::open(&first.path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
-        let renders = RENDERS.load(Ordering::Relaxed);
         let _lock = PDFIUM_LOCK.lock().unwrap();
+        let renders = RENDERS.load(Ordering::Relaxed);
         let second = cached_page(&base, &path, 2, 150, None).unwrap();
         assert_eq!(first.path, second.path);
         assert_eq!((second.width, second.height), (300, 600));
@@ -403,6 +418,32 @@ mod tests {
             let reader = png::Decoder::new(std::io::BufReader::new(File::open(a.path).unwrap())).read_info().unwrap();
             assert_eq!((reader.info().width, reader.info().height), (160, 80));
         });
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn missing_or_truncated_cache_hits_render_again() {
+        let base = tmp("cache-miss");
+        let path = pdf(&base);
+        let first = cached_page(&base, &path, 1, 150, None).unwrap();
+        let png = Path::new(&first.path);
+        let size = png.parent().unwrap().join("1.size");
+        fs::remove_file(png).unwrap();
+        // Exercise the hit path directly, as if pruning ran after an existence check.
+        assert!(cache_hit(png, &size, 1).unwrap().is_none());
+        let restored = cached_page(&base, &path, 1, 150, None).unwrap();
+        assert_eq!(restored.path, first.path);
+        assert!(cache_hit(png, &size, 1).unwrap().is_some());
+        for truncated in [b"\x89PNG\r\n\x1a\n".as_slice(), b"not a PNG".as_slice()] {
+            fs::write(png, truncated).unwrap();
+            assert!(cache_hit(png, &size, 1).unwrap().is_none());
+            let restored = cached_page(&base, &path, 1, 150, None).unwrap();
+            assert_eq!((restored.width, restored.height), (200, 100));
+            let mut reader = png::Decoder::new(std::io::BufReader::new(File::open(png).unwrap())).read_info().unwrap();
+            assert_eq!((reader.info().width, reader.info().height), (150, 75));
+            let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+            reader.next_frame(&mut pixels).unwrap();
+        }
         fs::remove_dir_all(base).unwrap();
     }
 

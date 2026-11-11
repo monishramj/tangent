@@ -1,7 +1,7 @@
 # CLAUDE.md: Tangent
 
 > **Tangent**: a desktop app that turns textbook material into animated explainer videos you can interrupt mid-playback to go off on a tangent.
-> Status (2026-11-11): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Sources-first library with optional class folders and saved videos per PDF, threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (9 human templates, stick figure, the Tangenter). Motion identity pass done (house line, tonal look, spec character, bodies everywhere, leader ticks, bigger card type). Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
+> Status (2026-11-11): **MVP + first v1 pieces.** PDF → Docling IR (cached per source) → Code Report-style script → **templated scenes** → TTS/alignment → streamed 16:9 PixiJS playback → saved bundles. Sources-first library with optional class folders and saved videos per PDF, threaded tutor in a docked glass panel, player with window-attached controls, checkpoint questions, GIPHY reaction gifs. Picture-first template library (9 human templates, stick figure, the Tangenter). Motion identity pass done (house line, tonal look, spec character, bodies everywhere, leader ticks, bigger card type). Streaming zoom and page-cache race follow-ups fixed. Next: dogfood on real CS 251 chapters and fix what breaks (see *Current state*).
 > Owner: Monish. Personal tool first, released open source later.
 
 ## What this is
@@ -212,6 +212,8 @@ Goal: prove *generate → stream → interrupt* and de-risk: (1) can an LLM reli
 
 ## Current state (keep this section current)
 
+**Streaming zoom + durable page cache (2026-11-11):** Textbook page width has one imperative owner, initialized by the fit layout effect; streamed passage changes preserve manual button/pinch zoom, including an active preview, while fit mode follows new passages. Button zoom now shares pinch's content inset and scaled page gaps. Cache hits open the PNG directly and treat missing files or invalid PNG metadata as misses; access timestamps stay best-effort. Atomic cache writes sync the temporary file before rename and the parent directory on Unix. Regression tests cover streamed fit changes, free-scroll zoom anchors, and missing/truncated cache entries. Verified: `tsc --noEmit` clean; Vitest 60 files / 870 passed; Rust 26 passed / 1 ignored benchmark; sidecar pytest 93 passed / 2 deselected. Native hardware pinch and Windows/Linux builds were not rerun.
+
 **Trackpad pinch + compact tabs (2026-11-11):** Textbook pinch previews transform one inner pages wrapper once per animation frame, without changing page widths until 150 ms after the last input. Ctrl/meta-wheel and WebKit gesture events share the preview (no duplicate zoom); commit preserves the pinch anchor and scaled page gaps, with scroll-boundary compensation, then upgrades PDF resolution on the existing 250 ms settle. Follow highlights and Back to current remain on the same page elements. The panel tablist shrink-wraps fixed 40 px icon tabs; the close button stays right-aligned, with keyboard navigation and Checks badges retained. Geometry/unit and UI tests cover batching, deferred widths/renders, gesture handoff and clamps; Orca browser checks measured <0.25 px commit displacement.
 
 **Native PDF pages + cross-platform fixes (2026-11-11):** PDF pages render in Rust (`src-tauri/src/pages.rs`), not the sidecar.
@@ -334,6 +336,10 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - **CSP on (2026-11-10):** `app.security.csp` in `tauri.conf.json` is a strict directive map: scripts `'self'` only, no `'unsafe-eval'` (Pixi via `pixi.js/unsafe-eval` in `Stage.tsx`, zod `jitless` in `src/zodConfig.ts`), network only to IPC, `asset:` and GIPHY, `frame-src blob:` for the PDF preview, `object-src`/`base-uri`/`form-action 'none'`. Styles keep `'unsafe-inline'` (`dangerousDisableAssetCspModification: ["style-src"]`; React/Pixi/KaTeX inline styles). Tauri applies it only to the built app: `tauri dev` on desktop loads Vite directly, so `vite.config.ts` serves the same policy as a header (plus HMR websocket and inline scripts for the Fast Refresh preamble). Violations show as `[webview] CSP blocked …` (`devlog.ts`). New external hosts (Klipy, API providers) must be added to `connect-src`/`img-src`.
 - Merged (2026-11-10, via `review/merge-all`): the audio fix, the Settings side panel + file-based secrets, PocketTTS replacing Kokoro, and the homepage dev design pages (`src/dev/home-design*`).
 
+**Recently fixed (2026-11-11), don't regress:**
+- Streamed passage boxes cannot overwrite manual textbook zoom or a pinch preview; fit mode still follows the updated column width. Zoom buttons scale page gaps and preserve the content inset when anchoring free scrolling.
+- A page cache entry removed by pruning or containing an invalid PNG header falls back to PDFium rendering; timestamp refresh errors never fail a hit. Cache writes sync before publishing the final filename.
+
 **Recently fixed (2026-11-05), don't regress:**
 - **Side panel:** always docks beside the video (width `min(400px,45vw)`, never overlays) and grows open (width keyframe, `.panel-open`) so the video eases smaller. `main` is `overflow-clip`, not `hidden`: the Ask box's autofocus scrolled the overflow-hidden player sideways while the panel slid in (the jagged jump on open). Glass tint via `backgroundOpacity` + `color-scheme: dark`. Header and controls are pinned to the video **column's** top/bottom (window edges), not the video.
 - **"Scene queue is complete" on saved videos:** React re-ran the stream effect on the same `SceneQueue` (Fast Refresh / StrictMode) after `finish()`. `dispose()` now empties and reopens the queue, and the effect resets scenes/done/error.
@@ -376,6 +382,7 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Array heaps: max by default, `heap: "min"` option.
 
 ## Decisions (Monish)
+- Review follow-ups (2026-11-11): keep page-width ownership in the imperative sizing path; recover disposable cache misses without widening the write lock, and sync cache writes before rename.
 - Pinch + compact tabs (2026-11-11): GPU-only pinch preview, one settled layout commit, WebKit gesture support without wheel duplication; the tab bar should only be as wide as its icons.
 - PDF pages (2026-11-11): render in Rust (PDFium, disk cache, `asset:` URLs) instead of the sidecar; the Original PDF tab uses the same page list, dark by default with a saved toggle. Ingest uses Docling `auto` (MPS where supported, CPU for the formula model).
 - Panel polish/replay (2026-11-11): reuse React Bits PillNav's pill/glide design as CSS-only equal-width tabs, without new npm dependencies; replay may backfill missing GIF URLs with a saved key, bounded to 1.5 s per scene, with cards as fallback and no bundle rewrite.
