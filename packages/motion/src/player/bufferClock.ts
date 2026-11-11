@@ -5,13 +5,29 @@
  */
 import { stretch } from "./stretch";
 
-type Ctx = Pick<AudioContext, "currentTime" | "destination" | "createBufferSource" | "createBuffer" | "resume" | "decodeAudioData">;
+type Ctx = Pick<AudioContext, "currentTime" | "state" | "destination" | "createBufferSource" | "createBuffer" | "resume" | "decodeAudioData">;
 let shared: AudioContext | null = null;
 const sharedCtx = () => (shared ??= new AudioContext());
+
+/**
+ * WebKit only lets an AudioContext start inside a user gesture. Scenes arrive minutes after the "Make video" click, so a
+ * context created then stays "suspended": silent, frozen clock, and resume() never settles. Create + resume it on the
+ * first click/keypress anywhere instead; once running it stays running.
+ */
+export function unlockAudioOnGesture(target: Pick<Window, "addEventListener" | "removeEventListener"> = window) {
+  const unlock = () => {
+    const ctx = sharedCtx();
+    void ctx.resume().then(() => { if (ctx.state === "running") ["pointerdown", "keydown"].forEach(t => target.removeEventListener(t, unlock, true)); }, () => {});
+  };
+  ["pointerdown", "keydown"].forEach(t => target.addEventListener(t, unlock, true));
+}
+/** How long play() waits for a suspended context to run before calling it blocked (WebKit leaves resume() pending). */
+export const RESUME_TIMEOUT_MS = 1500;
 
 export class BufferClock extends EventTarget {
   preload = "auto";
   readyState = 0;
+  error: Error | null = null; // like HTMLMediaElement.error: why loading/decoding failed
   private buffer: AudioBuffer | null = null;
   private src: AudioBufferSourceNode | null = null;
   preservesPitch = true; // always: rates ≠ 1 play a WSOLA-stretched copy at 1×, so the voice keeps its pitch
@@ -23,7 +39,7 @@ export class BufferClock extends EventTarget {
   constructor(load: Promise<AudioBuffer>, private ctx: Ctx) {
     super();
     load.then(b => { this.buffer = b; this.readyState = 4; this.dispatchEvent(new Event("canplay")); },
-      () => this.dispatchEvent(new Event("error")));
+      e => { this.error = e instanceof Error ? e : new Error(String(e)); this.dispatchEvent(new Event("error")); });
   }
 
   /** Like <audio>: stopped at the end. Setting currentTime to/past the end keeps it ended, or SceneQueue's boundary() would replay the scene. */
@@ -41,7 +57,14 @@ export class BufferClock extends EventTarget {
     if (!this.buffer || this.src) return Promise.resolve();
     if (this.pos >= this.buffer.duration) this.pos = 0; // like <audio>: play after the end restarts
     this.start();
-    return this.ctx.resume();
+    if (this.ctx.state === "running") return Promise.resolve();
+    // Not running = no sound and a frozen clock. Fail loudly instead of showing captions over silence.
+    const blocked = () => new Error(`Audio is blocked (AudioContext ${this.ctx.state}). Click anywhere, then press play.`);
+    return new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(blocked()), RESUME_TIMEOUT_MS);
+      this.ctx.resume().then(() => this.ctx.state === "running" ? resolve() : reject(blocked()), e => reject(e instanceof Error ? e : blocked()))
+        .finally(() => clearTimeout(t));
+    });
   }
   get playbackRate() { return this.rate; }
   set playbackRate(r: number) {

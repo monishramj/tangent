@@ -106,7 +106,12 @@ export class SceneQueue<T extends QueuedScene = QueuedScene> {
       if (this.entry !== entry || !this.wanted) return;
       entry.player.pause(); this.waiting = true; this.options.onChange?.();
     };
-    const error = () => fail(new Error(`Unable to play scene ${scene.sceneId}`));
+    // A load/decode failure is reported even for a preloading scene: otherwise it is dropped and that scene buffers forever.
+    const error = () => {
+      const e = new Error(`Unable to play scene ${scene.sceneId}: ${(audio as { error?: { message?: string } | null }).error?.message || "audio failed to load"}`);
+      if (this.entry === entry && this.wanted) this.pause();
+      this.options.onError?.(e);
+    };
     audio.addEventListener("ended", ended);
     audio.addEventListener("canplay", ready);
     audio.addEventListener("waiting", stalled);
