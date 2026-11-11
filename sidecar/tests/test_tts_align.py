@@ -17,20 +17,24 @@ def models(monkeypatch):
 
     calls = {"tts_load": 0, "align_load": 0, "voices": [], "texts": []}
 
-    class Pipeline:
-        def __init__(self, **kwargs):
+    class TTSModel:
+        sample_rate = 24000
+
+        @classmethod
+        def load_model(cls):
             calls["tts_load"] += 1
-            assert kwargs["repo_id"] == "hexgrad/Kokoro-82M"
-            self.model = self
+            return cls()
 
-        def to(self, device):
-            return self
-
-        def __call__(self, text, voice):
-            print("model diagnostic")
+        def get_state_for_audio_prompt(self, voice):
             calls["voices"].append(voice)
+            return voice
+
+        def generate_audio(self, state, text):
+            assert not torch.is_inference_mode_enabled()
+            print("model diagnostic")
+            assert state in ("alba", "vera")
             calls["texts"].append(text)
-            return [SimpleNamespace(audio=torch.zeros(12000)) for _ in range(2)]
+            return torch.zeros(24000)
 
     def get_model():
         calls["align_load"] += 1
@@ -41,24 +45,26 @@ def models(monkeypatch):
         return [[SimpleNamespace(start=1 + 12 * i, end=10 + 12 * i + (8 if i else 0))] for i in range(len(tokens))]
 
     import torchaudio
-    monkeypatch.setitem(sys.modules, "kokoro", SimpleNamespace(KPipeline=Pipeline))
+    monkeypatch.setitem(sys.modules, "pocket_tts", SimpleNamespace(TTSModel=TTSModel))
     monkeypatch.setattr(torchaudio.pipelines, "MMS_FA", SimpleNamespace(
         sample_rate=16000, get_model=get_model,
         get_tokenizer=lambda: lambda words: words, get_aligner=lambda: align,
     ))
     tts._load_tts.cache_clear()
+    tts._load_voice.cache_clear()
     tts._load_aligner.cache_clear()
     yield calls
     tts._load_tts.cache_clear()
+    tts._load_voice.cache_clear()
     tts._load_aligner.cache_clear()
 
 
 def test_rpc_wav_alignment_and_warm_models(models, tmp_path):
-    paths = [tmp_path / "first.wav", tmp_path / "second.wav"]
+    paths = [tmp_path / "first.wav", tmp_path / "second.wav", tmp_path / "third.wav"]
     for i, path in enumerate(paths):
         params = {"text": "Hello, !!! world!", "out_path": str(path)}
-        if i:
-            params["voice"] = "af_bella"
+        if i == 2:
+            params["voice"] = "vera"
         result = handle({"id": i, "method": "tts_align", "params": params})
         assert result == {"id": i, "result": {
             "wav_path": str(path), "sec": 1.0,
@@ -69,9 +75,9 @@ def test_rpc_wav_alignment_and_warm_models(models, tmp_path):
         with wave.open(str(path)) as wav:
             assert (wav.getframerate(), wav.getnframes(), wav.getnchannels()) == (24000, 24000, 1)
     assert models["tts_load"] == models["align_load"] == 1
-    assert models["voices"] == ["af_heart", "af_bella"]
-    assert models["texts"] == ["Hello, !!! world!"] * 2
-    assert models["tokens"] == [["hello", "world"]] * 2
+    assert models["voices"] == ["alba", "vera"]
+    assert models["texts"] == ["Hello, !!! world!"] * 3
+    assert models["tokens"] == [["hello", "world"]] * 3
 
 
 def test_segments_get_gaps_and_offset_alignment(models, tmp_path):
@@ -93,6 +99,16 @@ def test_default_gap(models, tmp_path):
     result = handle({"id": 1, "method": "tts_align", "params": {
         "segments": ["Hello world.", "Hello world."], "out_path": str(tmp_path / "x.wav")}})["result"]
     assert result["segments"][1]["start"] == 1.45
+
+
+def test_unexpected_sample_rate_is_rejected(models, monkeypatch, tmp_path):
+    monkeypatch.setattr(sys.modules["pocket_tts"].TTSModel, "sample_rate", 22050)
+    path = tmp_path / "wrong-rate.wav"
+    reply = handle({"id": 1, "method": "tts_align", "params": {
+        "text": "Hello world.", "out_path": str(path)}})
+    assert "Expected 24000 Hz TTS audio, got 22050" in reply["error"]
+    assert models["align_load"] == 0
+    assert not path.exists()
 
 
 @pytest.mark.parametrize("params", [

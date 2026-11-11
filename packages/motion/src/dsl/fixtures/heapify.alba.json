@@ -1,0 +1,127 @@
+[
+  {
+    "duration": 2.56,
+    "words": [
+      {
+        "word": "Heapify",
+        "start": 0.06,
+        "end": 0.484
+      },
+      {
+        "word": "fixes",
+        "start": 0.544,
+        "end": 0.867
+      },
+      {
+        "word": "one",
+        "start": 1.068,
+        "end": 1.209
+      },
+      {
+        "word": "broken",
+        "start": 1.25,
+        "end": 1.532
+      },
+      {
+        "word": "spot",
+        "start": 1.592,
+        "end": 1.895
+      },
+      {
+        "word": "in",
+        "start": 1.975,
+        "end": 2.056
+      },
+      {
+        "word": "a",
+        "start": 2.076,
+        "end": 2.096
+      },
+      {
+        "word": "heap.",
+        "start": 2.177,
+        "end": 2.439
+      }
+    ]
+  },
+  {
+    "duration": 4.72,
+    "words": [
+      {
+        "word": "So",
+        "start": 0.08,
+        "end": 0.141
+      },
+      {
+        "word": "the",
+        "start": 0.181,
+        "end": 0.261
+      },
+      {
+        "word": "parent",
+        "start": 0.301,
+        "end": 0.542
+      },
+      {
+        "word": "swaps",
+        "start": 0.603,
+        "end": 0.924
+      },
+      {
+        "word": "with",
+        "start": 0.964,
+        "end": 1.105
+      },
+      {
+        "word": "its",
+        "start": 1.105,
+        "end": 1.225
+      },
+      {
+        "word": "bigger",
+        "start": 1.265,
+        "end": 1.466
+      },
+      {
+        "word": "child.",
+        "start": 1.506,
+        "end": 1.868
+      },
+      {
+        "word": "Then",
+        "start": 2.45,
+        "end": 2.551
+      },
+      {
+        "word": "we",
+        "start": 2.591,
+        "end": 2.631
+      },
+      {
+        "word": "check",
+        "start": 2.711,
+        "end": 2.852
+      },
+      {
+        "word": "again,",
+        "start": 2.892,
+        "end": 3.214
+      },
+      {
+        "word": "one",
+        "start": 3.856,
+        "end": 3.977
+      },
+      {
+        "word": "level",
+        "start": 4.017,
+        "end": 4.218
+      },
+      {
+        "word": "down.",
+        "start": 4.298,
+        "end": 4.559
+      }
+    ]
+  }
+]

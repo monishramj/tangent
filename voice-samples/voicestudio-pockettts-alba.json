@@ -1,0 +1,15 @@
+{
+  "name": "voicestudio-pockettts-alba",
+  "device": "cpu",
+  "sample_rate": 24000,
+  "generation_sec": 2.06473375094356,
+  "speech_sec": 21.12,
+  "file_sec": 22.12,
+  "rtf": 0.09776201472270644,
+  "load_sec": 18.509061500022653,
+  "segment_times": [
+    0.724525999976322,
+    0.6630155419697985,
+    0.6771922089974396
+  ]
+}

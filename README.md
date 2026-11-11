@@ -5,7 +5,7 @@ Desktop app that turns a textbook PDF section into a narrated, animated explaine
 ## Stack
 
 - **Shell:** Tauri 2 (Rust, `src-tauri/`) with a React + PixiJS frontend (`src/`)
-- **Sidecar:** Python via `uv` (`sidecar/`): Docling PDF ingest, Kokoro TTS (`af_heart`), forced alignment
+- **Sidecar:** Python via `uv` (`sidecar/`): Docling PDF ingest, PocketTTS (`alba`), forced alignment
 - **LLM:** Claude Code headless (`claude -p --model haiku`), no API key needed. The model is set in `src-tauri/src/llm.rs` and `src/llm/claudeCli.ts`.
 
 ## Run

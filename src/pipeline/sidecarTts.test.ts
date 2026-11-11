@@ -19,7 +19,7 @@ it("uses unique temp WAVs, a long timeout, and returns the raw WAV path", async 
   expect(first.sec).toBe(1);
   expect(first.segments).toEqual([{ start: 0, end: 1 }]);
   expect(invoke).toHaveBeenCalledWith("sidecar_call", {
-    method: "tts_align", params: { segments: ["Hello."], out_path: first.wavPath, voice: "af_heart", gap_sec: BEAT_GAP_SEC }, timeoutMs: 300_000,
+    method: "tts_align", params: { segments: ["Hello."], out_path: first.wavPath, voice: "alba", gap_sec: BEAT_GAP_SEC }, timeoutMs: 300_000,
   });
 });
 

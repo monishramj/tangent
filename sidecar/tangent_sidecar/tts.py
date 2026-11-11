@@ -1,4 +1,4 @@
-"""Kokoro synthesis and MMS_FA alignment, adapted from spikes/tts/kokoro/spike.py.
+"""PocketTTS synthesis and MMS_FA alignment.
 
 `tts_align` synthesizes each segment (one narration beat) separately, joins them with
 `gap_sec` of silence, and aligns every segment against its own slice of audio. Each beat
@@ -18,13 +18,17 @@ MAX_GAP_SEC = 5.0
 
 @lru_cache(maxsize=1)
 def _load_tts():
-    import torch
-    from kokoro import KPipeline
+    from pocket_tts import TTSModel
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    pipe = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M", device=device)
-    pipe.model.to(device)
-    return pipe
+    model = TTSModel.load_model()
+    if model.sample_rate != SAMPLE_RATE:
+        raise ValueError(f"Expected {SAMPLE_RATE} Hz TTS audio, got {model.sample_rate}")
+    return model
+
+
+@lru_cache(maxsize=1)
+def _load_voice(voice):
+    return _load_tts().get_state_for_audio_prompt(voice)
 
 
 @lru_cache(maxsize=1)
@@ -82,7 +86,7 @@ def _params(params):
             raise ValueError(f"segment {i} must be a non-empty string")
         if not alignable(seg):
             raise ValueError(f"segment {i} must contain English words for alignment")
-    voice = params.get("voice", "af_heart")
+    voice = params.get("voice", "alba")
     if not isinstance(voice, str) or not voice.strip():
         raise ValueError("voice must be a non-empty string")
     gap = params.get("gap_sec", DEFAULT_GAP_SEC)
@@ -101,12 +105,13 @@ def tts_align(params):
         import torch
         import torchaudio
 
-        pipe = _load_tts()
+        tts = _load_tts()
+        voice_state = _load_voice(voice)
         model, tokenizer, aligner, align_rate = _load_aligner()
         clips, per_segment = [], []
         for text in segments:
-            with torch.inference_mode():
-                audio = np.concatenate([r.audio.cpu().numpy() for r in pipe(text, voice=voice)])
+            # PocketTTS manages no_grad internally; inference_mode breaks its worker threads.
+            audio = tts.generate_audio(voice_state, text).cpu().numpy()
             keep = alignable(text)
             wav = torchaudio.functional.resample(torch.from_numpy(audio)[None], SAMPLE_RATE, align_rate)
             with torch.inference_mode():

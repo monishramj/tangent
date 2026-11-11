@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import heapify from "./fixtures/heapify.json";
-import kokoro from "./fixtures/heapify.kokoro.json";
+import alba from "./fixtures/heapify.alba.json";
 import { compile, DURATION, MIN_SEC, resolveAnchor, type BeatAudio, type Timeline } from "./compile";
 import { Scene } from "./schema";
 import { validateScene } from "./validate";
 
 const scene = Scene.parse(heapify);
 // beats[2] is the reaction: no audio.
-const audio: (BeatAudio | undefined)[] = [kokoro[0], kokoro[1], undefined];
+const audio: (BeatAudio | undefined)[] = [alba[0], alba[1], undefined];
 const PAUSE = 0.25;
 
 // Fake aligner: one word per 0.2s slot, word takes 0.15s, 0.1s lead-in and tail.
@@ -35,7 +35,7 @@ function checkInvariants(tl: Timeline, sc: Scene, au: (BeatAudio | undefined)[],
 }
 
 describe("resolveAnchor", () => {
-  const words = kokoro[1].words;
+  const words = alba[1].words;
   it.each([
     ["swaps", 3],
     ["SWAPS", 3],
@@ -47,26 +47,26 @@ describe("resolveAnchor", () => {
   ])("%s -> %i", (at, want) => expect(resolveAnchor(words, at)).toBe(want));
 });
 
-describe("compile: heapify golden (real Kokoro alignment)", () => {
+describe("compile: heapify golden (real Alba alignment)", () => {
   it("fixture with spoken say text still validates", () => expect(validateScene(heapify)).toEqual([]));
 
   const tl = compile(scene, audio, PAUSE);
   const ev = (verb: string, target?: string) => tl.events.find((e) => e.verb === verb && e.target === target)!;
 
   it("anchors resolve to first-word start times; durations are verb defaults", () => {
-    expect(ev("create", "title")).toMatchObject({ start: 0.302, beat: 0 });
-    expect(ev("create", "title").end).toBeCloseTo(0.302 + DURATION.create, 9);
-    expect(ev("create", "h").start).toBe(0.805);
+    expect(ev("create", "title")).toMatchObject({ start: 0.06, beat: 0 });
+    expect(ev("create", "title").end).toBeCloseTo(0.06 + DURATION.create, 9);
+    expect(ev("create", "h").start).toBe(0.544);
     const hl = ev("highlight", "h.slot[0]");
-    expect(hl.start).toBe(1.449); // "broken spot" -> "broken"
+    expect(hl.start).toBe(1.25); // "broken spot" -> "broken"
     expect(hl.args).toEqual({ color: "burgundy" });
   });
 
   it("beat 1 is offset by beat 0 audio + pause; op reserves the gap to beat end", () => {
-    const b1 = 3.1 + PAUSE;
+    const b1 = 2.56 + PAUSE;
     const op = ev("op", "h");
-    expect(op.start).toBeCloseTo(b1 + 0.842, 9);
-    expect(op.end).toBeCloseTo(b1 + 5.275, 9);
+    expect(op.start).toBeCloseTo(b1 + 0.603, 9);
+    expect(op.end).toBeCloseTo(b1 + 4.72, 9);
     expect(op.args).toEqual({ op: "siftDown", args: [0] });
     expect(ev("transition")).toMatchObject({ beat: 1, args: { type: "cut" } });
     expect(ev("transition").start).toBeCloseTo(b1, 9);
@@ -75,7 +75,7 @@ describe("compile: heapify golden (real Kokoro alignment)", () => {
 
   it("reaction is a timed interstitial after the last speech beat", () => {
     const r = ev("reaction");
-    expect(r.start).toBeCloseTo(3.1 + PAUSE + 5.275 + PAUSE, 9);
+    expect(r.start).toBeCloseTo(2.56 + PAUSE + 4.72 + PAUSE, 9);
     expect(r.end - r.start).toBeLessThanOrEqual(2);
     expect(r).toMatchObject({ beat: 2, args: { intent: "satisfying click" } });
     expect(tl.events.filter((e) => e.verb === "say").map((e) => e.beat)).toEqual([0, 1]);

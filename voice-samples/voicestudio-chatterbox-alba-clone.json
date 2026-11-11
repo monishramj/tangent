@@ -1,0 +1,15 @@
+{
+  "name": "voicestudio-chatterbox-alba-clone",
+  "device": "mlx-metal",
+  "sample_rate": 24000,
+  "generation_sec": 15.453756375005469,
+  "speech_sec": 23.88,
+  "file_sec": 24.88,
+  "rtf": 0.647142226759023,
+  "load_sec": 1.8063360000378452,
+  "segment_times": [
+    7.850235167017672,
+    3.506976082979236,
+    4.096545125008561
+  ]
+}

@@ -3,7 +3,7 @@ import { compileOps, expandOp } from "./ops";
 import { MIN_SEC, type BeatAudio } from "./compile";
 import { Action, Scene, SceneObject } from "./schema";
 import heapify from "./fixtures/heapify.json";
-import kokoro from "./fixtures/heapify.kokoro.json";
+import alba from "./fixtures/heapify.alba.json";
 
 const array = (init: (number | string)[]) => SceneObject.parse({ id: "h", type: "Array", init });
 const tree = (init: (number | null)[]) => SceneObject.parse({ id: "h", type: "Tree", init });
@@ -84,10 +84,10 @@ describe("compileOps", () => {
   it("expands the real fixture at the spoken anchor, preserving the source scene", () => {
     const scene = Scene.parse(heapify);
     const before = structuredClone(scene);
-    const tl = compileOps(scene, [kokoro[0], kokoro[1], undefined]);
+    const tl = compileOps(scene, [alba[0], alba[1], undefined]);
     const steps = tl.events.filter(e => e.beat === 1 && e.target);
     expect(steps.length).toBeGreaterThan(2);
-    expect(steps[0].start).toBeCloseTo(3.1 + 0.25 + 0.842);
+    expect(steps[0].start).toBeCloseTo(2.56 + 0.25 + 0.603);
     expect(tl.events.some(e => e.verb === "op")).toBe(false);
     expect(tl.insertedSilences).toEqual([]);
     expect(scene).toEqual(before);

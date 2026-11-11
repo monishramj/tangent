@@ -16,12 +16,12 @@ describe("applyEventsAt (heapify)", () => {
   });
 
   it("nothing visible before the first anchor", () => {
-    const s = at(0.1);
+    const s = at(0.03);
     expect([...s.objects.values()].every((o) => !o.visible && o.opacity === 0)).toBe(true);
   });
 
   it("title slams in: scaled up mid-create, settles to 1, then fully opaque", () => {
-    const start = 0.302;
+    const start = 0.06;
     const mid = at(start + 0.1).objects.get("title")!;
     expect(mid.visible).toBe(true);
     expect(mid.scale).toBeGreaterThan(1.1);
@@ -30,9 +30,9 @@ describe("applyEventsAt (heapify)", () => {
   });
 
   it("array appears at 'fixes' with the initial values", () => {
-    expect(at(0.7).objects.get("h")!.visible).toBe(false);
-    expect(at(0.9).objects.get("h")!.visible).toBe(true);
-    expect(values(0.9)).toEqual([3, 9, 7, 1, 4]);
+    expect(at(0.5).objects.get("h")!.visible).toBe(false);
+    expect(at(0.6).objects.get("h")!.visible).toBe(true);
+    expect(values(0.6)).toEqual([3, 9, 7, 1, 4]);
   });
 
   it("slot 0 highlight pulses on 'broken', fades after", () => {
