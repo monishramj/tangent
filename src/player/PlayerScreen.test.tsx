@@ -185,10 +185,10 @@ it("reopening Ask at the same moment returns to the open thread; at another mome
   fireEvent.click(askBtn());
   await ask("Why?");
   await screen.findByText(/keeps the heap valid/);
-  fireEvent.click(askBtn()); // close
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" })); // close
   fireEvent.click(askBtn()); // same moment
   expect(screen.getByLabelText("Reply in thread")).toBeTruthy();
-  fireEvent.click(askBtn());
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
   fireEvent.change(screen.getByLabelText("Seek"), { target: { value: String(timeline.totalSec) } }); // > 3 s away
   fireEvent.click(askBtn());
   const box = screen.getByLabelText("Ask about this moment");
@@ -310,7 +310,7 @@ it("a mid-video checkpoint pauses when its scene ends, and Continue resumes the 
   expect(screen.queryByRole("region", { name: "Checkpoint" })).toBeNull();
 });
 
-const openChecks = () => { fireEvent.click(screen.getByRole("button", { name: "Checks" })); return within(screen.getByRole("navigation", { name: "Checks" })); };
+const openChecks = () => { fireEvent.click(screen.queryByRole("tab", { name: "Checks" }) ?? screen.getByRole("button", { name: "Checks" })); return within(screen.getByRole("navigation", { name: "Checks" })); };
 
 it("header buttons are icon-only with tooltips; Checks shows an answered/total badge and opens the Checks tab", async () => {
   const s = setup();
@@ -521,4 +521,23 @@ it("without a frame the question still goes through, text only", async () => {
   await ask("Hm?");
   await screen.findByText(/keeps the heap valid/);
   expect(s.complete.mock.calls[0][1]).toBeUndefined();
+});
+
+it("moves icon tabs and the checks badge into the open panel", async () => {
+  const s = setup();
+  await startWithScene(s);
+  await s.push({ type: "checkpoints", items: [mcq] });
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  expect(screen.queryByRole("button", { name: "Ask" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Transcript" })).toBeNull();
+  const tabs = within(screen.getByRole("tablist"));
+  expect(tabs.getAllByRole("tab").map(t => t.getAttribute("aria-label"))).toEqual(["Checks", "Transcript", "Ask"]);
+  for (const tab of tabs.getAllByRole("tab")) expect(tab.querySelector("svg")).toBeTruthy();
+  expect(tabs.getByTestId("checks-badge").textContent).toBe("0/1");
+  fireEvent.click(tabs.getByRole("tab", { name: "Ask" }));
+  expect(screen.getByRole("dialog", { name: "Side panel" })).toBeTruthy();
+  fireEvent.click(tabs.getByRole("tab", { name: "Transcript" }));
+  expect(tabs.getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
+  expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
 });

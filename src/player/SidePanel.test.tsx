@@ -5,7 +5,7 @@ import SidePanel from "./SidePanel";
 
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const thread = (o: Partial<Thread> = {}): Thread => ({ id: "t1", videoId: "v", t: 65, title: "Why swap?", messages: [{ role: "user", text: "Why swap?", at: 1 }, { role: "tutor", text: "To restore the heap.", at: 2 }], ...o });
 
@@ -93,10 +93,10 @@ it("empty transcript shows a placeholder", () => {
 
 it("Ask and Transcript tabs, plus Checks when given; tabs switch; Escape and close button close", () => {
   const p = setup();
-  expect(screen.getAllByRole("tab").map(t => t.textContent)).toEqual(["Ask", "Transcript"]);
+  expect(screen.getAllByRole("tab").map(t => t.getAttribute("aria-label"))).toEqual(["Transcript", "Ask"]);
   cleanup();
   setup({ checks: <p>checks list</p>, tab: "checks" });
-  expect(screen.getAllByRole("tab").map(t => t.textContent)).toEqual(["Ask", "Transcript", "Checks"]);
+  expect(screen.getAllByRole("tab").map(t => t.getAttribute("aria-label"))).toEqual(["Checks", "Transcript", "Ask"]);
   expect(screen.getByText("checks list")).toBeTruthy();
   cleanup();
   Object.assign(p, setup());
@@ -123,10 +123,59 @@ it("shows a Textbook tab only when textbook content is given", () => {
   setup();
   expect(screen.queryByRole("tab", { name: "Textbook" })).toBeNull();
   cleanup();
-  const p = setup({ textbook: <div>PDF pages</div> });
+  const p = setup({ textbook: <div>PDF pages</div>, checks: <p>checks list</p> });
+  expect(screen.getAllByRole("tab").map(t => t.getAttribute("aria-label"))).toEqual(["Checks", "Textbook", "Transcript", "Ask"]);
+  for (const tab of screen.getAllByRole("tab")) {
+    expect(tab.querySelector("svg")).toBeTruthy();
+    expect(tab.getAttribute("title")).toBe(tab.getAttribute("aria-label"));
+  }
   fireEvent.click(screen.getByRole("tab", { name: "Textbook" }));
   expect(p.onTab).toHaveBeenCalledWith("textbook");
   cleanup();
   setup({ tab: "textbook", textbook: <div>PDF pages</div> });
   expect(screen.getByText("PDF pages")).toBeTruthy();
+});
+
+it("resizes by keyboard, clamps and restores the persisted width", () => {
+  setup();
+  const handle = screen.getByRole("separator", { name: "Resize panel" });
+  const width = () => Number(handle.getAttribute("aria-valuenow"));
+  expect(width()).toBe(400);
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  expect(width()).toBe(424);
+  expect(localStorage.getItem("tangent.panelWidth")).toBe("424");
+  cleanup(); setup();
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("424");
+  for (let i = 0; i < 30; i++) fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowRight" });
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("320");
+  for (let i = 0; i < 50; i++) fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
+  expect(Number(screen.getByRole("separator").getAttribute("aria-valuenow"))).toBe(Math.min(900, window.innerWidth * .7));
+});
+
+it("drags the left edge with pointer capture and stops after release", () => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  setup();
+  const handle = screen.getByRole("separator");
+  handle.setPointerCapture = vi.fn();
+  handle.releasePointerCapture = vi.fn();
+  fireEvent.pointerDown(handle, { button: 0, clientX: 600 });
+  expect(handle.setPointerCapture).toHaveBeenCalled();
+  fireEvent.pointerMove(handle, { clientX: 500 });
+  expect(handle.getAttribute("aria-valuenow")).toBe("500");
+  fireEvent.pointerUp(handle);
+  expect(handle.releasePointerCapture).toHaveBeenCalled();
+  fireEvent.pointerMove(handle, { clientX: 400 });
+  expect(handle.getAttribute("aria-valuenow")).toBe("500");
+});
+
+it("ignores invalid stored widths and works when storage is unavailable", () => {
+  localStorage.setItem("tangent.panelWidth", "NaN");
+  setup();
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("400");
+  cleanup();
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
+  setup();
+  fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe("424");
 });

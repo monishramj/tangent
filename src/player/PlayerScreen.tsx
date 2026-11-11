@@ -392,6 +392,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
         </div>
         <div className={`pointer-events-auto flex items-center gap-0.5`}>
+          {!tab && <>
           {checkpoints.length > 0 && <button type="button" aria-label="Checks" aria-pressed={tab === "checks"} title={`Checks · ${answered} of ${checkpoints.length} answered`} onClick={() => openTab("checks")} className={iconBtn}>
             <Icon icon={CheckListIcon} size={22} />
             <span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>
@@ -399,6 +400,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           {textbook && <button type="button" aria-label="Textbook" aria-pressed={tab === "textbook"} title="Textbook" onClick={() => openTab("textbook")} className={iconBtn}><Icon icon={BookOpen01Icon} size={22} /></button>}
           <button type="button" aria-label="Transcript" aria-pressed={tab === "transcript"} title="Transcript" onClick={() => openTab("transcript")} className={iconBtn}><Icon icon={TextAlignLeftIcon} size={22} /></button>
           <button type="button" aria-label="Ask" aria-pressed={tab === "ask"} title="Ask a question" onClick={() => openTab("ask")} className={iconBtn}><Icon icon={BubbleChatIcon} size={22} /></button>
+          </>}
           <button type="button" aria-label="Toggle fullscreen" title="Fullscreen" onClick={fullscreen} className={iconBtn}><Icon icon={FullScreenIcon} size={22} /></button>
         </div>
       </header>
@@ -458,6 +460,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
 
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}
         onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume}
+        checksBadge={<span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>}
         textbook={textbook ? <Textbook source={textbook} scenes={scenes} time={time} /> : undefined}
         checks={checkpoints.length ? <Checks checkpoints={checkpoints} status={status} active={activeCp?.id} onOpen={openCp} isReady={isReady} onQuiz={openQuiz} complete={done} /> : undefined} />}
 

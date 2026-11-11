@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, TextAlignLeftIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import ShinyText from "@/components/ShinyText";
@@ -9,6 +9,9 @@ import RichText from "./RichText";
 
 export type Tab = "ask" | "transcript" | "checks" | "textbook";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const WIDTH_KEY = "tangent.panelWidth";
+const maxWidth = () => Math.max(320, Math.min(900, window.innerWidth * .7));
+const clampWidth = (width: number) => Math.max(320, Math.min(maxWidth(), width));
 const chip = "inline-flex min-h-8 items-center rounded-full border border-line px-3 text-xs text-subtle tabular-nums transition-colors hover:bg-fg/10 hover:text-fg";
 
 type Props = {
@@ -18,27 +21,68 @@ type Props = {
   onSeek: (t: number) => void; onResume: (t: number) => void;
   /** The Checks tab's content; the tab shows only when given. */
   checks?: ReactNode;
+  checksBadge?: ReactNode;
   textbook?: ReactNode;
 };
 
 // Docked beside the video (never over it). Tinted glass, chat-style threads pinned to video moments.
 export default function SidePanel(p: Props) {
+  const [width, setWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(WIDTH_KEY));
+      return clampWidth(saved > 0 && Number.isFinite(saved) ? saved : 400);
+    } catch { return clampWidth(400); }
+  });
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  const resize = (value: number) => {
+    const next = clampWidth(value);
+    setWidth(next);
+    try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* fine */ }
+  };
+  useEffect(() => {
+    const onResize = () => setWidth(w => clampWidth(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tabs: [Tab, string][] = [["ask", "Ask"], ["transcript", "Transcript"], ...(p.checks ? [["checks", "Checks"] as [Tab, string]] : []), ...(p.textbook ? [["textbook", "Textbook"] as [Tab, string]] : [])];
+  const tabs: [Tab, string, typeof BubbleChatIcon][] = [
+    ...(p.checks ? [["checks", "Checks", CheckListIcon] as [Tab, string, typeof BubbleChatIcon]] : []),
+    ...(p.textbook ? [["textbook", "Textbook", BookOpen01Icon] as [Tab, string, typeof BubbleChatIcon]] : []),
+    ["transcript", "Transcript", TextAlignLeftIcon], ["ask", "Ask", BubbleChatIcon],
+  ];
   return (
     // Always docked beside the video (its width grows open, so the video eases smaller instead of jumping).
     // backgroundOpacity gives the frost a visible tint even with only black behind it.
-    <div className="panel-open flex shrink-0 justify-end overflow-clip py-3 pr-3">
-    <GlassSurface width="min(400px,45vw)" height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    <div className="panel-open relative flex shrink-0 justify-end overflow-clip py-3 pr-3" style={{ "--panel-width": `${width}px` } as CSSProperties}>
+    <div role="separator" aria-orientation="vertical" aria-label="Resize panel" tabIndex={0}
+      aria-valuemin={320} aria-valuemax={maxWidth()} aria-valuenow={width}
+      className="absolute inset-y-3 left-0 z-10 w-2 touch-none cursor-col-resize rounded-full hover:bg-fg/15 focus-visible:bg-fg/15"
+      onPointerDown={e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        drag.current = { x: e.clientX, width };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={e => { if (drag.current) resize(drag.current.width + drag.current.x - e.clientX); }}
+      onPointerUp={e => { if (drag.current) { drag.current = null; e.currentTarget.releasePointerCapture(e.pointerId); } }}
+      onLostPointerCapture={() => { drag.current = null; }}
+      onPointerCancel={() => { drag.current = null; }}
+      onKeyDown={e => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault(); e.stopPropagation();
+          resize(width + (e.key === "ArrowLeft" ? 24 : -24));
+        }
+      }} />
+    <GlassSurface width={width} height="100%" borderRadius={16} backgroundOpacity={0.18}>
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <div role="tablist" className="flex min-w-0 flex-1 gap-0.5 rounded-full border border-line p-1">
-          {tabs.map(([t, label]) => <button key={t} role="tab" type="button" aria-selected={p.tab === t} onClick={() => p.onTab(t)}
-            className={`h-10 min-w-0 flex-1 rounded-full px-1.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}>{label}</button>)}
+          {tabs.map(([t, label, icon]) => <button key={t} role="tab" type="button" aria-label={label} title={label} aria-selected={p.tab === t} onClick={() => p.onTab(t)}
+            className={`relative grid h-10 min-w-0 flex-1 place-items-center rounded-full px-1.5 text-sm transition-colors ${p.tab === t ? "bg-fg/15 text-fg" : "text-muted hover:text-fg"}`}><Icon icon={icon} size={22} />{t === "checks" && p.checksBadge}</button>)}
         </div>
         <button type="button" aria-label="Close panel" onClick={p.onClose} className="ml-auto grid size-10 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
       </header>
