@@ -4,15 +4,13 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
 import Settings from './Settings';
 import SourceView from './SourceView';
-import { listSections, multiTitle, pdfPreview, type IR, type SectionRef } from './api';
-import { hasCachedIr, loadIr } from '../library';
-import { sourceFor, tauriJsonStore, type JsonStore } from '../storage/store';
+import { multiTitle, type IR } from './api';
+import { tauriJsonStore, type JsonStore } from '../storage/store';
 import { addFolder, addSource, deleteFolder, emptyLibrary, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
 import { tauriVideoStore, type VideoBundle, type VideoStore } from '../storage/videos';
-import { sectionTitles } from './sectionTitles';
 import { providers } from '../llm/registry';
 import type { LLMProvider } from '../llm/provider';
-import { ingestQueue } from './ingestQueue';
+import { sourceQueue, preparationLabel, isPreparing } from './ingestQueue';
 import { isDetailLevel, type DetailLevel } from '../gen/script';
 
 export type StartMeta = { pdfPath: string; title: string; detail: DetailLevel };
@@ -34,19 +32,17 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const [detail, setDetail] = useState<DetailLevel>('standard');
   const [videos, setVideos] = useState<VideoBundle[]>([]);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState('');
-  // shortcut: pending uploads live for this app session; persist jobs if restart recovery is needed.
-  const [queue] = useState(() => ingestQueue((path, report) => loadIr(path, report, jsonStore)));
+  const savePreview = useRef<(path: string, preview: { pages: number; thumbnailUrl?: string }) => Promise<void>>(async () => {});
+  const [queue] = useState(() => sourceQueue(jsonStore, provider, (path, preview) => savePreview.current(path, preview)));
   const uploads = useSyncExternalStore(queue.subscribe, queue.snapshot);
   const reserved = useRef(new Set<string>());
   const [over, setOver] = useState(false);
-  const [content, setContent] = useState<{ id: string; ir: IR; sections: SectionRef[] }>();
-  const [cleanup, setCleanup] = useState<'pending' | 'failed' | 'done'>('done');
-  const [cleanupAttempt, setCleanupAttempt] = useState(0);
-  const lastCleanupAttempt = useRef(0);
   const sourceId = route.s === 'source' ? route.sourceId : undefined;
   const source = library.sources.find(s => s.id === sourceId);
-  const progress = uploads.find(item => item.path === source?.pdfPath)?.progress;
+  const job = uploads.find(item => item.path === source?.pdfPath);
+  const content = job?.value;
+  const loading = !content && source && isPreparing(job) ? preparationLabel(job!) : '';
+  const progress = job?.status === 'reading' ? job.progress : undefined;
   const folderId = route.s === 'folder' || route.s === 'source' ? route.folderId : undefined;
   const folder = library.folders.find(f => f.id === folderId);
   // Serialize read/modify/write operations, including background thumbnail updates.
@@ -61,38 +57,21 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     writes.current = write;
     return write;
   };
+  savePreview.current = (path, preview) => update(current => ({ ...current, sources: current.sources.map(s => s.pdfPath === path ? { ...s, pageCount: preview.pages, thumbnailUrl: preview.thumbnailUrl } : s) }));
   useEffect(() => {
     let live = true;
     void Promise.all([readLibrary(jsonStore), store.list(), jsonStore.read<string>('video-detail')]).then(async ([saved, bundles, preference]) => {
       // Recover PDFs referenced by existing saved videos without relying on old localStorage recents.
       const next = bundles.reduce((all, video) => addSource(all, video.source.pdfPath), saved);
       if (next !== saved) await saveLibrary(jsonStore, next);
+      for (const source of next.sources) await queue.restore(source).catch(() => {});
       if (live) { libraryRef.current = next; setLibrary(next); setVideos(recentVideos(bundles)); if (isDetailLevel(preference)) setDetail(preference); setReady(true); }
     }).catch(e => { if (live) setError(`Couldn't open the library: ${String(e)}`); });
     return () => { live = false; };
   }, [jsonStore, store, loadAttempt]);
   useEffect(() => {
-    if (!source) { setLoading(''); return; }
-    const retry = cleanupAttempt !== lastCleanupAttempt.current;
-    lastCleanupAttempt.current = cleanupAttempt;
-    let live = true;
-    setContent(undefined); setError(''); setLoading(`Reading ${source.name}…`); setCleanup('pending');
-    void (async () => {
-      try {
-        const ir = await hasCachedIr(source.pdfPath, jsonStore)
-          ? await loadIr(source.pdfPath, undefined, jsonStore)
-          : await queue.enqueue(source.pdfPath, retry).result;
-        const sections = await listSections(ir);
-        if (!live) return;
-        setContent({ id: source.id, ir, sections }); setLoading('');
-        try {
-          const cleaned = await sectionTitles(source.id, sections, ir, jsonStore, provider, retry);
-          if (live) { setContent({ id: source.id, ir, sections: cleaned.sections }); setCleanup(cleaned.incomplete ? 'failed' : 'done'); }
-        } catch { if (live) setCleanup('failed'); }
-      } catch (e) { if (live) { setLoading(''); setError(`Couldn't read that PDF: ${String(e)}`); setCleanup('failed'); } }
-    })();
-    return () => { live = false; };
-  }, [source?.id, source?.pdfPath, jsonStore, provider, cleanupAttempt]);
+    if (ready) library.sources.forEach(source => queue.enqueue(source.pdfPath));
+  }, [ready, library.sources, queue]);
   const importPaths = async (paths: string[]) => {
     if (!ready) return;
     const accepted: string[] = [];
@@ -106,11 +85,6 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     const target = folderId ?? null;
     try {
       await update(current => accepted.reduce((all, path) => addSource(all, path, target && current.folders.some(f => f.id === target) ? target : null), current));
-      for (const path of accepted) {
-        queue.enqueue(path);
-        const id = sourceFor(path).id;
-        void pdfPreview(path).then(preview => update(current => ({ ...current, sources: current.sources.map(s => s.id === id ? { ...s, pageCount: preview.pages, thumbnailUrl: preview.thumbnailUrl } : s) }))).catch(() => {});
-      }
     } catch (e) { setError(`Couldn't add the PDFs: ${String(e)}`); }
     finally { accepted.forEach(path => reserved.current.delete(path)); }
   };
@@ -139,17 +113,17 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   });
   if (route.s === 'settings') return <Settings onBack={home} />;
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
-    sections={content?.id === source.id ? content.sections : []} videos={recentVideos(videos, new Set([source.pdfPath]))}
+    sections={content?.sections ?? []} videos={recentVideos(videos, new Set([source.pdfPath]))}
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
-    loading={loading} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
+    loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} onRetryCleanup={job?.status === 'failed' ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
-    onGenerate={(ids, detail) => { if (content?.id !== source.id) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
+    onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
   return <LibraryView folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
     onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
-    onOpenSource={id => navigate({ s: 'source', sourceId: id, folderId: folder?.id })} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
+    onOpenSource={id => { setError(''); navigate({ s: 'source', sourceId: id, folderId: folder?.id }); }} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'PDF', extensions: ['pdf'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
     onDropFiles={files => { void importPaths(files.map(file => (file as File & { path?: string }).path ?? file.name)); }}
     uploads={uploads} onRetryUpload={path => { queue.enqueue(path, true); }}

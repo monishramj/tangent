@@ -14,14 +14,14 @@ const cleanTitle = (value: unknown) => sanitizeModelText(value, 100).replace(/\s
 export type SectionTitles = { sections: SectionRef[]; incomplete: boolean };
 
 /** Store titles separately so parser structure and generation boundaries never change. */
-export async function sectionTitles(sourceId: string, sections: SectionRef[], ir: IR, store: JsonStore, provider: LLMProvider, retry = false): Promise<SectionTitles> {
+export async function sectionTitles(sourceId: string, sections: SectionRef[], ir: IR, store: JsonStore, provider?: LLMProvider, retry = false): Promise<SectionTitles> {
   if (!sections.length) return { sections, incomplete: false };
   const key = `titles-${sourceId}`;
   const signature = JSON.stringify(sections.map(s => [s.id, s.title]));
   const cached = await store.read<{ signature: string; titles: unknown[] }>(key).catch(() => null);
   const hit = cached?.signature === signature && Array.isArray(cached.titles) && cached.titles.length === sections.length;
   const titles = sections.map((_, i) => hit ? cleanTitle(cached.titles[i]) || null : null);
-  if (!hit || retry) {
+  if (provider && (!hit || retry)) {
     const nodes = new Map<string, IR['sections'][number]>();
     const visit = (items: IR['sections']) => { for (const item of items) { nodes.set(item.id, item); visit(item.children); } };
     visit(ir.sections);

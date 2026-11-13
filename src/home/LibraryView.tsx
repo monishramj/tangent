@@ -11,7 +11,7 @@ import Select from '@/components/ui/Select';
 import Menu from '@/components/ui/Menu';
 import { videoDuration, type VideoBundle } from '../storage/videos';
 import type { LoadProgress } from '../library';
-import type { IngestItem } from './ingestQueue';
+import { isPreparing, preparationLabel, type IngestItem } from './ingestQueue';
 import logo from '../../assets/tangent-icon.png';
 import './views.css';
 
@@ -21,7 +21,7 @@ export type SourceSummary = {
 };
 export type FolderSummary = {
   id: string; name: string; emoji?: string; sourceCount: number;
-  sources?: { name: string; thumbnailUrl?: string }[];
+  sources?: { name: string; pdfPath?: string; thumbnailUrl?: string }[];
 };
 type Mutation = void | Promise<void>;
 export type LibraryViewProps = {
@@ -72,6 +72,10 @@ export function VideoList({ videos, onOpen, onDelete, label = 'Recent videos' }:
       <button className="tl-icon-button" aria-label={`Delete ${v.title}`} onClick={() => { setConfirm(v.id); setError(''); }}><Icon icon={MoreHorizontalIcon} size={18} /></button></div>
     {confirm === v.id && <div className="tl-confirm"><span>Delete this saved video?</span><button className="tl-text-button" disabled={deleting} onClick={() => void remove(v.id)}>Confirm delete</button><button className="tl-text-button" disabled={deleting} onClick={() => setConfirm(null)}>Keep</button></div>}
   </li>)}</ul>{error && <p className="tl-error" role="alert">{error}</p>}</>;
+}
+
+export function PreparationOverlay({ item }: { item?: IngestItem<unknown> }) {
+  return isPreparing(item) ? <span className="tl-preparation-overlay" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 4C9 3 4 9 4 16s5 12 12 12 12-5 12-12S23 4 16 4" /></svg></span> : null;
 }
 
 export default function LibraryView(props: LibraryViewProps) {
@@ -125,9 +129,9 @@ export default function LibraryView(props: LibraryViewProps) {
         {!allFolders && <div className="tl-shelf-heading"><h2>Recently opened</h2>{folders.length > 3 && <button className="tl-text-button" onClick={() => setAllFolders(true)}>See all <Icon icon={ArrowRight01Icon} size={16} /></button>}</div>}
         {shownFolders.length ? <><div className="tl-shelf-books">{shownFolders.map(f => <div className={`tl-shelf-book ${opening === f.id ? 'tl-opening' : ''}`} key={f.id}>
           <Folder label={f.name} cover={<span className="tl-folder-emoji">{f.emoji || '📚'}</span>} mode="book" layout="stack" variant="matte" color="#393939" paperColor="#d6d3cb" size={1.05}
-            items={(f.sources ?? []).slice(0, 3).map(s => ({ title: s.name, image: s.thumbnailUrl, alt: `First page of ${s.name}` }))}
+            items={(f.sources ?? []).slice(0, 3).map(s => ({ title: s.name, content: <span className="tl-preview-page">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt={`First page of ${s.name}`} /> : <Icon icon={File02Icon} size={24} />}<PreparationOverlay item={props.uploads?.find(item => item.path === s.pdfPath)} /></span> }))}
             open={opening === f.id} peek intro={false} tilt={1} bounce={0.1} draggable={false} zoomOnClick={false} closeOnOutsideClick={false} onOpenChange={open => { if (open) openFolder(f.id); }} />
-          <button className="tl-book-caption" onClick={() => openFolder(f.id)}><strong>{f.name}</strong><small>{f.sourceCount} {f.sourceCount === 1 ? 'PDF' : 'PDFs'}</small></button>
+          <button className="tl-book-caption" onClick={() => openFolder(f.id)}><strong>{f.name}</strong><small>{f.sourceCount} {f.sourceCount === 1 ? 'PDF' : 'PDFs'}</small>{(f.sources ?? []).filter(s => props.uploads?.some(item => item.path === s.pdfPath && item.status !== 'done')).map(s => <small key={s.pdfPath}>{s.name} · {preparationLabel(props.uploads!.find(item => item.path === s.pdfPath)!)}</small>)}</button>{(f.sources ?? []).filter(s => props.uploads?.some(item => item.path === s.pdfPath && item.status === 'failed')).map(s => <button key={s.pdfPath} className="tl-text-button" aria-label={`Retry ${s.name}`} onClick={() => props.onRetryUpload?.(s.pdfPath!)}>Retry {s.name}</button>)}
         </div>)}</div>{!allFolders && <div className="tl-shelf-edge" />}</> : <p className="tl-empty">Folders are optional. Add one for a class, or keep your PDFs below.</p>}
       </section>}
       {!isAllFolders && <>
@@ -150,7 +154,7 @@ export default function LibraryView(props: LibraryViewProps) {
   function sourceList() {
     if (!sources.length) return <p className="tl-empty">{folder ? 'No reading material yet. Drop in your first PDF below.' : 'No PDFs outside folders yet.'}</p>;
     return <ul className="tl-files" aria-label="Reading material">{sources.map(s => { const upload = props.uploads?.find(item => item.path === s.pdfPath); return <li key={s.id}>
-      <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}</span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}{upload && ` · ${upload.status === 'reading' ? `Reading ${Math.round((upload.progress?.fraction ?? 0) * 100)}%` : upload.status === 'queued' ? 'Queued' : upload.status === 'done' ? 'Done' : 'Failed'}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction ?? 0} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
+      <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}<PreparationOverlay item={upload} /></span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}{upload && ` · ${preparationLabel(upload)}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction ?? 0} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
       {upload?.status === 'failed' && <button className="tl-text-button" aria-label={`Retry ${s.name}`} title={upload.error} onClick={() => props.onRetryUpload?.(s.pdfPath)}>Retry</button>}
       <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
     </li>; })}</ul>;
