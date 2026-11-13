@@ -91,7 +91,7 @@ it("empty transcript shows a placeholder", () => {
   expect(screen.getByText(/transcript fills in/i)).toBeTruthy();
 });
 
-it("Ask and Transcript tabs, plus Checks when given; tabs switch; Escape and close button close", () => {
+it("Ask and Transcript tabs, plus Checks when given; tabs switch; close button closes", () => {
   const p = setup();
   expect(screen.getAllByRole("tab").map(t => t.getAttribute("aria-label"))).toEqual(["Transcript", "Ask"]);
   cleanup();
@@ -102,10 +102,8 @@ it("Ask and Transcript tabs, plus Checks when given; tabs switch; Escape and clo
   Object.assign(p, setup());
   fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
   expect(p.onTab).toHaveBeenCalledWith("transcript");
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(p.onClose).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
-  expect(p.onClose).toHaveBeenCalledTimes(2);
+  expect(p.onClose).toHaveBeenCalledTimes(1);
 });
 
 it("tutor answers render inline LaTeX with KaTeX and keep markup as text", () => {

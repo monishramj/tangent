@@ -354,3 +354,26 @@ it('opens a cached source immediately while an upload remains running and anothe
   await act(async () => { finish(ir); });
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/cached.pdf', '/b.pdf']));
 });
+
+it('library shortcuts open the existing folder form, file picker and Settings', async () => {
+  const { container } = setup();
+  await screen.findByText('No recent videos yet.');
+  fireEvent.keyDown(window, { key: 'n', ctrlKey: true, shiftKey: true });
+  expect(screen.getByRole('region', { name: 'Create folder' })).toBeTruthy();
+  const picker = vi.spyOn(container.querySelector('input[type="file"]') as HTMLInputElement, 'click');
+  fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
+  expect(picker).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  fireEvent.keyDown(window, { key: '[', ctrlKey: true });
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+});
+it('hidden Home ignores library and app shortcuts', async () => {
+  const onNavigate = vi.fn();
+  setup({ active: false, onNavigate });
+  await screen.findByText('No recent videos yet.');
+  fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+  fireEvent.keyDown(window, { key: 'n', ctrlKey: true, shiftKey: true });
+  expect(onNavigate).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Create folder' })).toBeNull();
+});

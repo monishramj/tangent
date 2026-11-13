@@ -58,11 +58,6 @@ export default function SidePanel(p: Props) {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [p.onClose]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: [Tab, string, typeof BubbleChatIcon][] = [
     ...(p.checks ? [["checks", "Checks", CheckListIcon] as [Tab, string, typeof BubbleChatIcon]] : []),
     ...(p.textbook ? [["textbook", "Textbook", BookOpen01Icon] as [Tab, string, typeof BubbleChatIcon]] : []),
