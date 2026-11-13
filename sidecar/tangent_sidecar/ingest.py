@@ -25,10 +25,15 @@ def _pick_device(env):
 def _formula_options():
     from docling.datamodel.pipeline_options import CodeFormulaVlmOptions
 
-    o = CodeFormulaVlmOptions.from_preset("codeformulav2")
+    o = CodeFormulaVlmOptions.from_preset("codeformulav2").model_copy(deep=True)  # presets are shared objects
     # Formulas run token-by-token on CPU; a runaway generation burned up to 4096 tokens each.
     o.model_spec.max_new_tokens = 512  # ponytail: raise if long display equations come back truncated
     o.extract_code = False  # code enrichment is off; never send code blocks through the model
+    # The preset forces bf16, which PyTorch runs on Apple CPUs through a scalar fallback:
+    # measured 65x slower per matvec than fp32 (Accelerate) on the M4 Max. fp32 costs ~2x RAM for this small model.
+    for cfg in o.model_spec.engine_overrides.values():
+        if cfg.extra_config.get("torch_dtype") == "bfloat16":
+            cfg.extra_config["torch_dtype"] = "float32"
     return o
 
 

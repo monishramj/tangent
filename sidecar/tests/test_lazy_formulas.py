@@ -50,3 +50,8 @@ def test_match_tolerance():
     wanted = {"1": {"page": 1, "bbox": [.1, .1, .5, .2]}}
     assert ingest.match_formulas(wanted, [(1, [.105, .1, .5, .2], "ok"), (2, [.1, .1, .5, .2], "wrong page")]) == {"1": "ok"}
     assert ingest.match_formulas(wanted, [(1, [.3, .5, .9, .6], "far")]) == {}
+
+
+def test_formula_model_avoids_cpu_bf16():
+    o = ingest._formula_options()
+    assert all(c.extra_config.get("torch_dtype") != "bfloat16" for c in o.model_spec.engine_overrides.values())
