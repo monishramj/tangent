@@ -23,7 +23,7 @@ function Check() {
   const deleteVideo = (id: string) => setVideos(v => v.filter(item => item.id !== id));
   return <>{source ? <SourceView source={source} folderName={folders.find(f => f.id === folderId)?.name} sections={sections} videos={videos} onBack={() => setSourceId(null)} onHome={home} onOpenVideo={() => {}} onDeleteVideo={deleteVideo}
     renderPage={renderPage} onGenerate={(ids, detail) => setGenerated(`${ids.join(',')}|${detail}`)} />
-    : <LibraryView folders={folders} sources={sources.filter(s => (s.folderId ?? null) === folderId)} videos={videos} folder={folders.find(f => f.id === folderId)} onOpenFolder={setFolderId} onBack={() => setFolderId(null)} onHome={home} onOpenSource={setSourceId} onOpenVideo={() => {}} onChoosePdf={() => {}} onDropFile={() => {}}
+    : <LibraryView folders={folders} sources={sources.filter(s => (s.folderId ?? null) === folderId)} videos={videos} folder={folders.find(f => f.id === folderId)} onOpenFolder={setFolderId} onBack={() => setFolderId(null)} onHome={home} onOpenSource={setSourceId} onOpenVideo={() => {}} onChoosePdf={() => {}} onDropFiles={() => {}}
       onCreateFolder={(name, emoji) => setFolders(f => [...f, { id: name, name, emoji, sourceCount: 0 }])}
       onRenameFolder={(id, name) => setFolders(f => f.map(item => item.id === id ? { ...item, name } : item))}
       onDeleteFolder={id => { setFolders(f => f.filter(item => item.id !== id)); setSources(s => s.map(item => item.folderId === id ? { ...item, folderId: null } : item)); setFolderId(null); }}

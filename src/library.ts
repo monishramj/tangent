@@ -6,6 +6,10 @@ export type LoadProgress = { fraction: number; label: string };
 const RATE_KEY = "tangent.secPerPage"; // learned from past ingests, so the estimate improves with use
 const rate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 1.2; } catch { return 1.2; } };
 
+export async function hasCachedIr(pdfPath: string, store: JsonStore = tauriJsonStore): Promise<boolean> {
+  return Boolean(await irCache(store).get(sourceFor(pdfPath).id).catch(() => null));
+}
+
 /** Cached IR, else Docling ingest. Docling gives no callbacks, so progress = elapsed vs. pages x learned sec/page, capped at 95%. */
 export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => void, store: JsonStore = tauriJsonStore): Promise<IR> {
   const source = sourceFor(pdfPath);
