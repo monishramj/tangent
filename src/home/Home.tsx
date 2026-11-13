@@ -4,7 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
 import SourceView from './SourceView';
 import { listSections, multiTitle, pdfPreview, type IR, type SectionRef } from './api';
-import { loadIr } from '../library';
+import { hasCachedIr, loadIr } from '../library';
 import { sourceFor, tauriJsonStore, type JsonStore } from '../storage/store';
 import { addFolder, addSource, deleteFolder, emptyLibrary, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
 import { tauriVideoStore, type VideoBundle, type VideoStore } from '../storage/videos';
@@ -78,7 +78,9 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     setContent(undefined); setError(''); setLoading(`Reading ${source.name}…`); setCleanup('pending');
     void (async () => {
       try {
-        const ir = await queue.enqueue(source.pdfPath, retry).result;
+        const ir = await hasCachedIr(source.pdfPath, jsonStore)
+          ? await loadIr(source.pdfPath, undefined, jsonStore)
+          : await queue.enqueue(source.pdfPath, retry).result;
         const sections = await listSections(ir);
         if (!live) return;
         setContent({ id: source.id, ir, sections }); setLoading('');

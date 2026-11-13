@@ -7,7 +7,7 @@ import { memoryJsonStore, sourceFor } from "./storage/store";
 import { fakeVideoStore, type VideoBundle } from "./storage/videos";
 import { scene, timeline } from "@motion/stage/demo";
 
-vi.mock("./library", () => ({ loadIr: vi.fn().mockResolvedValue({ sections: [] }) }));
+vi.mock("./library", async orig => ({ ...(await orig<typeof import("./library")>()), loadIr: vi.fn().mockResolvedValue({ sections: [] }) }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (p: string) => p }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@/Stage", () => ({ default: () => null }));

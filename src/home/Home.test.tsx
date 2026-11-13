@@ -11,7 +11,7 @@ import { fakeVideoStore, type VideoBundle } from '../storage/videos';
 vi.mock('./api', async orig => ({ ...(await orig<typeof import('./api')>()), listSections: vi.fn(), pdfPreview: vi.fn(), pdfPage: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: vi.fn() }));
-vi.mock('../library', () => ({ loadIr: vi.fn() }));
+vi.mock('../library', async orig => ({ ...(await orig<typeof import('../library')>()), loadIr: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/components/ShinyText', () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
 globalThis.IntersectionObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof IntersectionObserver;
@@ -308,4 +308,27 @@ it('native multi-drop passes all paths through validation and the queue', async 
   await screen.findByText('b.pdf');
   expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
+});
+
+it('opens a cached source immediately while an upload remains running and another is queued', async () => {
+  const cached = sourceFor('/cached.pdf');
+  const jsonStore = memoryJsonStore({
+    library: { folders: [], sources: [cached] },
+    [`ir-${cached.id}`]: { ...ir, outline_version: 1 },
+  });
+  let finish!: (value: typeof ir) => void;
+  vi.mocked(loadIr).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  setup({ jsonStore });
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [
+    { name: 'a.pdf', path: '/a.pdf' }, { name: 'b.pdf', path: '/b.pdf' },
+  ] } });
+  await screen.findByText('b.pdf');
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']));
+  fireEvent.click(screen.getByRole('button', { name: /cached.pdf/ }));
+  expect(await screen.findByText('Heaps')).toBeTruthy();
+  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/cached.pdf']);
+  expect(vi.mocked(loadIr)).toHaveBeenLastCalledWith('/cached.pdf', undefined, jsonStore);
+  await act(async () => { finish(ir); });
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/cached.pdf', '/b.pdf']));
 });
