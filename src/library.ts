@@ -6,6 +6,8 @@ export type LoadProgress = { fraction: number; label: string };
 const RATE_KEY = "tangent.secPerPage"; // learned from past ingests, so the estimate improves with use
 const rate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 1.2; } catch { return 1.2; } };
 
+export const cachedIr = (pdfPath: string, store: JsonStore = tauriJsonStore) => irCache(store).get(sourceFor(pdfPath).id).catch(() => null);
+
 export async function hasCachedIr(pdfPath: string, store: JsonStore = tauriJsonStore): Promise<boolean> {
   return Boolean(await irCache(store).get(sourceFor(pdfPath).id).catch(() => null));
 }
@@ -34,7 +36,7 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
     const ir = await ingestPdf(pdfPath, dir);
     if (pages) try { localStorage.setItem(RATE_KEY, String((Date.now() - start) / 1000 / pages)); } catch { /* fine */ }
     onProgress?.({ fraction: 1, label: "Done" });
-    await irCache(store).set(source.id, ir).catch(() => {});
+    await irCache(store).set(source.id, ir);
     return ir;
   } finally { clearInterval(h); }
 }

@@ -259,7 +259,9 @@ it('multi-drops PDFs immediately, skips duplicates and rejects other files while
     report?.({ fraction: .4, label: 'Reading PDF' });
     return new Promise(resolve => { finish = resolve; });
   });
-  const { jsonStore } = setup({ store: fakeVideoStore([video]) });
+  const existing = sourceFor('/book.pdf');
+  const preparedStore = memoryJsonStore({ library: { folders: [], sources: [{ ...existing, pageCount: 8, thumbnailUrl: 'page.png' }] }, [`ir-${existing.id}`]: { ...ir, outline_version: 1 }, [`titles-${existing.id}`]: { signature: JSON.stringify(flat.map(s => [s.id, s.title])), titles: flat.map(s => s.title) } });
+  setup({ jsonStore: preparedStore, store: fakeVideoStore([video]) });
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [
     { name: 'a.pdf', path: '/a.pdf' }, { name: 'b.PDF', path: '/b.PDF' },
@@ -267,7 +269,7 @@ it('multi-drops PDFs immediately, skips duplicates and rejects other files while
   ] } });
   await screen.findByText('b.PDF');
   expect(screen.getByText(/Reading 40%/)).toBeTruthy();
-  expect(screen.getByText(/Queued/)).toBeTruthy();
+  expect(screen.getAllByText(/Queued/).length).toBeGreaterThan(0);
   expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
   expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']);
   fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [{ name: 'c.pdf', path: '/c.pdf' }, { name: 'b.PDF', path: '/b.PDF' }] } });
@@ -276,7 +278,7 @@ it('multi-drops PDFs immediately, skips duplicates and rejects other files while
   expect(screen.getByRole('list', { name: 'Recent videos' })).toBeTruthy();
   await act(async () => { finish(ir); });
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.PDF', '/c.pdf']));
-  expect((jsonStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(4);
+  expect((preparedStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(4);
 });
 
 it('multi-selects into the current folder and failure leaves the next file usable with retry', async () => {
@@ -291,7 +293,7 @@ it('multi-selects into the current folder and failure leaves the next file usabl
   await waitFor(() => expect(vi.mocked(loadIr)).toHaveBeenCalledTimes(3));
   expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf', '/a.pdf']);
   expect((jsonStore.data.get('library') as { sources: { folderId: string }[] }).sources.map(s => s.folderId)).toEqual(['f1', 'f1']);
-  expect(screen.getAllByText(/Done/)).toHaveLength(2);
+  await waitFor(() => expect(screen.getAllByText(/Ready/)).toHaveLength(2));
 });
 
 it('opening a queued PDF shares the background job instead of starting another ingest', async () => {
@@ -335,7 +337,8 @@ it('native multi-drop passes all paths through validation and the queue', async 
 it('opens a cached source immediately while an upload remains running and another is queued', async () => {
   const cached = sourceFor('/cached.pdf');
   const jsonStore = memoryJsonStore({
-    library: { folders: [], sources: [cached] },
+    library: { folders: [], sources: [{ ...cached, pageCount: 8, thumbnailUrl: 'cached.png' }] },
+    [`titles-${cached.id}`]: { signature: JSON.stringify(flat.map(s => [s.id, s.title])), titles: flat.map(s => s.title) },
     [`ir-${cached.id}`]: { ...ir, outline_version: 1 },
   });
   let finish!: (value: typeof ir) => void;
@@ -349,10 +352,21 @@ it('opens a cached source immediately while an upload remains running and anothe
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']));
   fireEvent.click(screen.getByRole('button', { name: /^cached.pdf/ }));
   expect(await screen.findByText('Heaps')).toBeTruthy();
-  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/cached.pdf']);
-  expect(vi.mocked(loadIr)).toHaveBeenLastCalledWith('/cached.pdf', undefined, jsonStore);
+  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']);
+  expect(provider.complete).not.toHaveBeenCalled();
   await act(async () => { finish(ir); });
-  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/cached.pdf', '/b.pdf']));
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
+});
+
+it('resumes unfinished library sources at startup without opening them', async () => {
+  const source = sourceFor('/unfinished.pdf');
+  const jsonStore = memoryJsonStore({ library: { folders: [], sources: [source] } });
+  setup({ jsonStore });
+  await waitFor(() => expect(provider.complete).toHaveBeenCalledTimes(1));
+  await screen.findByText(/Ready/);
+  expect(loadIr).toHaveBeenCalledTimes(1);
+  expect(pdfPreview).toHaveBeenCalledWith('/unfinished.pdf');
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
 });
 
 it('library shortcuts open the existing folder form, file picker and Settings', async () => {
