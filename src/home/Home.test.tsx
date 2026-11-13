@@ -239,10 +239,12 @@ it('opens a Settings screen, persists playback defaults, and returns to the libr
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
   expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback' }));
   fireEvent.change(screen.getByLabelText(/^Speed/), { target: { value: '1.5' } });
   fireEvent.change(screen.getByLabelText(/^Captions/), { target: { value: 'off' } });
   expect(localStorage.getItem('tangent.speed')).toBe('1.5');
   expect(localStorage.getItem('tangent.cc')).toBe('off');
+  fireEvent.click(screen.getByRole('button', { name: 'Updates & About' }));
   expect(screen.getByText(/^Version /)).toBeTruthy();
   expect(screen.getByText('Updates are available in the installed app')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Home' }));

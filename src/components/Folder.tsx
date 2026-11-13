@@ -2252,6 +2252,7 @@ const Folder = ({
       ref={rootRef}
       className={`group/folder relative inline-block align-middle select-none [-webkit-tap-highlight-color:transparent] [&[data-dragging]]:cursor-grabbing [&[data-dragging]_*]:cursor-grabbing! ${className}`.trim()}
       data-mode={book ? 'book' : 'flap'}
+      data-navigation={book && !draggable && !zoomOnClick ? '' : undefined}
       data-variant={variant}
       data-theme={theme === 'light' ? 'light' : 'dark'}
       data-open={isOpen ? '' : undefined}

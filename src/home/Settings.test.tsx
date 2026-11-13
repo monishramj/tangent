@@ -16,11 +16,13 @@ afterEach(() => { cleanup(); delete (window as unknown as { __TAURI_INTERNALS__?
 function openInstalled() {
   Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {} });
   render(<Settings onBack={() => {}} />);
-  return screen.getByRole('region', { name: 'Updates' });
+  fireEvent.click(screen.getByRole('button', { name: 'Updates & About' }));
+  return screen.getByRole('region', { name: 'Updates & About' });
 }
 
 it('explains browser availability without calling native APIs', () => {
   render(<Settings onBack={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Updates & About' }));
   expect(screen.getByText('Updates are available in the installed app')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
   expect(api.getVersion).not.toHaveBeenCalled();
@@ -31,7 +33,7 @@ it('reads the installed version and shows checking then up-to-date state', async
   let finish!: (result: null) => void;
   api.checkForUpdate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const updates = openInstalled();
-  expect(await within(updates).findByText('0.1.1')).toBeTruthy();
+  expect(await within(updates).findByText('Version 0.1.1')).toBeTruthy();
   const button = screen.getByRole('button', { name: 'Check for updates' });
   fireEvent.click(button);
   expect(within(updates).getByRole('status').textContent).toBe('Checking for updates…');
@@ -84,4 +86,23 @@ it('reports version lookup failures while retaining the update check', async () 
   openInstalled();
   expect((await screen.findByRole('alert')).textContent).toContain('version unavailable');
   expect((screen.getByRole('button', { name: 'Check for updates' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('navigates sections without losing playback changes and provides a shortcuts mount point', () => {
+  render(<Settings onBack={() => {}} />);
+  const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+  expect(within(nav).getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('page');
+  fireEvent.click(within(nav).getByRole('button', { name: 'Playback' }));
+  fireEvent.change(screen.getByLabelText(/^Speed/), { target: { value: '1.5' } });
+  fireEvent.click(within(nav).getByRole('button', { name: 'Keyboard shortcuts' }));
+  expect(screen.getByRole('region', { name: 'Keyboard shortcuts' }).querySelector('#settings-shortcuts')).toBeTruthy();
+  fireEvent.click(within(nav).getByRole('button', { name: 'Playback' }));
+  expect((screen.getByLabelText(/^Speed/) as HTMLSelectElement).value).toBe('1.5');
+});
+it('records the time of a successful manual check', async () => {
+  openInstalled();
+  expect(screen.getByText('Not checked yet this visit.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+  await screen.findByText('Tangent is up to date.');
+  expect(screen.getByText(/Last checked/).querySelector('time')?.dateTime).toBeTruthy();
 });
