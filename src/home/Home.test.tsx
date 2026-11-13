@@ -2,11 +2,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Home from './Home';
 import { listSections, pdfPage, pdfPreview } from './api';
+import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { loadIr } from '../library';
 import { memoryJsonStore, sourceFor } from '../storage/store';
 import { fakeVideoStore, type VideoBundle } from '../storage/videos';
 
 vi.mock('./api', async orig => ({ ...(await orig<typeof import('./api')>()), listSections: vi.fn(), pdfPreview: vi.fn(), pdfPage: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: vi.fn() }));
 vi.mock('../library', () => ({ loadIr: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/components/ShinyText', () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
@@ -24,7 +28,7 @@ beforeEach(() => {
   vi.mocked(pdfPreview).mockResolvedValue({ pages: 8, thumbnailUrl: 'data:image/png;base64,abc' });
   provider.complete.mockResolvedValue('{"s1":"Heaps", "s2":"Heapify"}');
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__; });
 function setup(options: Partial<Parameters<typeof Home>[0]> = {}) {
   const store = memoryJsonStore(), onStart = vi.fn(), onOpenVideo = vi.fn();
   const result = render(<Home jsonStore={store} store={fakeVideoStore()} provider={provider} onStart={onStart} onOpenVideo={onOpenVideo} {...options} />);
@@ -33,6 +37,7 @@ function setup(options: Partial<Parameters<typeof Home>[0]> = {}) {
 async function upload(container: HTMLElement, path = '/book.pdf') {
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [{ name: 'book.pdf', path }] } });
+  fireEvent.click(await screen.findByRole('button', { name: /book.pdf/ }));
   await screen.findByText('Heaps');
   await waitFor(() => expect(screen.queryByText('Tidying section titles…')).toBeNull());
 }
@@ -138,8 +143,8 @@ it('rejects non PDFs, reports ingest errors and retries the source', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   vi.mocked(loadIr).mockRejectedValueOnce(new Error('missing file'));
   fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [{ name: 'book.pdf', path: '/book.pdf' }] } });
-  expect((await screen.findByRole('alert')).textContent).toContain('missing file');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry section titles' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry book.pdf' }));
+  fireEvent.click(screen.getByRole('button', { name: /book.pdf.*PDF/ }));
   expect(await screen.findByText('Heaps')).toBeTruthy();
 });
 it('original PDF tab loads native page images on demand', async () => {
@@ -210,6 +215,7 @@ it('shows parser titles while tidying, retains partial success and retries only 
   const { container, jsonStore } = setup();
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [{ name: 'book.pdf', path: '/book.pdf' }] } });
+  fireEvent.click(await screen.findByRole('button', { name: /book.pdf/ }));
   expect(await screen.findByText('Tidying section titles…')).toBeTruthy();
   expect(screen.getByText('Heaps')).toBeTruthy();
   expect(screen.getByText('Heapify')).toBeTruthy();
@@ -223,4 +229,83 @@ it('shows parser titles while tidying, retains partial success and retries only 
   expect(await screen.findByText('Restoring heap order')).toBeTruthy();
   expect(screen.getByText('Binary heaps')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Retry section titles' })).toBeNull();
+});
+
+it('multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO', async () => {
+  let finish!: (value: typeof ir) => void;
+  vi.mocked(loadIr).mockImplementationOnce((_path, report) => {
+    report?.({ fraction: .4, label: 'Reading PDF' });
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const { jsonStore } = setup({ store: fakeVideoStore([video]) });
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [
+    { name: 'a.pdf', path: '/a.pdf' }, { name: 'b.PDF', path: '/b.PDF' },
+    { name: 'a.pdf', path: '/a.pdf' }, { name: 'notes.txt' }, { name: 'book.pdf', path: '/book.pdf' },
+  ] } });
+  await screen.findByText('b.PDF');
+  expect(screen.getByText(/Reading 40%/)).toBeTruthy();
+  expect(screen.getByText(/Queued/)).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
+  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']);
+  fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [{ name: 'c.pdf', path: '/c.pdf' }, { name: 'b.PDF', path: '/b.PDF' }] } });
+  await screen.findByText('c.pdf');
+  expect(screen.getByRole('button', { name: /Choose PDFs/ })).toBeTruthy();
+  expect(screen.getByRole('list', { name: 'Recent videos' })).toBeTruthy();
+  await act(async () => { finish(ir); });
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.PDF', '/c.pdf']));
+  expect((jsonStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(4);
+});
+
+it('multi-selects into the current folder and failure leaves the next file usable with retry', async () => {
+  const jsonStore = memoryJsonStore({ library: { folders: [{ id: 'f1', name: 'Course', emoji: '📚', openedAt: 1 }], sources: [] } });
+  vi.mocked(loadIr).mockRejectedValueOnce(new Error('bad PDF'));
+  const { container } = setup({ jsonStore, route: { s: 'folder', folderId: 'f1' } });
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  expect(input.multiple).toBe(true);
+  fireEvent.change(input, { target: { files: [{ name: 'a.pdf', path: '/a.pdf' }, { name: 'b.pdf', path: '/b.pdf' }] } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry a.pdf' }));
+  await waitFor(() => expect(vi.mocked(loadIr)).toHaveBeenCalledTimes(3));
+  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf', '/a.pdf']);
+  expect((jsonStore.data.get('library') as { sources: { folderId: string }[] }).sources.map(s => s.folderId)).toEqual(['f1', 'f1']);
+  expect(screen.getAllByText(/Done/)).toHaveLength(2);
+});
+
+it('opening a queued PDF shares the background job instead of starting another ingest', async () => {
+  let finish!: (value: typeof ir) => void;
+  vi.mocked(loadIr).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  setup();
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [{ name: 'a.pdf', path: '/a.pdf' }, { name: 'b.pdf', path: '/b.pdf' }] } });
+  fireEvent.click(await screen.findByRole('button', { name: /b.pdf/ }));
+  expect(vi.mocked(loadIr)).toHaveBeenCalledTimes(1);
+  await act(async () => { finish(ir); });
+  expect(await screen.findByText('Heaps')).toBeTruthy();
+  expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']);
+});
+
+
+it('requests native multi-selection and imports every returned PDF', async () => {
+  Object.assign(window, { __TAURI_INTERNALS__: {} });
+  vi.mocked(getCurrentWebview).mockReturnValue({ onDragDropEvent: vi.fn().mockResolvedValue(() => {}) } as unknown as ReturnType<typeof getCurrentWebview>);
+  vi.mocked(open).mockResolvedValue(['/a.pdf', '/b.pdf']);
+  setup();
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: /Choose PDFs/ }));
+  await screen.findByText('b.pdf');
+  expect(open).toHaveBeenCalledWith({ multiple: true, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
+});
+
+it('native multi-drop passes all paths through validation and the queue', async () => {
+  Object.assign(window, { __TAURI_INTERNALS__: {} });
+  let drop!: (event: { payload: { type: string; paths: string[] } }) => void;
+  vi.mocked(getCurrentWebview).mockReturnValue({ onDragDropEvent: vi.fn(callback => { drop = callback; return Promise.resolve(() => {}); }) } as unknown as ReturnType<typeof getCurrentWebview>);
+  setup();
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  act(() => drop({ payload: { type: 'drop', paths: ['/a.pdf', '/b.pdf', '/bad.txt'] } }));
+  await screen.findByText('b.pdf');
+  expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
 });

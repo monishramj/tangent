@@ -107,3 +107,8 @@
 @media(max-width:560px) { .tl-wrap { padding:24px 20px 60px; } .tl-header { margin-bottom:40px; } .tl-heading h1 { font-size:32px; } .tl-drop { flex-wrap:wrap;padding:20px!important; } .tl-drop .tl-quiet { margin-left:40px; } .tl-source-toolbar { flex-wrap:wrap; } .tl-tabs { gap:20px; } .tl-source-toolbar .tl-primary { margin-left:auto; } .tl-source-heading h1 { font-size:30px; } }
 @media(max-width:360px) { .tl-all-folders .tl-shelf-books { grid-template-columns:1fr; } }
 @media(max-height:650px) { .tl-generation { position:static; } }
+
+.tl-file-open progress { appearance:none;border:0;background:#ffffff1f; }
+.tl-file-open progress::-webkit-progress-bar { background:#ffffff1f; }
+.tl-file-open progress::-webkit-progress-value { background:var(--fg-muted); }
+.tl-file-open progress::-moz-progress-bar { background:var(--fg-muted); }
