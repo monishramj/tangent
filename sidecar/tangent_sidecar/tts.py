@@ -104,7 +104,9 @@ def tts_align(params):
         import soundfile as sf
         import torch
         import torchaudio
+        from .limits import limit_torch
 
+        limit_torch()
         tts = _load_tts()
         voice_state = _load_voice(voice)
         model, tokenizer, aligner, align_rate = _load_aligner()

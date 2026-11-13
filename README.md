@@ -46,6 +46,8 @@ In dev, webview events (`status …`, `stream scene …`, `scene attempt N rejec
 
 ## Known issues
 
+- Sidecar CPU: heavy work (Docling, torch, PocketTTS) is capped at ~30% of cores (4 on 14; override with `TANGENT_SIDECAR_THREADS`) and the process runs at `nice 10`. It exits on its own within ~1 s if the app dies (parent-pid watchdog), and Rust kills its whole process group on quit. A sidecar that dies mid-job fails that job ("sidecar exited unexpectedly; retry to restart it"); only the next request respawns it. Wall time/peak CPU before/after were not measured (thermal stop); expect ingest to be somewhat slower.
+
 - **Mid-scene silence drifts A/V.** When the compiler inserts silence inside a scene, the visuals lag the audio (the WAV isn't padded to match).
 - Reaction gifs need a GIPHY key (Settings gear on Home; stored in an owner-only file in app data); without one they render as text cards.
 - **Slow first scene.** Script + first scene still take a while with Haiku (the planning call is gone and the first scene is shorter now).

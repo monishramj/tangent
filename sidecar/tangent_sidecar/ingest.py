@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
+from .limits import limit_torch, threads
 from .postprocess import strip_footers
 
 
@@ -28,13 +29,14 @@ def _load_converter():
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
+    limit_torch()
     device = _pick_device(os.environ.get("TANGENT_DEVICE"))
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
         accelerator_options=AcceleratorOptions(
             device=device,
-            num_threads=int(os.environ.get("TANGENT_THREADS", "8")),
+            num_threads=threads(),
         ),
     )
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
