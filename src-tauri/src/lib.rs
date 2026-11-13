@@ -32,6 +32,9 @@ impl Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
+        // The child leads its own process group (see `spawn`), so this also reaches uv's python grandchild.
+        #[cfg(unix)]
+        unsafe { libc::killpg(self.child.id() as i32, libc::SIGKILL); }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -67,21 +70,29 @@ pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: b
         .unwrap_or_else(|| manifest.join("../sidecar")))
 }
 
+/// Heavy-work thread budget: TANGENT_SIDECAR_THREADS, else ~30% of cores (4 on 14), at least 2.
+fn sidecar_threads() -> usize {
+    std::env::var("TANGENT_SIDECAR_THREADS").ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0)
+        .unwrap_or_else(|| (std::thread::available_parallelism().map_or(4, |n| n.get()) * 3 / 10).max(2))
+}
+
 fn spawn() -> Result<Process, String> {
     let dir = sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from), Path::new(env!("CARGO_MANIFEST_DIR")), cfg!(debug_assertions))?
         .canonicalize().map_err(|e| format!("sidecar directory: {e}"))?;
     let home = llm::home_dir();
     let dirs = llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let uv = llm::resolve("uv", &dirs).ok_or("uv not found in PATH, ~/.local/bin or /opt/homebrew/bin")?;
-    let child = Command::new(uv)
-        .arg("run").arg("--project").arg(&dir).args(["python", "-m", "tangent_sidecar"])
+    let mut cmd = Command::new(uv);
+    cmd.arg("run").arg("--project").arg(&dir).args(["python", "-m", "tangent_sidecar"])
         .current_dir(&dir)
         .env("PATH", std::env::join_paths(&dirs).map_err(|e| e.to_string())?)
+        .env("TANGENT_PARENT_PID", std::process::id().to_string()) // the sidecar's watchdog exits when we do
+        .env("TANGENT_SIDECAR_THREADS", sidecar_threads().to_string())
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(Process::new(child))
+        .stdout(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    Ok(Process::new(cmd.spawn().map_err(|e| e.to_string())?))
 }
 
 fn call(s: &mut Sidecar, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
@@ -94,7 +105,8 @@ fn call(s: &mut Sidecar, method: &str, params: Value, timeout: Duration) -> Resu
         process.stdin.flush().map_err(|e| e.to_string())?;
         let line = process.lines.recv_timeout(timeout).map_err(|e| match e {
             mpsc::RecvTimeoutError::Timeout => "sidecar timed out".to_string(),
-            mpsc::RecvTimeoutError::Disconnected => "sidecar exited".to_string(),
+            // No respawn/retry here: the job fails and only the next request starts a fresh sidecar.
+            mpsc::RecvTimeoutError::Disconnected => "sidecar exited unexpectedly; retry to restart it".to_string(),
         })??;
         let r: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
         if r["id"] != id { return Err(format!("id mismatch: {}", r["id"])); }
@@ -136,10 +148,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {
-            if let RunEvent::Exit = e {
+            // Exit covers window close and quit; ExitRequested fires first, so kill there too.
+            if matches!(e, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 let state = app.state::<State_>();
                 for connection in [&state.work, &state.ping] {
-                    *connection.lock().unwrap() = Sidecar::default();
+                    // try_lock: never hang quit behind a running job; the child's watchdog covers that case.
+                    if let Ok(mut s) = connection.try_lock() { *s = Sidecar::default(); }
                 }
             }
         });
@@ -202,5 +216,33 @@ mod tests {
         assert!(sidecar.proc.is_none());
         sidecar = fake_sidecar();
         assert_eq!(call(&mut sidecar, "ping", json!({}), Duration::from_secs(3)).unwrap(), "pong");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drop_kills_grandchild_and_dead_child_fails_without_respawn() {
+        use std::os::unix::process::CommandExt;
+        // sh -> background sleep (grandchild); after Drop both must be gone.
+        let child = Command::new("sh").args(["-c", "sleep 30 & echo $!; wait"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let mut p = Process::new(child);
+        let pid: i32 = p.lines.recv_timeout(Duration::from_secs(3)).unwrap().unwrap().parse().unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
+        drop(p);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "grandchild outlived the drop");
+
+        // A sidecar that dies mid-job fails that call; it is not restarted inside the same call.
+        let dead = Command::new("sh").args(["-c", "exit 0"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut s = Sidecar { proc: Some(Process::new(dead)), next_id: 0 };
+        std::thread::sleep(Duration::from_millis(100));
+        let err = call(&mut s, "ingest_pdf", json!({}), Duration::from_secs(1)).unwrap_err();
+        assert!(s.proc.is_none(), "{err}");
+    }
+
+    #[test]
+    fn thread_budget_defaults_and_overrides() {
+        assert!(sidecar_threads() >= 2);
     }
 }

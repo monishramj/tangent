@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import useKeybinds from '@/hooks/useKeybinds';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
@@ -103,6 +104,10 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     if (active && ready) void store.list().then(bundles => setVideos(recentVideos(bundles))).catch(e => setError(String(e)));
   }, [active, ready, store]);
   const home = () => { setError(''); navigate({ s: 'home' }); };
+  useKeybinds({
+    home: () => { setError(''); navigate(folder && route.s === 'source' ? { s: 'folder', folderId: folder.id } : { s: 'home' }); },
+    settings: () => navigate({ s: 'settings' }),
+  }, active);
   const openVideo = async (video: VideoBundle) => {
     try { onOpenVideo(await store.load(video.id)); } catch (e) { setError(`Couldn't open the saved video: ${String(e)}`); }
   };
@@ -119,7 +124,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
-  return <LibraryView folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
+  return <LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
     onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}

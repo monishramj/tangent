@@ -9,12 +9,17 @@ import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdate, installUpdate } from "@/update";
 import { version } from "../../package.json";
 
+import logo from "../../assets/tangent-icon.png";
+import ShortcutsSection from "./settings/Shortcuts";
+
+const sections = ["General", "Playback", "Keyboard shortcuts", "Updates & About"] as const;
 const speeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
 function read(key: string, fallback: string) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 }
 
 export default function Settings({ onBack }: { onBack: () => void }) {
+  const [section, setSection] = useState<typeof sections[number]>("General");
   const [speed, setSpeed] = useState(() => { const value = read('tangent.speed', '1'); return speeds.includes(Number(value)) ? value : '1'; });
   const [cc, setCc] = useState(() => read('tangent.cc', 'on') !== 'off');
   const [error, setError] = useState('');
@@ -22,18 +27,21 @@ export default function Settings({ onBack }: { onBack: () => void }) {
     try { localStorage.setItem(key, value); setError(''); return true; }
     catch { setError("Couldn't save playback defaults on this computer."); return false; }
   };
-  return <LibraryShell onHome={onBack}>
+  return <LibraryShell onHome={onBack} wide>
     <button className="tl-back" onClick={onBack}><Icon icon={ArrowLeft01Icon} size={16} />Home</button>
     <div className="tl-heading"><div><h1>Settings</h1><p>Make yourself at home.</p></div></div>
-    <div className="tl-settings">
-      <GiphySetting />
-      <section aria-labelledby="playback-heading"><h2 id="playback-heading">Playback defaults</h2>
+    <div className="tl-settings-layout">
+      <nav className="tl-settings-nav" aria-label="Settings sections">{sections.map(name => <button type="button" key={name} aria-current={section === name ? 'page' : undefined} aria-controls={`settings-${sections.indexOf(name)}`} onClick={() => setSection(name)}>{name}</button>)}</nav>
+      <div className="tl-settings">
+      <div id="settings-0" hidden={section !== 'General'}><h2>General</h2><GiphySetting /></div>
+      <div id="settings-1" hidden={section !== 'Playback'}><section aria-labelledby="playback-heading"><h2 id="playback-heading">Playback defaults</h2>
         <label className="tl-setting-row" htmlFor="default-speed"><span>Speed<small>Used when a video opens.</small></span><Select id="default-speed" value={speed} onChange={e => { if (save('tangent.speed', e.target.value)) setSpeed(e.target.value); }}>{speeds.map(s => <option key={s} value={s}>{s === 1 ? 'Normal' : `${s}×`}</option>)}</Select></label>
         <label className="tl-setting-row" htmlFor="default-cc"><span>Captions<small>Show narration while watching.</small></span><Select id="default-cc" value={cc ? 'on' : 'off'} onChange={e => { if (save('tangent.cc', e.target.value)) setCc(e.target.value === 'on'); }}><option value="on">On</option><option value="off">Off</option></Select></label>
         {error && <p role="alert">{error}</p>}
-      </section>
-      <section aria-labelledby="about-heading"><h2 id="about-heading">About</h2><div className="tl-setting-row"><span>Tangent</span><span className="text-subtle">Version {version}</span></div></section>
-      <Updates />
+      </section></div>
+      <div id="settings-2" hidden={section !== 'Keyboard shortcuts'}><ShortcutsSection /></div>
+      <div id="settings-3" hidden={section !== 'Updates & About'}><Updates /></div>
+      </div>
     </div>
   </LibraryShell>;
 }
@@ -67,6 +75,7 @@ function GiphySetting() {
 function Updates() {
   const desktop = '__TAURI_INTERNALS__' in window;
   const [currentVersion, setCurrentVersion] = useState(version);
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [available, setAvailable] = useState('');
   const [state, setState] = useState<'idle' | 'checking' | 'current' | 'available' | 'installing' | 'restarting'>('idle');
   const [error, setError] = useState('');
@@ -81,7 +90,7 @@ function Updates() {
     setState('checking'); setError('');
     try {
       const update = await checkForUpdate();
-      setAvailable(update?.version ?? ''); setState(update ? 'available' : 'current');
+      setAvailable(update?.version ?? ''); setState(update ? 'available' : 'current'); setLastChecked(new Date());
     } catch (e) { setState('idle'); setError(`Couldn't check for updates: ${String(e)}`); }
   };
   const install = async () => {
@@ -90,10 +99,11 @@ function Updates() {
     catch (e) { setState('available'); setError(`Couldn't install the update: ${String(e)}`); }
   };
   const busy = state === 'checking' || state === 'installing' || state === 'restarting';
-  return <section aria-labelledby="updates-heading"><h2 id="updates-heading">Updates</h2>
+  return <section aria-labelledby="updates-heading"><h2 id="updates-heading">Updates &amp; About</h2>
+    <div className="tl-about"><img src={logo} alt="Tangent logo" /><div><h3>Tangent</h3><p className="text-subtle">Version {currentVersion}</p></div></div>
     {desktop ? <>
-      <div className="tl-setting-row"><span>Current version</span><span className="text-subtle">{currentVersion}</span></div>
       <p role="status" className="text-sm text-subtle">{state === 'checking' ? 'Checking for updates…' : state === 'current' ? 'Tangent is up to date.' : state === 'installing' ? 'Installing update…' : state === 'restarting' ? 'Restarting…' : available ? `Tangent ${available} is available.` : 'Check for the latest version of Tangent.'}</p>
+      <p className="tl-last-checked">{lastChecked ? <>Last checked <time dateTime={lastChecked.toISOString()}>{lastChecked.toLocaleString()}</time></> : 'Not checked yet this visit.'}</p>
       <div className="tl-update-actions">
         <button type="button" className="tl-quiet" disabled={busy} onClick={() => void check()}>Check for updates</button>
         {available && <button type="button" className="tl-primary" disabled={busy} onClick={() => void install()}>Install and restart</button>}

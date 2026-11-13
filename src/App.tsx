@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useKeybinds from "./hooks/useKeybinds";
 import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
 import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
@@ -21,6 +22,7 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
   const [screen, setScreen] = useState<Screen>(initial);
   const inLibrary = screen.s !== 'watch' && screen.s !== 'generate';
   const libraryRoute = inLibrary ? screen : screen.back ?? { s: 'home' as const };
+  useKeybinds({ settings: () => setScreen({ s: 'settings' }) }, !inLibrary);
   return <>
     <div hidden={!inLibrary}><Home store={videoStore} jsonStore={store} provider={provider} route={libraryRoute} active={inLibrary} onNavigate={setScreen}
       onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: libraryRoute })}

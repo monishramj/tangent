@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft02Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import useKeybinds from "@/hooks/useKeybinds";
 import Menu from "@/components/ui/Menu";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
@@ -317,27 +318,27 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const chrome = !playing || !idle || overChrome || speedOpen || !!activeCp || buffering || !canPlay;
   const chromeHover = { onPointerEnter: () => setOverChrome(true), onPointerLeave: () => setOverChrome(false) };
 
-  const keys = useRef({ toggle, seek, time, toggleCc, stepSpeed, poke, blocked: false });
-  keys.current = { toggle, seek, time, toggleCc, stepSpeed, poke, blocked: !!activeCp || !!quiz };
-
-  // Space / K play-pause, arrows ±10 s, C captions, < > speed. Typing never triggers them; an open checkpoint or quiz holds playback.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      const k = keys.current;
-      k.poke();
-      if (e.key === "Escape") setSpeedOpen(false);
-      if (e.metaKey || e.ctrlKey || e.altKey || el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.key === "c") { e.preventDefault(); k.toggleCc(); return; }
-      if (e.key === "<" || e.key === ">") { e.preventDefault(); k.stepSpeed(e.key === ">" ? 1 : -1); return; }
-      if (k.blocked) return;
-      if ((e.key === " " && el.tagName !== "BUTTON") || e.key === "k") { e.preventDefault(); k.toggle(); }
-      else if (e.key === "ArrowLeft") { e.preventDefault(); k.seek(k.time - 10); }
-      else if (e.key === "ArrowRight") { e.preventDefault(); k.seek(k.time + 10); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  const blocked = !!activeCp || !!quiz;
+  useKeybinds({
+    playPause: blocked ? undefined : () => { poke(); toggle(); },
+    seekBack: blocked ? undefined : () => { poke(); seek(time - 10); },
+    seekForward: blocked ? undefined : () => { poke(); seek(time + 10); },
+    seekBack5: blocked ? undefined : () => { poke(); seek(time - 5); },
+    seekForward5: blocked ? undefined : () => { poke(); seek(time + 5); },
+    captions: () => { poke(); toggleCc(); },
+    speedDown: () => { poke(); stepSpeed(-1); },
+    speedUp: () => { poke(); stepSpeed(1); },
+    ask: blocked ? undefined : () => openTab("ask"),
+    transcript: blocked ? undefined : () => openTab("transcript"),
+    textbook: !blocked && textbook ? () => openTab("textbook") : undefined,
+    checks: !blocked && checkpoints.length ? () => openTab("checks") : undefined,
+    closePanel: e => {
+      if (quiz) { e.stopImmediatePropagation(); setQuiz(null); }
+      else { setSpeedOpen(false); setTab(null); }
+    },
+    fullscreen: () => { void fullscreen(); },
+    home: onBack,
+  }, true, true);
 
   const cpIndex = activeCp ? checkpoints.findIndex(c => c.id === activeCp.id) : -1;
   const fmtSpeed = (r: number) => `${r}×`;
@@ -430,17 +431,17 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           })}
         </div>
         <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
-          <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause (Space)" : "Play (Space)"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
+          <button type="button" aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} disabled={!canPlay} onClick={toggle} className={iconBtn}>
             <Icon icon={playing ? PauseIcon : PlayIcon} className="fill-current" /></button>
-          <button type="button" aria-label="Back 10 seconds" title="Back 10 s (←)" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
-          <button type="button" aria-label="Forward 10 seconds" title="Forward 10 s (→)" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
+          <button type="button" aria-label="Back 10 seconds" title="Back 10 seconds" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
+          <button type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
           <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
           <div className="ml-auto flex items-center gap-0.5">
             <Menu label="Playback speed" menuLabel="Speed" trigger={fmtSpeed(speed)} open={speedOpen} onOpenChange={setSpeedOpen} above triggerClassName={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>
               {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" tabIndex={-1} aria-checked={r === speed} onClick={() => changeSpeed(r)}>
                 {r === 1 ? "Normal" : fmtSpeed(r)}{r === speed && <Icon icon={Tick02Icon} size={16} />}</button>)}
             </Menu>
-            <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
+            <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
           </div>
         </div>
       </div>

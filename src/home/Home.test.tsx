@@ -239,10 +239,12 @@ it('opens a Settings screen, persists playback defaults, and returns to the libr
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
   expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback' }));
   fireEvent.change(screen.getByLabelText(/^Speed/), { target: { value: '1.5' } });
   fireEvent.change(screen.getByLabelText(/^Captions/), { target: { value: 'off' } });
   expect(localStorage.getItem('tangent.speed')).toBe('1.5');
   expect(localStorage.getItem('tangent.cc')).toBe('off');
+  fireEvent.click(screen.getByRole('button', { name: 'Updates & About' }));
   expect(screen.getByText(/^Version /)).toBeTruthy();
   expect(screen.getByText('Updates are available in the installed app')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Home' }));
@@ -365,4 +367,27 @@ it('resumes unfinished library sources at startup without opening them', async (
   expect(loadIr).toHaveBeenCalledTimes(1);
   expect(pdfPreview).toHaveBeenCalledWith('/unfinished.pdf');
   expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+});
+
+it('library shortcuts open the existing folder form, file picker and Settings', async () => {
+  const { container } = setup();
+  await screen.findByText('No recent videos yet.');
+  fireEvent.keyDown(window, { key: 'n', ctrlKey: true, shiftKey: true });
+  expect(screen.getByRole('region', { name: 'Create folder' })).toBeTruthy();
+  const picker = vi.spyOn(container.querySelector('input[type="file"]') as HTMLInputElement, 'click');
+  fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
+  expect(picker).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  fireEvent.keyDown(window, { key: '[', ctrlKey: true });
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+});
+it('hidden Home ignores library and app shortcuts', async () => {
+  const onNavigate = vi.fn();
+  setup({ active: false, onNavigate });
+  await screen.findByText('No recent videos yet.');
+  fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+  fireEvent.keyDown(window, { key: 'n', ctrlKey: true, shiftKey: true });
+  expect(onNavigate).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Create folder' })).toBeNull();
 });

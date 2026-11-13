@@ -2,6 +2,7 @@ import json
 import sys
 from typing import Any, NotRequired, TypedDict
 
+from .limits import apply_limits, start_watchdog
 from .tts import tts_align
 from .ingest import ingest_pdf, pdf_info, list_sections, section_text, repair_sections
 
@@ -34,6 +35,8 @@ def handle(req: Request) -> Response:
 
 
 def main() -> None:
+    apply_limits()
+    start_watchdog()
     for line in sys.stdin:
         try:
             res = handle(json.loads(line))
