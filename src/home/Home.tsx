@@ -120,7 +120,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
     sections={content?.sections ?? []} videos={recentVideos(videos, new Set([source.pdfPath]))}
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
-    loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} onRetryCleanup={job?.status === 'failed' ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
+    loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} warning={job?.warning} onRetryCleanup={job?.status === 'failed' || job?.warning ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;

@@ -21,7 +21,7 @@ export type SourceViewProps = {
   renderPage?: RenderPage;
   onDeleteVideo?: (id: string) => void | Promise<void>;
   initialDetail?: DetailLevel; onDetailChange?: (detail: DetailLevel) => void;
-  preparation?: IngestItem<unknown>; loading?: string; progress?: LoadProgress; error?: string; cleanupPending?: boolean; onRetryCleanup?: () => void;
+  preparation?: IngestItem<unknown>; loading?: string; progress?: LoadProgress; error?: string; cleanupPending?: boolean; warning?: string; onRetryCleanup?: () => void;
 };
 const detailLabel: Record<DetailLevel, string> = { overview: 'Overview', standard: 'Standard', detailed: 'Detailed', complete: 'Complete' };
 const detailHint: Record<DetailLevel, string> = {
@@ -81,6 +81,7 @@ export default function SourceView(props: SourceViewProps) {
       {tab === 'sections' ? <div role="tabpanel" id="source-panel-sections" aria-labelledby="source-tab-sections">
         {props.loading ? <div className="tl-loading" role="status"><ShinyText text={props.loading} color="#999" shineColor="#fff" />{props.progress && <><progress aria-label="Reading PDF" value={props.progress.fraction} max={1} /><small>{props.progress.label}</small></>}</div> : <>
           {props.cleanupPending && <p className="tl-status" role="status">Tidying section titles…</p>}
+          {!props.cleanupPending && props.warning && <p className="tl-status" role="status">{props.warning}</p>}
           {props.onRetryCleanup && !props.cleanupPending && <button className="tl-text-button" onClick={props.onRetryCleanup}>{props.sections.length ? 'Retry section titles' : 'Retry PDF'}</button>}
           {selecting && <div className="tl-selection-head"><span>Choose sections<small>Click or drag to select</small></span><button className="tl-text-button" onClick={() => setSelected(selected.size === sections.length ? new Set() : new Set(sections.map(s => s.id)))}>{selected.size === sections.length ? 'Clear selection' : 'Select all'}</button></div>}
           {!sections.length && <p className="tl-empty">No sections found in this PDF. You can still view the original.</p>}
