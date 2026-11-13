@@ -171,3 +171,38 @@ function fakeProcess() {
   return { child, spawn, provider: new ClaudeCodeCLI(spawn) };
 }
 
+
+describe("on-screen number grounding", () => {
+  const nb = [
+    { say: "Appeals to pity are common.", visualIntent: "stat" },
+    { say: "The book counts 12 of them.", visualIntent: "list" },
+    { say: "So watch for pity.", visualIntent: "takeaway" },
+  ];
+  const scene = (value: number) => TemplateScene.parse({ beats: [
+    { say: nb[0].say, template: "stat", data: { value, suffix: "%", label: "of arguments" } },
+    { say: nb[1].say, template: "list", data: { items: [{ text: "12 cases" }, { text: "pity" }] } },
+    { say: nb[2].say, template: "callout", data: { text: "Watch for pity" } },
+  ] });
+  const source = "Appeals to pity appear in 37% of the sample.";
+
+  it("rejects a statistic neither the narration nor the source states", () => {
+    const errs = checkTemplateScene(scene(80), nb, [], [], source);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatchObject({ beat: 0, path: "beats[0].data" });
+    expect(errs[0].message).toContain('"80%"');
+  });
+
+  it("accepts numbers from the source or the narration, and skips the check without a source", () => {
+    expect(checkTemplateScene(scene(37), nb, [], [], source)).toEqual([]);
+    expect(checkTemplateScene(scene(80), nb)).toEqual([]);
+  });
+
+  it("feeds the unsupported number back on the retry", async () => {
+    const provider = mockProvider(JSON.stringify(scene(80)), JSON.stringify(scene(37)));
+    const r = await generateGroupScene({ beats: nb, plan, provider, source });
+    expect(r.attempts).toBe(2);
+    expect(r.scene).not.toBeNull();
+    expect(provider.complete.mock.calls[1][0]).toContain("on-screen number");
+    expect(provider.complete.mock.calls[0][0]).not.toContain(source); // the check costs no prompt tokens
+  });
+});

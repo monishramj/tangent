@@ -168,3 +168,52 @@ describe("generateScript passages", () => {
     expect(r.beats?.[0].passages).toEqual(["p1"]);
   });
 });
+
+describe("generateScript grounding", () => {
+  const source = "Straw man arguments misrepresent a view. A 2019 survey found 41% of students used one.";
+  const beat = (say: string) => ({ say, visualIntent: "x" });
+  const four = (bad: string) => [beat("A straw man misrepresents a view."), beat(bad), beat("So answer the real view."), beat("That is the key move.")];
+
+  it("asks for the source's facts only, hook included", async () => {
+    const provider = mockProvider(JSON.stringify(four("A survey found 41% used one.")));
+    const r = await generateScript({ sectionMarkdown: source, provider });
+    expect(r).toMatchObject({ attempts: 1, violations: [] });
+    const prompt = provider.complete.mock.calls[0][0];
+    expect(prompt).toContain("hook taken from the section");
+    expect(prompt).toContain("every fact, number, date, name and definition in say must come from the source");
+  });
+
+  it("repairs only the beat with an invented number", async () => {
+    const provider = mockProvider(JSON.stringify(four("Nearly 80% of students use one.")), JSON.stringify({ 1: beat("A 2019 survey found 41% used one.") }));
+    const r = await generateScript({ sectionMarkdown: source, provider });
+    expect(r.attempts).toBe(2);
+    expect(r.violations).toEqual([]);
+    expect(r.beats!.map(b => b.say)).toEqual(four("A 2019 survey found 41% used one.").map(b => b.say));
+    const repair = provider.complete.mock.calls[1][0];
+    expect(repair).toContain("unsupported-number");
+    expect(repair).toContain('\\"80%\\"');
+    expect(repair).toContain("Rewrite ONLY beats 1");
+    expect(repair).toContain("<previous_answer>");
+  });
+
+  it("cuts a beat that keeps an invented number instead of failing the video", async () => {
+    const provider = mockProvider(JSON.stringify(four("Nearly 80% of students use one.")), JSON.stringify({ 1: beat("Almost 75% of students use one.") }));
+    const r = await generateScript({ sectionMarkdown: source, provider });
+    expect(r.violations).toEqual([]);
+    expect(r.dropped).toEqual(["Almost 75% of students use one."]);
+    expect(r.beats).toHaveLength(3);
+  });
+
+  it("fails rather than cutting more than a quarter of the script", async () => {
+    const bad = [beat("About 90% agree."), beat("And 70% disagree."), beat("A straw man misrepresents."), beat("Watch for it.")];
+    const r = await generateScript({ sectionMarkdown: source, provider: mockProvider(JSON.stringify(bad), "not json") });
+    expect(r.dropped).toBeUndefined();
+    expect(r.violations.filter(v => v.rule === "unsupported-number")).toHaveLength(2);
+  });
+
+  it("keeps style repairs targeted too and ignores beats it did not ask for", async () => {
+    const provider = mockProvider(JSON.stringify(four("It misleads (a lot).")), JSON.stringify({ 1: beat("A straw man misleads."), 0: beat("Changed!") }));
+    const r = await generateScript({ sectionMarkdown: source, provider });
+    expect(r.beats!.map(b => b.say)).toEqual(["A straw man misrepresents a view.", "A straw man misleads.", "So answer the real view.", "That is the key move."]);
+  });
+});

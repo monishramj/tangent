@@ -1,0 +1,7 @@
+[
+  { "name": "bioethics: argument 5", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-3" },
+  { "name": "bioethics: slippery slope", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-13" },
+  { "name": "bioethics: assessing whole arguments", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-15" },
+  { "name": "stat350: joint PMF table", "ir": "sidecar/tests/fixtures/stat350_ch5_ir.json", "section": "section-9" },
+  { "name": "stat350: dice constrain each other", "ir": "sidecar/tests/fixtures/stat350_ch5_ir.json", "section": "section-24" }
+]

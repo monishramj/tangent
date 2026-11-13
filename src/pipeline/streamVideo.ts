@@ -115,7 +115,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
         progress("animation", index);
-        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)) });
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)), source: sectionMarkdown });
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
