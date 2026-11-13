@@ -88,14 +88,14 @@ it('reports version lookup failures while retaining the update check', async () 
   expect((screen.getByRole('button', { name: 'Check for updates' }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-it('navigates sections without losing playback changes and provides a shortcuts mount point', () => {
+it('navigates sections without losing playback changes and mounts the shortcuts section', () => {
   render(<Settings onBack={() => {}} />);
   const nav = screen.getByRole('navigation', { name: 'Settings sections' });
   expect(within(nav).getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('page');
   fireEvent.click(within(nav).getByRole('button', { name: 'Playback' }));
   fireEvent.change(screen.getByLabelText(/^Speed/), { target: { value: '1.5' } });
   fireEvent.click(within(nav).getByRole('button', { name: 'Keyboard shortcuts' }));
-  expect(screen.getByRole('region', { name: 'Keyboard shortcuts' }).querySelector('#settings-shortcuts')).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Keyboard shortcuts' }).querySelector('button')).toBeTruthy(); // real ShortcutsSection (keybinds) is mounted
   fireEvent.click(within(nav).getByRole('button', { name: 'Playback' }));
   expect((screen.getByLabelText(/^Speed/) as HTMLSelectElement).value).toBe('1.5');
 });
