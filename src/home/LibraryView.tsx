@@ -1,3 +1,4 @@
+import useKeybinds from '@/hooks/useKeybinds';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, MoreHorizontalIcon, PlayIcon, Upload04Icon } from '@hugeicons/core-free-icons';
 import Icon from '@/components/Icon';
@@ -25,6 +26,7 @@ export type FolderSummary = {
 };
 type Mutation = void | Promise<void>;
 export type LibraryViewProps = {
+  shortcutsActive?: boolean;
   folders: FolderSummary[]; sources: SourceSummary[]; videos: VideoBundle[]; folder?: FolderSummary;
   onOpenFolder: (id: string) => void; onBack: () => void; onHome?: () => void; onSettings?: () => void;
   onOpenSource: (id: string) => void; onOpenVideo: (video: VideoBundle) => void;
@@ -103,6 +105,10 @@ export default function LibraryView(props: LibraryViewProps) {
     finally { setBusy(false); }
   };
   const startForm = (kind: 'create' | 'rename' | 'delete') => { setForm(kind); setName(kind === 'rename' ? folder?.name ?? '' : ''); setEmoji('📚'); setError(''); };
+  useKeybinds({
+    newFolder: folder ? undefined : () => startForm('create'),
+    choosePdfs: () => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); },
+  }, props.shortcutsActive ?? true);
   const shownFolders = allFolders ? folders : folders.slice(0, 3);
   const isAllFolders = allFolders && !folder;
   return <LibraryShell onHome={home} onSettings={props.onSettings}>

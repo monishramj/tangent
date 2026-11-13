@@ -541,3 +541,41 @@ it("moves icon tabs and the checks badge into the open panel", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
   expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
 });
+
+it("registry remaps playback immediately and Escape closes the speed menu and panel together", async () => {
+  const { setBinding } = await import('@/keybinds');
+  const s = setup();
+  await startWithScene(s);
+  act(() => setBinding('playPause', ['p']));
+  fireEvent.keyDown(window, { key: 'k' });
+  expect(s.audios[0].play).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key: 'p' });
+  expect(s.audios[0].play).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(window, { key: 't' });
+  expect(screen.getByRole('dialog', { name: 'Side panel' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Playback speed' }));
+  fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'Normal' }), { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Side panel' })).toBeNull();
+  expect(screen.queryByRole('menu', { name: 'Speed' })).toBeNull();
+});
+
+it("arrow defaults seek ten seconds and J/L seek five, with no seeking during a quiz", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: 'checkpoints', items: [mcq] });
+  for (let i = 0; i < 5; i++) await s.push(sceneEvent(`s${i}`));
+  fireEvent.keyDown(window, { key: 'ArrowRight' });
+  expect(Number((screen.getByLabelText('Seek') as HTMLInputElement).value)).toBeCloseTo(10, 1);
+  fireEvent.keyDown(window, { key: 'l' });
+  expect(Number((screen.getByLabelText('Seek') as HTMLInputElement).value)).toBeCloseTo(15, 1);
+  fireEvent.keyDown(window, { key: 'j' });
+  expect(Number((screen.getByLabelText('Seek') as HTMLInputElement).value)).toBeCloseTo(10, 1);
+  openChecks();
+  fireEvent.click(screen.getByRole('button', { name: /Take the quiz/ }));
+  const before = (screen.getByLabelText('Seek') as HTMLInputElement).value;
+  fireEvent.keyDown(window, { key: 'ArrowLeft' });
+  expect((screen.getByLabelText('Seek') as HTMLInputElement).value).toBe(before);
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Quiz' })).toBeNull();
+  expect(screen.getByRole('dialog', { name: 'Side panel' })).toBeTruthy();
+});

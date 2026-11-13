@@ -1,0 +1,33 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it } from 'vitest';
+import ShortcutsSection from './Shortcuts';
+import { getBinding, setBinding } from '@/keybinds';
+afterEach(() => { cleanup(); localStorage.clear(); });
+it('records keys, shows conflicts without saving, cancels with Escape, and resets', () => {
+  render(<ShortcutsSection />);
+  fireEvent.click(screen.getByRole('button', { name: 'Change Toggle captions shortcut' }));
+  const input = screen.getByRole('textbox', { name: 'New shortcut for Toggle captions' });
+  fireEvent.keyDown(input, { key: 'k' });
+  expect(screen.getByRole('alert').textContent).toContain('Play / pause');
+  expect(getBinding('captions')).toEqual(['c']);
+  fireEvent.keyDown(input, { key: 'Shift' });
+  expect(screen.getByRole('textbox')).toBeTruthy();
+  fireEvent.keyDown(input, { key: 'v' });
+  expect(getBinding('captions')).toEqual(['v']);
+  expect(screen.getByRole('button', { name: 'Change Toggle captions shortcut' }).textContent).toBe('V');
+  fireEvent.click(screen.getByRole('button', { name: 'Change Toggle captions shortcut' }));
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+  expect(getBinding('captions')).toEqual(['v']);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset Toggle captions shortcut' }));
+  expect(getBinding('captions')).toEqual(['c']);
+  fireEvent.click(screen.getByRole('button', { name: 'Change Toggle captions shortcut' }));
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'v' });
+  fireEvent.click(screen.getByRole('button', { name: 'Reset all' }));
+  expect(getBinding('captions')).toEqual(['c']);
+});
+it('shows conflicts introduced by resetting another action to defaults', () => {
+  setBinding('captions', ['v']); setBinding('playPause', ['c']);
+  render(<ShortcutsSection />);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset Toggle captions shortcut' }));
+  expect(screen.getAllByRole('status').length).toBe(2);
+});

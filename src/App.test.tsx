@@ -85,3 +85,11 @@ it('continues the upload queue during saved-video playback and keeps its status 
   await screen.findByRole('heading', { name: 'library' });
   expect(screen.getAllByText(/Done/)).toHaveLength(2);
 });
+
+it('opens Settings by shortcut while watching, with hidden library shortcuts disabled', async () => {
+  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([vid])} initial={{ s: 'watch', video: vid }} />);
+  await screen.findByRole('slider');
+  fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  expect(screen.queryByRole('slider')).toBeNull();
+});

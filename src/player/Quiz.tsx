@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Cancel01Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import Stepper, { Step } from "@/components/Stepper";
 import Counter from "@/components/Counter";
@@ -21,11 +21,6 @@ export default function Quiz({ checkpoints, provider, thumbs, onResult, onClose,
   const total = checkpoints.length, done = step > total;
   const cp = checkpoints[step - 1] as Checkpoint | undefined;
   const st = (cp && states[cp.id]) || blank;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
 
   const set = (id: string) => (a: Answering) => setStates(p => ({ ...p, [id]: a }));
   const submit = (c: Checkpoint, response: string) => {
@@ -81,7 +76,7 @@ export default function Quiz({ checkpoints, provider, thumbs, onResult, onClose,
           <p className="text-xs font-semibold tracking-[0.16em] text-subtle uppercase">
             {done ? "Results" : <>Question <span className="text-fg tabular-nums">{step}</span> of {total}{cp ? <span className="tracking-normal normal-case"> · {sourceLabel(cp)} · after scene {cp.afterScene + 1}</span> : null}</>}
           </p>
-          <button type="button" aria-label="Close quiz" title="Close (Esc)" onClick={onClose} className="ml-auto grid size-10 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
+          <button type="button" aria-label="Close quiz" title="Close" onClick={onClose} className="ml-auto grid size-10 place-items-center rounded-full text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={Cancel01Icon} size={18} /></button>
         </header>
         <div className="min-h-0 overflow-y-auto px-5 pb-2">
           <Stepper step={step} indicator="bars" linear disableStepIndicators showFooter={false} frame={false} width="100%" transition="slide" style={STEPPER_VARS}
