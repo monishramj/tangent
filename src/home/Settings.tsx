@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import TextField from "@/components/ui/TextField";
 import Select from "@/components/ui/Select";
 import { hasGiphyKey, saveGiphyKey } from "@/media/giphy";
 import { LibraryShell } from "./LibraryView";
+import { getVersion } from "@tauri-apps/api/app";
+import { checkForUpdate, installUpdate } from "@/update";
 import { version } from "../../package.json";
 
 const speeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -31,7 +33,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         {error && <p role="alert">{error}</p>}
       </section>
       <section aria-labelledby="about-heading"><h2 id="about-heading">About</h2><div className="tl-setting-row"><span>Tangent</span><span className="text-subtle">Version {version}</span></div></section>
-      <section aria-labelledby="updates-heading"><h2 id="updates-heading">Updates</h2>{/* TODO: Wire checkForUpdate() when src/update.ts lands. */}<p className="text-sm text-subtle">Update checks are coming soon.</p></section>
+      <Updates />
     </div>
   </LibraryShell>;
 }
@@ -59,4 +61,44 @@ function GiphySetting() {
       {msg && <p role="status" className="text-sm text-muted">{msg}</p>}
     </section>
   );
+}
+
+
+function Updates() {
+  const desktop = '__TAURI_INTERNALS__' in window;
+  const [currentVersion, setCurrentVersion] = useState(version);
+  const [available, setAvailable] = useState('');
+  const [state, setState] = useState<'idle' | 'checking' | 'current' | 'available' | 'installing' | 'restarting'>('idle');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!desktop) return;
+    let live = true;
+    void getVersion().then(value => { if (live) setCurrentVersion(value); })
+      .catch(e => { if (live) setError(`Couldn't read the app version: ${String(e)}`); });
+    return () => { live = false; };
+  }, [desktop]);
+  const check = async () => {
+    setState('checking'); setError('');
+    try {
+      const update = await checkForUpdate();
+      setAvailable(update?.version ?? ''); setState(update ? 'available' : 'current');
+    } catch (e) { setState('idle'); setError(`Couldn't check for updates: ${String(e)}`); }
+  };
+  const install = async () => {
+    setState('installing'); setError('');
+    try { setState(await installUpdate() ? 'restarting' : 'available'); }
+    catch (e) { setState('available'); setError(`Couldn't install the update: ${String(e)}`); }
+  };
+  const busy = state === 'checking' || state === 'installing' || state === 'restarting';
+  return <section aria-labelledby="updates-heading"><h2 id="updates-heading">Updates</h2>
+    {desktop ? <>
+      <div className="tl-setting-row"><span>Current version</span><span className="text-subtle">{currentVersion}</span></div>
+      <p role="status" className="text-sm text-subtle">{state === 'checking' ? 'Checking for updates…' : state === 'current' ? 'Tangent is up to date.' : state === 'installing' ? 'Installing update…' : state === 'restarting' ? 'Restarting…' : available ? `Tangent ${available} is available.` : 'Check for the latest version of Tangent.'}</p>
+      <div className="tl-update-actions">
+        <button type="button" className="tl-quiet" disabled={busy} onClick={() => void check()}>Check for updates</button>
+        {available && <button type="button" className="tl-primary" disabled={busy} onClick={() => void install()}>Install and restart</button>}
+      </div>
+      {error && <p role="alert" className="mt-3 text-sm text-muted">{error}</p>}
+    </> : <p className="text-sm text-subtle">Updates are available in the installed app</p>}
+  </section>;
 }

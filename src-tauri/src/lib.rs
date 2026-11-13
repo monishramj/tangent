@@ -62,8 +62,9 @@ pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: b
         return Ok(dir);
     }
     if dev { return Ok(manifest.join("../sidecar")); }
-    // TODO: resolve the bundled sidecar executable/resources when packaging is implemented.
-    Err("bundled sidecar is not configured; set TANGENT_SIDECAR_DIR to a uv project".into())
+    // shortcut: personal builds use a local uv project; bundle the sidecar before distribution.
+    Ok(option_env!("TANGENT_SIDECAR_DIR").map(PathBuf::from)
+        .unwrap_or_else(|| manifest.join("../sidecar")))
 }
 
 fn spawn() -> Result<Process, String> {
@@ -128,6 +129,8 @@ fn dev_log(msg: String) { eprintln!("[webview] {msg}"); } // dev diagnostics: we
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(State_::default())
         .invoke_handler(tauri::generate_handler![pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
         .build(tauri::generate_context!())
@@ -162,7 +165,8 @@ mod tests {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(sidecar_dir(Some("/custom/sidecar".into()), manifest, false).unwrap(), PathBuf::from("/custom/sidecar"));
         assert_eq!(sidecar_dir(None, manifest, true).unwrap(), manifest.join("../sidecar"));
-        assert!(sidecar_dir(None, manifest, false).unwrap_err().contains("bundled"));
+        assert_eq!(sidecar_dir(None, manifest, false).unwrap(),
+            option_env!("TANGENT_SIDECAR_DIR").map(PathBuf::from).unwrap_or_else(|| manifest.join("../sidecar")));
         assert!(sidecar_dir(Some("".into()), manifest, true).is_err());
     }
 

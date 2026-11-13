@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
-import Settings from "./home/Settings";
 import PlayerScreen from "./player/PlayerScreen";
 import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
@@ -20,15 +19,16 @@ type Screen =
 
 export default function App({ provider, store = tauriJsonStore, videoStore = tauriVideoStore, initial = { s: "home" } }: { provider?: LLMProvider; store?: JsonStore; videoStore?: VideoStore; initial?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
-  switch (screen.s) {
-    case "settings": return <Settings onBack={() => setScreen({ s: "home" })} />;
-    case "watch": return <Watch video={screen.video} provider={provider} store={store} onBack={() => setScreen(screen.back ?? { s: "home" })} />;
-    case "generate": return <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
-      onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={() => setScreen(screen.back ?? { s: "home" })} />;
-    default: return <Home store={videoStore} jsonStore={store} provider={provider} route={screen} onNavigate={setScreen}
-      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: screen })}
-      onOpenVideo={video => setScreen({ s: "watch", video, back: screen })} />;
-  }
+  const inLibrary = screen.s !== 'watch' && screen.s !== 'generate';
+  const libraryRoute = inLibrary ? screen : screen.back ?? { s: 'home' as const };
+  return <>
+    <div hidden={!inLibrary}><Home store={videoStore} jsonStore={store} provider={provider} route={libraryRoute} active={inLibrary} onNavigate={setScreen}
+      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: libraryRoute })}
+      onOpenVideo={video => setScreen({ s: "watch", video, back: libraryRoute })} /></div>
+    {screen.s === 'watch' && <Watch video={screen.video} provider={provider} store={store} onBack={() => setScreen(libraryRoute)} />}
+    {screen.s === 'generate' && <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
+      onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={() => setScreen(libraryRoute)} />}
+  </>;
 }
 
 function Watch({ video, provider, store, onBack }: { video: VideoBundle; provider?: LLMProvider; store: JsonStore; onBack: () => void }) {

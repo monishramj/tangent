@@ -5,6 +5,11 @@ import App from "./App";
 import Showcase from "./dev/Showcase";
 import "./index.css";
 import "./devlog";
+import { checkForUpdate } from "./update";
+import { isTauri } from "@tauri-apps/api/core";
+
+// Launch checks are silent: installation is an explicit Settings action.
+if (isTauri() && import.meta.env.PROD) void checkForUpdate().catch(console.warn);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

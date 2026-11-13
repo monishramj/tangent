@@ -11,6 +11,7 @@ import Select from '@/components/ui/Select';
 import Menu from '@/components/ui/Menu';
 import { videoDuration, type VideoBundle } from '../storage/videos';
 import type { LoadProgress } from '../library';
+import type { IngestItem } from './ingestQueue';
 import logo from '../../assets/tangent-icon.png';
 import './views.css';
 
@@ -27,7 +28,8 @@ export type LibraryViewProps = {
   folders: FolderSummary[]; sources: SourceSummary[]; videos: VideoBundle[]; folder?: FolderSummary;
   onOpenFolder: (id: string) => void; onBack: () => void; onHome?: () => void; onSettings?: () => void;
   onOpenSource: (id: string) => void; onOpenVideo: (video: VideoBundle) => void;
-  onChoosePdf: () => void; onDropFile: (file: File) => void;
+  onChoosePdf: () => void; onDropFiles: (files: File[]) => void;
+  uploads?: IngestItem<unknown>[]; onRetryUpload?: (path: string) => void;
   onCreateFolder: (name: string, emoji?: string) => Mutation;
   onRenameFolder: (id: string, name: string) => Mutation;
   onDeleteFolder: (id: string) => Mutation;
@@ -132,10 +134,10 @@ export default function LibraryView(props: LibraryViewProps) {
         {folder && sourceList()}
         <SpotlightCard data-testid="dropzone" spotlightColor="#fff" intensity={0.07} borderGlow={0.3} className="tl-drop"
           style={{ '--spotlight-card-surface': dragOver || props.over ? 'rgba(255,255,255,0.05)' : 'transparent', '--spotlight-card-border': dragOver || props.over ? 'var(--line-hover)' : 'var(--line)', '--spotlight-card-shadow': 'none' } as CSSProperties}
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files?.[0]; if (file && !props.loading) props.onDropFile(file); }}>
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); if (!props.loading) props.onDropFiles(Array.from(e.dataTransfer.files ?? [])); }}>
           {props.loading ? <div className="tl-loading" role="status"><ShinyText text={props.loading} color="#999" shineColor="#fff" />{props.progress && <><progress aria-label="Reading PDF" value={props.progress.fraction} max={1} /><small>{props.progress.label}</small></>}</div>
-            : <><Icon icon={Upload04Icon} size={23} /><div><strong>Drop a PDF here</strong>{folder && <span>Add reading material to {folder.name}.</span>}</div><button className="tl-quiet" onClick={() => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); }}>Choose PDF <Icon icon={Add01Icon} size={16} /></button></>}
-          <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={e => { const file = e.target.files?.[0]; if (file) props.onDropFile(file); e.target.value = ''; }} />
+            : <><Icon icon={Upload04Icon} size={23} /><div><strong>Drop PDFs here</strong>{folder && <span>Add reading material to {folder.name}.</span>}</div><button className="tl-quiet" onClick={() => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); }}>Choose PDFs <Icon icon={Add01Icon} size={16} /></button></>}
+          <input ref={input} type="file" multiple accept="application/pdf,.pdf" hidden onChange={e => { props.onDropFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
         </SpotlightCard>
         <div className={folder ? undefined : 'tl-library-columns'}>
           {!folder && <section className="tl-section"><h2>Loose pages</h2>{sourceList()}</section>}
@@ -147,9 +149,10 @@ export default function LibraryView(props: LibraryViewProps) {
 
   function sourceList() {
     if (!sources.length) return <p className="tl-empty">{folder ? 'No reading material yet. Drop in your first PDF below.' : 'No PDFs outside folders yet.'}</p>;
-    return <ul className="tl-files" aria-label="Reading material">{sources.map(s => <li key={s.id}>
-      <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}</span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}</small></span><Icon icon={ArrowRight01Icon} size={18} /></button>
+    return <ul className="tl-files" aria-label="Reading material">{sources.map(s => { const upload = props.uploads?.find(item => item.path === s.pdfPath); return <li key={s.id}>
+      <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}</span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}{upload && ` · ${upload.status === 'reading' ? `Reading ${Math.round((upload.progress?.fraction ?? 0) * 100)}%` : upload.status === 'queued' ? 'Queued' : upload.status === 'done' ? 'Done' : 'Failed'}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction ?? 0} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
+      {upload?.status === 'failed' && <button className="tl-text-button" aria-label={`Retry ${s.name}`} title={upload.error} onClick={() => props.onRetryUpload?.(s.pdfPath)}>Retry</button>}
       <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
-    </li>)}</ul>;
+    </li>; })}</ul>;
   }
 }

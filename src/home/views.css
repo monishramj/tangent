@@ -107,3 +107,10 @@
 .tl-setting-row { display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:66px;font-size:14px; }
 .tl-setting-row small { display:block;color:var(--fg-subtle);font-size:12px;margin-top:4px; }
 .tl-setting-row select { min-width:110px; }
+
+.tl-file-open progress { appearance:none;border:0;background:var(--line); }
+.tl-file-open progress::-webkit-progress-bar { background:var(--line); }
+.tl-file-open progress::-webkit-progress-value { background:var(--fg-muted); }
+.tl-file-open progress::-moz-progress-bar { background:var(--fg-muted); }
+
+.tl-update-actions { display:flex;flex-wrap:wrap;gap:12px;margin-top:16px; }
