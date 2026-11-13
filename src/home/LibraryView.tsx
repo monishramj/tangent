@@ -77,6 +77,7 @@ export function VideoList({ videos, onOpen, onDelete, label = 'Recent videos' }:
 export default function LibraryView(props: LibraryViewProps) {
   const { folders, sources, videos, folder, onBack, onOpenFolder, onOpenSource, onOpenVideo } = props;
   const [allFolders, setAllFolders] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [form, setForm] = useState<'create' | 'rename' | 'delete' | null>(null);
   const [name, setName] = useState('');
@@ -87,15 +88,21 @@ export default function LibraryView(props: LibraryViewProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  useEffect(() => { setForm(null); setError(''); setOpening(null); }, [folder?.id]);
+  useEffect(() => { setForm(null); setError(''); setOpening(null); setClosing(false); }, [folder?.id]);
   const cancelOpening = () => { if (timer.current) clearTimeout(timer.current); setOpening(null); };
-  const home = () => { cancelOpening(); setAllFolders(false); setForm(null); (props.onHome ?? onBack)(); };
+  const closeFolder = (done: () => void) => {
+    cancelOpening();
+    if (!folder || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { done(); return; }
+    setClosing(true);
+    timer.current = setTimeout(done, 180 + Math.min(Math.max(0, sources.length - 1) * 60, 300));
+  };
+  const home = () => closeFolder(() => { setAllFolders(false); setForm(null); (props.onHome ?? onBack)(); });
   const openFolder = (id: string) => {
     cancelOpening(); setOpening(id);
     timer.current = setTimeout(() => {
       setOpening(null); onOpenFolder(id);
       document.querySelector('.tl-library')?.scrollTo?.({ top: 0 });
-    }, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 460);
+    }, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 320);
   };
   const mutate = async (action: () => Mutation) => {
     setBusy(true); setError('');
@@ -106,8 +113,8 @@ export default function LibraryView(props: LibraryViewProps) {
   const shownFolders = allFolders ? folders : folders.slice(0, 3);
   const isAllFolders = allFolders && !folder;
   return <LibraryShell onHome={home} onSettings={props.onSettings}>
-    {(folder || allFolders) && <button className="tl-back" onClick={() => { cancelOpening(); if (folder) onBack(); else setAllFolders(false); }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
-    <div className="tl-content" key={folder?.id ?? (allFolders ? 'all' : 'home')}>
+    {(folder || allFolders) && <button className="tl-back" onClick={() => { if (folder) closeFolder(onBack); else { cancelOpening(); setAllFolders(false); } }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
+    <div className={`tl-content ${folder ? 'tl-folder-view' : ''} ${closing ? 'tl-closing' : ''}`} inert={closing || undefined} style={folder ? { '--folder-exit-delay': `${Math.min(Math.max(0, sources.length - 1) * 60, 300)}ms` } as CSSProperties : undefined} key={folder?.id ?? (allFolders ? 'all' : 'home')}>
       <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
         {folder ? <Menu label="Folder actions" trigger={<Icon icon={MoreHorizontalIcon} size={20} />}><button role="menuitem" tabIndex={-1} onClick={() => startForm('rename')}>Rename folder</button><button role="menuitem" tabIndex={-1} onClick={() => startForm('delete')}>Delete folder</button></Menu>
           : <button className="tl-text-button" onClick={() => startForm('create')}><Icon icon={Add01Icon} size={17} />New folder</button>}
@@ -149,7 +156,7 @@ export default function LibraryView(props: LibraryViewProps) {
 
   function sourceList() {
     if (!sources.length) return <p className="tl-empty">{folder ? 'No reading material yet. Drop in your first PDF below.' : 'No PDFs outside folders yet.'}</p>;
-    return <ul className="tl-files" aria-label="Reading material">{sources.map(s => { const upload = props.uploads?.find(item => item.path === s.pdfPath); return <li key={s.id}>
+    return <ul className="tl-files" aria-label="Reading material">{sources.map((s, index) => { const upload = props.uploads?.find(item => item.path === s.pdfPath); return <li key={s.id} style={folder ? { '--row-delay': `${Math.min(index * 60, 300)}ms`, '--close-delay': `${Math.min((sources.length - 1 - index) * 60, 300)}ms` } as CSSProperties : undefined}>
       <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}</span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}{upload && ` · ${upload.status === 'reading' ? `Reading ${Math.round((upload.progress?.fraction ?? 0) * 100)}%` : upload.status === 'queued' ? 'Queued' : upload.status === 'done' ? 'Done' : 'Failed'}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction ?? 0} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
       {upload?.status === 'failed' && <button className="tl-text-button" aria-label={`Retry ${s.name}`} title={upload.error} onClick={() => props.onRetryUpload?.(s.pdfPath)}>Retry</button>}
       <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
