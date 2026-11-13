@@ -95,7 +95,7 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
 }
 
 export function preparationLabel(item: IngestItem<unknown>) {
-  return item.status === 'queued' ? 'Queued' : item.status === 'reading' ? `Reading ${Math.round((item.progress?.fraction ?? 0) * 100)}%`
+  return item.status === 'queued' ? 'Queued' : item.status === 'reading' ? (item.progress && item.progress.fraction === undefined ? 'Reading' : `Reading ${Math.round((item.progress?.fraction ?? 0) * 100)}%`)
     : item.status === 'tidying' ? 'Tidying titles' : item.status === 'preview' ? 'Making preview' : item.status === 'done' ? 'Ready' : 'Failed';
 }
 export const isPreparing = (item?: IngestItem<unknown>) => !!item && item.status !== 'done' && item.status !== 'failed';

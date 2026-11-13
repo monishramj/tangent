@@ -40,3 +40,11 @@ def test_watchdog_exits_when_parent_dies():
         time.sleep(0.1)
     os.kill(pid, 9)
     raise AssertionError("sidecar outlived its parent")
+
+
+def test_background_restores_priority():
+    if not hasattr(os, "PRIO_DARWIN_PROCESS"):
+        return
+    with limits.background():
+        assert os.getpriority(os.PRIO_DARWIN_PROCESS, 0) != 0  # getpriority reports BG as 1
+    assert os.getpriority(os.PRIO_DARWIN_PROCESS, 0) == 0

@@ -2,7 +2,8 @@
 import { figuresDir, ingestPdf, pdfInfo, repairSections, type IR } from "./home/api";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
 
-export type LoadProgress = { fraction: number; label: string };
+/** fraction is undefined once past the estimate: the bar goes indeterminate instead of faking 95%. */
+export type LoadProgress = { fraction?: number; label: string };
 const RATE_KEY = "tangent.secPerPage"; // learned from past ingests, so the estimate improves with use
 const rate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 1.2; } catch { return 1.2; } };
 
@@ -12,7 +13,7 @@ export async function hasCachedIr(pdfPath: string, store: JsonStore = tauriJsonS
   return Boolean(await irCache(store).get(sourceFor(pdfPath).id).catch(() => null));
 }
 
-/** Cached IR, else Docling ingest. Docling gives no callbacks, so progress = elapsed vs. pages x learned sec/page, capped at 95%. */
+/** Cached IR, else Docling ingest. Docling gives no callbacks, so progress = elapsed vs. pages x learned sec/page; past that estimate it turns indeterminate. */
 export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => void, store: JsonStore = tauriJsonStore): Promise<IR> {
   const source = sourceFor(pdfPath);
   const cached = await irCache(store).get(source.id).catch(() => null);
@@ -26,8 +27,11 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
   const pages = await pdfInfo(pdfPath).then(r => r.pages, () => 0);
   const expected = Math.max(10, pages * rate()), start = Date.now();
   const tick = () => {
-    const sec = (Date.now() - start) / 1000, left = Math.max(0, expected - sec);
-    onProgress?.({ fraction: Math.min(.95, sec / expected), label: `Reading ${pages ? `${pages} pages` : "PDF"} · ${left > 60 ? `~${Math.ceil(left / 60)} min` : left > 5 ? `~${Math.ceil(left)} s` : "almost done"}` });
+    const sec = (Date.now() - start) / 1000, left = expected - sec, what = `Reading ${pages ? `${pages} pages` : "PDF"}`;
+    const mins = Math.floor(sec / 60), elapsed = mins ? `${mins} min ${Math.floor(sec % 60)} s` : `${Math.floor(sec)} s`;
+    onProgress?.(left > 0
+      ? { fraction: sec / expected, label: `${what} · ${left > 60 ? `~${Math.ceil(left / 60)} min` : `~${Math.ceil(left)} s`} left` }
+      : { label: `${what} · longer than expected · ${elapsed} so far` });
   };
   tick();
   const h = setInterval(tick, 500);

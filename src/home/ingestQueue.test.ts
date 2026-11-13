@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { ingestQueue } from './ingestQueue';
+import { ingestQueue, preparationLabel } from './ingestQueue';
 
 const deferred = () => {
   let resolve!: (value: string) => void;
@@ -48,4 +48,10 @@ it('continues after failure and retries at the end of the queue', async () => {
   await Promise.all([b.result, retry.result]);
   expect(read.mock.calls.map(call => call[0])).toEqual(['a.pdf', 'b.pdf', 'a.pdf']);
   expect(retry.status).toBe('done');
+});
+
+it('shows no percentage once reading runs past its estimate', () => {
+  const item = { path: 'a.pdf', status: 'reading', result: Promise.resolve() } as const;
+  expect(preparationLabel({ ...item, progress: { fraction: .4, label: '' } })).toBe('Reading 40%');
+  expect(preparationLabel({ ...item, progress: { label: 'longer than expected' } })).toBe('Reading');
 });

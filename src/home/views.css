@@ -151,3 +151,7 @@
 @keyframes tl-folder-exit { to { opacity:0;transform:translateY(9px); } }
 @media(max-width:700px) { .tl-settings-layout { grid-template-columns:1fr;gap:28px; } .tl-settings-nav { position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr)); } .tl-settings > div { min-height:0; } }
 @media(prefers-reduced-motion:reduce) { .tl-content,.tl-content:has(.tl-opening),.tl-folder-view .tl-files>li,.tl-folder-view .tl-heading::after,.tl-folder-view .tl-files>li::after,.tl-folder-view.tl-closing { animation:none; } .tl-library [data-navigation],.tl-library [data-navigation][data-open] { transition:none;transform:none; } }
+/* Past the time estimate the bar is indeterminate: a slow sweep instead of a fake 95%. */
+.tl-loading progress:indeterminate, .tl-loading progress:indeterminate::-webkit-progress-bar { appearance:none;border:0;background:linear-gradient(90deg,var(--line) 0 35%,var(--fg-muted) 50%,var(--line) 65% 100%) 0 0/300% 100%;animation:tl-sweep 1.6s linear infinite; }
+@keyframes tl-sweep { from { background-position:100% 0; } to { background-position:0 0; } }
+@media (prefers-reduced-motion: reduce) { .tl-loading progress:indeterminate, .tl-loading progress:indeterminate::-webkit-progress-bar { animation:none;background:var(--fg-muted); } }

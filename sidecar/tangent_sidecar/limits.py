@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from contextlib import contextmanager
 
 THREAD_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS")
 
@@ -62,3 +63,23 @@ def start_watchdog(interval: float = 1.0, exit=os._exit) -> threading.Thread:
     t = threading.Thread(target=run, daemon=True, name="parent-watchdog")
     t.start()
     return t
+
+
+@contextmanager
+def background():
+    """macOS background QoS for the block: efficiency cores, throttled I/O, so ingest stays cool.
+    Slower, but ingest is a queued background job and the RPC loop is serial (no TTS waits behind it).
+    TANGENT_INGEST_FAST=1 skips it. No-op off macOS."""
+    which = getattr(os, "PRIO_DARWIN_PROCESS", None)
+    if which is None or os.environ.get("TANGENT_INGEST_FAST") == "1":
+        yield
+        return
+    try:
+        os.setpriority(which, 0, os.PRIO_DARWIN_BG)
+    except OSError:
+        yield
+        return
+    try:
+        yield
+    finally:
+        os.setpriority(which, 0, 0)

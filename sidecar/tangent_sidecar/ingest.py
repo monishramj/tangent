@@ -12,7 +12,7 @@ from contextlib import redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
-from .limits import limit_torch, threads
+from .limits import background, limit_torch, threads
 from .postprocess import strip_footers
 
 
@@ -22,11 +22,21 @@ def _pick_device(env):
     return env or "auto"
 
 
+def _formula_options():
+    from docling.datamodel.pipeline_options import CodeFormulaVlmOptions
+
+    o = CodeFormulaVlmOptions.from_preset("codeformulav2")
+    # Formulas run token-by-token on CPU; a runaway generation burned up to 4096 tokens each.
+    o.model_spec.max_new_tokens = 512  # ponytail: raise if long display equations come back truncated
+    o.extract_code = False  # code enrichment is off; never send code blocks through the model
+    return o
+
+
 @lru_cache(maxsize=1)
 def _load_converter():
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode, TableStructureOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
     limit_torch()
@@ -34,6 +44,8 @@ def _load_converter():
     options = PdfPipelineOptions(
         do_formula_enrichment=True, generate_picture_images=True,
         images_scale=2.0, do_ocr=False,
+        code_formula_options=_formula_options(),
+        table_structure_options=TableStructureOptions(mode=TableFormerMode.FAST),  # cheaper than ACCURATE
         accelerator_options=AcceleratorOptions(
             device=device,
             num_threads=threads(),
@@ -45,7 +57,8 @@ def _load_converter():
 def _convert_pdf(path, pages=None):
     from docling.datamodel.base_models import ConversionStatus
 
-    result = _load_converter().convert(path, **({"page_range": pages} if pages else {}))
+    with background():
+        result = _load_converter().convert(path, **({"page_range": pages} if pages else {}))
     if result.status != ConversionStatus.SUCCESS:
         raise ValueError(f"PDF conversion incomplete: {result.status}")
     return result.document
