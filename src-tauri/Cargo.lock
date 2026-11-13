@@ -3335,6 +3335,7 @@ dependencies = [
 name = "tangent"
 version = "0.1.1"
 dependencies = [
+ "libc",
  "png",
  "serde",
  "serde_json",
