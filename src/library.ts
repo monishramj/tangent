@@ -1,5 +1,5 @@
 // Parse a PDF once (cached IR, figures in app data), with honest progress.
-import { figuresDir, ingestPdf, pdfInfo, repairSections, type IR } from "./home/api";
+import { enrichFormulas, figuresDir, ingestPdf, pdfInfo, repairSections, type IR } from "./home/api";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
 
 /** fraction is undefined once past the estimate: the bar goes indeterminate instead of faking 95%. */
@@ -43,4 +43,24 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
     await irCache(store).set(source.id, ir);
     return ir;
   } finally { clearInterval(h); }
+}
+
+const FORMULA_TOKEN = /⟨formula (\d+)⟩/g;
+
+/** Formulas are decoded only for the sections a video is made from (the formula model is ingest's heat source).
+ * Starts from the cached IR (it holds earlier videos' decodes), saves the result back, and on failure falls back
+ * to the PDF text layer so a token never reaches the script. */
+export async function withFormulas(pdfPath: string, ir: IR, ids: string[], store: JsonStore = tauriJsonStore): Promise<IR> {
+  const id = sourceFor(pdfPath).id;
+  const latest = (await irCache(store).get(id).catch(() => null)) ?? ir;
+  const pending = latest.formulas ?? {};
+  if (!Object.keys(pending).length) return latest;
+  try {
+    const done = await enrichFormulas(latest, pdfPath, ids);
+    await irCache(store).set(id, done).catch(() => {});
+    return done;
+  } catch {
+    const fill = (_: string, n: string) => pending[n]?.orig ? JSON.stringify(`$$${pending[n].orig}$$`).slice(1, -1) : "";
+    return { ...latest, sections: JSON.parse(JSON.stringify(latest.sections).replace(FORMULA_TOKEN, fill)) };
+  }
 }

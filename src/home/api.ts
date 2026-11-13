@@ -3,7 +3,9 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 
 export type Anchor = { page: number };
 export type SectionIR = { id: string; title: string; level: number; anchors: Anchor[]; children: SectionIR[]; [k: string]: unknown };
-export type IR = { sections: SectionIR[]; outline_version?: number };
+/** Undecoded formula: its markdown spot holds the token ⟨formula n⟩ until enrichFormulas decodes it for a video. */
+export type PendingFormula = { page: number; bbox: number[]; orig: string };
+export type IR = { sections: SectionIR[]; outline_version?: number; formulas?: Record<string, PendingFormula> };
 export type SectionRef = { id: string; title: string; level: number; anchors: Anchor[] };
 
 const call = <T>(method: string, params: Record<string, unknown>) => invoke<T>("sidecar_call", { method, params });
@@ -12,7 +14,8 @@ const call = <T>(method: string, params: Record<string, unknown>) => invoke<T>("
 export const ingestPdf = (path: string, assetsDir?: string) => call<IR>("ingest_pdf", assetsDir ? { path, assets_dir: assetsDir } : { path });
 export const pdfInfo = (path: string) => call<{ pages: number }>("pdf_info", { path });
 export const figuresDir = async (sourceId: string) => join(await appDataDir(), "figures", sourceId);
-export const repairSections = (ir: IR, path: string) => call<IR>("repair_sections", { ir, path });
+export const enrichFormulas = (ir: IR, path: string, ids: string[]) => call<IR>("enrich_formulas", { ir, path, ids });
+export const repairSections =(ir: IR, path: string) => call<IR>("repair_sections", { ir, path });
 export const listSections = (ir: IR) => call<SectionRef[]>("list_sections", { ir });
 
 export const sectionText = (ir: IR, id: string) => call<string>("section_text", { ir, id });

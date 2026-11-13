@@ -182,7 +182,7 @@ def test_table_markdown_is_retained(document, tmp_path):
 
 
 def test_partial_conversion_is_an_error(monkeypatch):
-    monkeypatch.setattr(ingest, "_load_converter", lambda: SimpleNamespace(
+    monkeypatch.setattr(ingest, "_load_converter", lambda formulas=False: SimpleNamespace(
         convert=lambda path: SimpleNamespace(status="partial_success", document=None),
     ))
     with pytest.raises(ValueError, match="incomplete"):

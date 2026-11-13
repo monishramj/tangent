@@ -8,6 +8,7 @@ import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import { recordStream, replayStream, tauriVideoStore, type VideoBundle, type VideoStore } from "./storage/videos";
 import { irCache, sourceFor, newId, tauriJsonStore, type JsonStore } from "./storage/store";
+import { withFormulas } from "./library";
 import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
@@ -62,10 +63,12 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string } | { error: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    const { sectionIds, ir, meta } = args;
+    const { sectionIds, meta } = args;
     const sectionId = sectionIds.join("+");
     void (async () => {
       try {
+        const ir = await withFormulas(meta.pdfPath, args.ir, sectionIds, store);
+        if (controller.signal.aborted) return;
         const markdown = stripWatermarks(await sectionsText(ir, sectionIds));
         if (controller.signal.aborted) return;
         const key = await giphyKey();
@@ -78,7 +81,7 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
       } catch (e) { if (!controller.signal.aborted) setState({ error: String(e) }); }
     })();
     return () => controller.abort();
-  }, [args, provider, videoStore, videoId]);
+  }, [args, provider, store, videoStore, videoId]);
   const empty = useMemo(() => (async function* () {})(), []);
   const error = state && "error" in state ? state.error : null;
   return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}

@@ -4,7 +4,7 @@ from typing import Any, NotRequired, TypedDict
 
 from .limits import apply_limits, start_watchdog
 from .tts import tts_align
-from .ingest import ingest_pdf, pdf_info, list_sections, section_text, repair_sections
+from .ingest import ingest_pdf, pdf_info, list_sections, section_text, repair_sections, enrich_formulas
 
 
 class Request(TypedDict):
@@ -21,7 +21,8 @@ class Response(TypedDict):
 
 HANDLERS = {"ping": lambda params: "pong", "tts_align": tts_align,
             "ingest_pdf": ingest_pdf, "list_sections": list_sections,
-            "section_text": section_text, "repair_sections": repair_sections, "pdf_info": pdf_info}
+            "section_text": section_text, "repair_sections": repair_sections, "pdf_info": pdf_info,
+            "enrich_formulas": enrich_formulas}
 
 
 def handle(req: Request) -> Response:

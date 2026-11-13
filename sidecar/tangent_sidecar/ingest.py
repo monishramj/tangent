@@ -8,7 +8,7 @@ import re
 import sys
 import tempfile
 from collections import defaultdict
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
@@ -32,8 +32,10 @@ def _formula_options():
     return o
 
 
-@lru_cache(maxsize=1)
-def _load_converter():
+@lru_cache(maxsize=2)
+def _load_converter(formulas=False):
+    """formulas=False: the whole-book ingest (no formula model, the heat source).
+    formulas=True: only for the pages of sections a video is made from (enrich_formulas)."""
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode, TableStructureOptions
@@ -42,8 +44,8 @@ def _load_converter():
     limit_torch()
     device = _pick_device(os.environ.get("TANGENT_DEVICE"))
     options = PdfPipelineOptions(
-        do_formula_enrichment=True, generate_picture_images=True,
-        images_scale=2.0, do_ocr=False,
+        do_formula_enrichment=formulas, generate_picture_images=not formulas,
+        do_table_structure=not formulas, images_scale=2.0, do_ocr=False,
         code_formula_options=_formula_options(),
         table_structure_options=TableStructureOptions(mode=TableFormerMode.FAST),  # cheaper than ACCURATE
         accelerator_options=AcceleratorOptions(
@@ -54,11 +56,12 @@ def _load_converter():
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 
-def _convert_pdf(path, pages=None):
+def _convert_pdf(path, pages=None, formulas=False):
     from docling.datamodel.base_models import ConversionStatus
 
-    with background():
-        result = _load_converter().convert(path, **({"page_range": pages} if pages else {}))
+    # Whole-book ingest is a background job (efficiency cores); formula enrichment is small and the user is waiting.
+    with (nullcontext() if formulas else background()):
+        result = _load_converter(formulas).convert(path, **({"page_range": pages} if pages else {}))
     if result.status != ConversionStatus.SUCCESS:
         raise ValueError(f"PDF conversion incomplete: {result.status}")
     return result.document
@@ -187,6 +190,7 @@ def document_to_ir(document, assets, pdf_path=None):
     exercise = None
     figure_count = 0
     passage_count = 0
+    formulas = {}  # n -> {page, bbox, orig}: undecoded formulas, filled in later by enrich_formulas
 
     def section(title, level):
         nonlocal exercise
@@ -207,7 +211,8 @@ def document_to_ir(document, assets, pdf_path=None):
         if (label in {"page_header", "page_footer"} or item.content_layer == ContentLayer.FURNITURE
                 or item.self_ref in captions):
             continue
-        if hasattr(item, "text") and not item.text.strip():
+        pending = label == "formula" and not item.text.strip()
+        if hasattr(item, "text") and not item.text.strip() and not (pending and (item.orig or "").strip()):
             continue
         if label in {"section_header", "title"}:
             current = section(item.text, getattr(item, "level", 1))
@@ -234,6 +239,11 @@ def document_to_ir(document, assets, pdf_path=None):
             caption = item.caption_text(document)
             current["figures"].append({"id": figure_id, "caption": caption, "image_path": str(image_path)})
             markdown = f"![{caption}]({image_path.as_uri()})"
+        elif pending:
+            boxes = _boxes(document, item)
+            n = str(len(formulas) + 1)
+            formulas[n] = {**(boxes[0] if boxes else {"page": 0, "bbox": [0, 0, 0, 0]}), "orig": item.orig.strip()}
+            markdown = formula_token(n)
         else:
             markdown = serializer.serialize(item=item).text.strip()
         if not markdown:
@@ -253,7 +263,7 @@ def document_to_ir(document, assets, pdf_path=None):
                 if anchor not in exercise["anchors"]:
                     exercise["anchors"].append(anchor)
     from .postprocess import postprocess
-    return postprocess({"sections": sections}, pdf_path)
+    return postprocess({"sections": sections, **({"formulas": formulas} if formulas else {})}, pdf_path)
 
 
 def list_sections(params):
@@ -318,3 +328,70 @@ def repair_sections(params):
     result = postprocess(copy.deepcopy(ir), params["path"])
     list_sections({"ir": result})
     return result
+
+
+FORMULA_TOKEN = re.compile(r"⟨formula (\d+)⟩")
+
+
+def formula_token(n):
+    return f"⟨formula {n}⟩"
+
+
+def _map_strings(value, fn):
+    if isinstance(value, str):
+        return fn(value)
+    if isinstance(value, list):
+        return [_map_strings(v, fn) for v in value]
+    if isinstance(value, dict):
+        return {k: _map_strings(v, fn) for k, v in value.items()}
+    return value
+
+
+def match_formulas(wanted, found, tolerance=0.02):
+    """wanted: {n: {page, bbox}}; found: [(page, bbox, latex)]. Nearest same-page box within tolerance."""
+    out = {}
+    for n, f in wanted.items():
+        best = min(((max(abs(a - b) for a, b in zip(f["bbox"], box)), latex)
+                    for page, box, latex in found if page == f["page"]), default=None)
+        if best and best[0] <= tolerance:
+            out[n] = best[1]
+    return out
+
+
+def splice_formulas(ir, wanted, latex):
+    """Replace the tokens of `wanted` everywhere in the IR: LaTeX when decoded, else the PDF text layer."""
+    def fill(n):
+        if n in latex:
+            return f"$${latex[n]}$$"
+        orig = wanted[n]["orig"]
+        return f"$${orig}$$" if orig else ""
+
+    sections = _map_strings(ir["sections"], lambda t: FORMULA_TOKEN.sub(
+        lambda m: fill(m[1]) if m[1] in wanted else m[0], t))
+    rest = {n: f for n, f in ir.get("formulas", {}).items() if n not in wanted}
+    out = {k: v for k, v in ir.items() if k != "formulas"}
+    out["sections"] = sections
+    return {**out, "formulas": rest} if rest else out
+
+
+def enrich_formulas(params):
+    """Decode only the formulas inside the given sections (one Docling pass over their pages)."""
+    if not isinstance(params, dict) or not isinstance(params.get("ir"), dict) or not isinstance(params.get("ids"), list):
+        raise ValueError("params must be {path, ir, ids}")
+    ir = params["ir"]
+    pending = ir.get("formulas") or {}
+    if not pending:
+        return ir
+    text = "\n".join(section_text(ir, i) for i in params["ids"])
+    wanted = {n: pending[n] for n in dict.fromkeys(FORMULA_TOKEN.findall(text)) if n in pending}
+    if not wanted:
+        return ir
+    path = Path(params["path"]).expanduser().resolve(strict=True)
+    pages = [f["page"] for f in wanted.values() if f["page"] >= 1]
+    found = []
+    if pages:
+        with redirect_stdout(sys.stderr):
+            document = _convert_pdf(path, (min(pages), max(pages)), formulas=True)
+        found = [(b["page"], b["bbox"], item.text.strip()) for item in document.texts
+                 if item.label.value == "formula" and item.text.strip() for b in _boxes(document, item)[:1]]
+    return splice_formulas(ir, wanted, match_formulas(wanted, found))
