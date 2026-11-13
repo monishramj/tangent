@@ -7,6 +7,7 @@ import { memoryJsonStore, sourceFor } from "./storage/store";
 import { fakeVideoStore, type VideoBundle } from "./storage/videos";
 import { scene, timeline } from "@motion/stage/demo";
 
+vi.mock('./home/api', async orig => ({ ...(await orig<typeof import('./home/api')>()), listSections: vi.fn().mockResolvedValue([]), pdfPreview: vi.fn().mockResolvedValue({ pages: 1, thumbnailUrl: 'page.png' }) }));
 vi.mock("./library", async orig => ({ ...(await orig<typeof import("./library")>()), loadIr: vi.fn().mockResolvedValue({ sections: [] }) }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (p: string) => p }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
@@ -73,7 +74,7 @@ it('routes the Home gear to Settings and its back button to Home', async () => {
 it('continues the upload queue during saved-video playback and keeps its status on return', async () => {
   let finish!: (value: { sections: [] }) => void;
   vi.mocked(loadIr).mockClear().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([vid])} />);
+  render(<App provider={provider} store={memoryJsonStore({ library: { folders: [], sources: [{ ...sourceFor('/b.pdf'), pageCount: 1, thumbnailUrl: 'page.png' }] }, [`ir-${sourceFor('/b.pdf').id}`]: { sections: [], outline_version: 1 } })} videoStore={fakeVideoStore([vid])} />);
   await screen.findByRole('list', { name: 'Recent videos' });
   fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [{ name: 'a.pdf', path: '/a.pdf' }, { name: 'c.pdf', path: '/c.pdf' }] } });
   await screen.findByText('c.pdf');
@@ -83,7 +84,7 @@ it('continues the upload queue during saved-video playback and keeps its status 
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/c.pdf']));
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   await screen.findByRole('heading', { name: 'library' });
-  expect(screen.getAllByText(/Done/)).toHaveLength(2);
+  await waitFor(() => expect(screen.getAllByText(/Ready/)).toHaveLength(3));
 });
 
 it('opens Settings by shortcut while watching, with hidden library shortcuts disabled', async () => {

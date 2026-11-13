@@ -84,6 +84,35 @@ fn accelerator(binding: &str) -> String {
     mods.join("+")
 }
 
+/// Only Cmd/Ctrl/Option justify stealing a key globally. NSMenu key equivalents are checked
+/// before the webview ever sees the keydown, so a bare-key accelerator (even "<"/">", whose
+/// muda form adds a Shift modifier that isn't in the original binding) would hijack normal
+/// typing in the Ask box, Settings fields, folder rename, etc.
+fn has_real_modifier(binding: &str) -> bool {
+    let mut parts: Vec<&str> = binding.split('+').collect();
+    parts.pop(); // drop the key, keep only modifier tokens
+    parts.iter().any(|p| matches!(*p, "Mod" | "Ctrl" | "Alt" | "Meta"))
+}
+
+/// Human-readable shortcut shown in the label for bindings that can't be a native accelerator.
+fn display_hint(binding: &str) -> String {
+    let mut parts: Vec<&str> = binding.split('+').collect();
+    let key = parts.pop().unwrap_or_default();
+    let key = match key {
+        "Space" => "Space".to_string(),
+        "ArrowLeft" => "←".to_string(),
+        "ArrowRight" => "→".to_string(),
+        "ArrowUp" => "↑".to_string(),
+        "ArrowDown" => "↓".to_string(),
+        k if k.chars().count() == 1 => k.to_uppercase(),
+        k => k.to_string(),
+    };
+    let mods: String = parts.into_iter().map(|m| match m {
+        "Shift" => "⇧", "Alt" => "⌥", "Ctrl" => "⌃", "Mod" | "Meta" => "⌘", other => other,
+    }).collect();
+    mods + &key
+}
+
 /// Default bindings mirrored from `src/keybinds.ts`'s `defaultBindings` (first entry per
 /// action), used only to build the menu before the frontend's first `sync_menu` call.
 fn default_bindings() -> HashMap<String, String> {
@@ -105,9 +134,16 @@ fn keybind_item<R: Runtime>(
     bindings: &HashMap<String, String>,
     state: &MenuState,
 ) -> tauri::Result<tauri::menu::MenuItem<R>> {
-    let mut builder = MenuItemBuilder::with_id(id, label).enabled(item_enabled(id, state));
-    if let Some(binding) = bindings.get(id) {
-        builder = builder.accelerator(accelerator(binding));
+    let binding = bindings.get(id);
+    // Bare keys stay off the native accelerator (see `has_real_modifier`); show the shortcut
+    // in the label instead and let the existing webview keydown handler do the real work.
+    let text = match binding {
+        Some(b) if !has_real_modifier(b) => format!("{label} ({})", display_hint(b)),
+        _ => label.to_string(),
+    };
+    let mut builder = MenuItemBuilder::with_id(id, text).enabled(item_enabled(id, state));
+    if let Some(b) = binding {
+        if has_real_modifier(b) { builder = builder.accelerator(accelerator(b)); }
     }
     builder.build(app)
 }
@@ -253,6 +289,26 @@ mod tests {
         assert_eq!(accelerator("Mod+o"), "CmdOrCtrl+O");
         assert_eq!(accelerator("Mod+["), "CmdOrCtrl+BracketLeft");
         assert_eq!(accelerator("Mod+,"), "CmdOrCtrl+Comma");
+    }
+
+    #[test]
+    fn bare_keys_never_become_native_accelerators_but_mod_bindings_still_do() {
+        for bare in ["Space", "ArrowLeft", "ArrowRight", "c", "a", "t", "b", "q", "f", "<", ">"] {
+            assert!(!has_real_modifier(bare), "{bare} must not steal typing globally");
+        }
+        for with_mod in ["Mod+o", "Mod+Shift+n", "Mod+[", "Mod+,"] {
+            assert!(has_real_modifier(with_mod), "{with_mod} should still get a native accelerator");
+        }
+    }
+
+    #[test]
+    fn display_hint_for_bare_bindings() {
+        assert_eq!(display_hint("Space"), "Space");
+        assert_eq!(display_hint("ArrowLeft"), "←");
+        assert_eq!(display_hint("ArrowRight"), "→");
+        assert_eq!(display_hint("c"), "C");
+        assert_eq!(display_hint("<"), "<");
+        assert_eq!(display_hint(">"), ">");
     }
 
     #[test]
