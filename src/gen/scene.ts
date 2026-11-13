@@ -9,6 +9,7 @@ import { devlog } from "../devlog";
 import { figuresPrompt, type Figure, type ScenePlan } from "./plan";
 import { dataBlock, dataReminder, dataRule, type DataTag } from "./sanitize";
 import type { Beat as ScriptBeat } from "./script";
+import { screenText, supportSet, unsupportedNumbers } from "./grounding";
 
 export type GenerationResult = { scene: Scene | null; attempts: number; errors: DslError[][]; used?: Used[] };
 export type Used = { template: string; variant: string };
@@ -25,8 +26,11 @@ export const recentFor = (plans: ScenePlan[], n = 8): Used[] => plans.flatMap(p 
 const err = (path: string, message: string, beat?: number): DslError => ({ path, code: "schema", message, beat });
 
 /** Deterministic quality gate on the model's template answer: narration intact, variety, sparing gifs. */
-export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], figures: Figure[] = [], recent: Used[] = []): DslError[] {
+export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], figures: Figure[] = [], recent: Used[] = [], source?: string): DslError[] {
   const errs: DslError[] = [];
+  // On-screen numbers are claims too (principle 7): each must be spoken in this scene or stated in the source.
+  // Only checked when the source is known; illustrative/computed templates (array, tree, ...) are exempt.
+  const support = source === undefined ? null : supportSet(source, ...beats.map(b => b.say));
   const used = raw.beats.map((b, i) => b.template ? `${b.template}/${resolveVariant(b.template as TemplateName, b.variant, i)}` : "");
   const last2 = new Set(recent.slice(-2).map(u => `${u.template}/${u.variant}`));
   if (raw.beats.length !== beats.length) errs.push(err("beats", `need exactly ${beats.length} beats, got ${raw.beats.length}`));
@@ -38,6 +42,10 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
     if (prev && b.template && !b.keep && b.template === prev.template && b.variant === prev.variant)
       errs.push(err(`beats[${i}].template`, `same template and variant as the previous beat (${b.template}/${b.variant ?? "default"}); vary it`, i));
     if (used[i] && last2.has(used[i])) errs.push(err(`beats[${i}].template`, `${used[i]} was just used at the end of the previous scene; pick a different template or variant`, i));
+    if (support) {
+      const bad = [...new Set(screenText(b.template, b.data).flatMap(t => unsupportedNumbers(t, support)))];
+      if (bad.length) errs.push(err(`beats[${i}].data`, `on-screen number ${bad.map(x => `"${x}"`).join(", ")} is not in the narration or the source; show only numbers the narration says, or pick a template without numbers`, i));
+    }
     const d = b.data as { src?: unknown } | undefined;
     if (b.template === "figure" && !figures.some(f => f.src === d?.src)) errs.push(err(`beats[${i}].data.src`, "figure src must be one of the listed figure assets", i));
   });
@@ -68,6 +76,7 @@ Rules:
 - diagram is a last resort: at most ONE diagram beat per scene, only for real architecture (datapath, layers) or a branching process no picture template can show.
 - Variety: never repeat the same template+variant on consecutive beats, and no template on more than half the beats; mix variants, icons, emoji and stickers. Build on a diagram/array with keep:true + actions when the narration keeps talking about it.${recent.length ? `\n- Recently used (avoid repeating; the last two are not allowed): ${recent.map(u => `${u.template}/${u.variant}`).join(", ")}.` : ""}
 - Gifs, like The Code Report: cut to a gif whenever a beat is an analogy, a relatable situation, a joke, a surprise or a common mistake. A gif that literally shows the situation beats another box diagram, but only if it clearly matches what that beat says; a vague or generic gif is worse than none. Break up runs of diagrams/lists/text with one; aim for 1 gif per scene (2 in long ones), never two in a row, never in the middle of a step-by-step derivation or trace.
+- Numbers on screen (stat, chart, gauge, pictograph, table, timeline dates, distribution) must be numbers the narration says. Never invent a statistic, percentage or date to fill a template; if the beat has no number, pick a template without one.
 - Computed visuals (array/tree/stack/queue/linkedlist/graph) use ops, never hand-traced states; matrix products and distribution areas are computed for you, never write them yourself.
 - Only use figure assets listed in the <figures> block, with exactly their src.
 
@@ -85,8 +94,10 @@ ${dataReminder(TAGS)} Return only the scene JSON.`;
 const parseJson = (text: string) => JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1").trim());
 
 /** One model call per scene group; one retry with the previous answer and every error. */
-export async function generateGroupScene({ beats, plan, figures = [], provider, sceneNo = 1, recent = [] }: {
+export async function generateGroupScene({ beats, plan, figures = [], provider, sceneNo = 1, recent = [], source }: {
   beats: ScriptBeat[]; plan: ScenePlan; figures?: Figure[]; provider: LLMProvider; sceneNo?: number; recent?: Used[];
+  /** Section text that on-screen numbers are checked against (not sent to the model). */
+  source?: string;
 }): Promise<GenerationResult> {
   let text = "", ask = prompt(beats, plan, figures, sceneNo, recent);
   const errors: DslError[][] = [];
@@ -97,7 +108,7 @@ export async function generateGroupScene({ beats, plan, figures = [], provider, 
     try {
       const raw = TemplateScene.parse(parseJson(text));
       // Cross-scene variety is enforced on the first answer only: a repeat must never cost the whole scene.
-      issues = checkTemplateScene(raw, beats, figures, attempts === 1 ? recent : []);
+      issues = checkTemplateScene(raw, beats, figures, attempts === 1 ? recent : [], source);
       if (!issues.length) {
         const expanded = expandTemplates(raw);
         issues = expanded.errors.map(e => err(e.path, e.message, e.beat));
