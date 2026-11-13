@@ -1,3 +1,4 @@
+import { TextArea } from '@/components/ui/TextField';
 import { useEffect, useRef, useState } from "react";
 import { motion, MotionConfig } from "motion/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -88,9 +89,9 @@ export function Question({ checkpoint: cp, state, onAnswer, onSubmit, thumb, ani
         </div>
       ) : (
         <form className="flex flex-col gap-[1cqw]" onSubmit={e => { e.preventDefault(); onSubmit(answer); }}>
-          <textarea aria-label="Your answer" value={answer} disabled={!!grade || grading} onChange={e => onAnswer(e.target.value)} rows={2}
+          <TextArea aria-label="Your answer" value={answer} disabled={!!grade || grading} onChange={e => onAnswer(e.target.value)} rows={2}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(answer); } }}
-            className="resize-none rounded-[max(12px,1.3cqw)] border border-line bg-transparent p-[1.2cqw] text-[clamp(14px,1.6cqw,20px)] text-fg placeholder:text-subtle focus-visible:border-fg/60" placeholder="Answer in a sentence…" />
+            className="rounded-[max(12px,1.3cqw)] bg-transparent p-[1.2cqw] text-[clamp(14px,1.6cqw,20px)]" placeholder="Answer in a sentence…" />
           {!grade && <button type="submit" disabled={!answer.trim() || grading} className={`${actionBtn} self-start bg-fg text-bg disabled:opacity-40`}>Check</button>}
         </form>
       )}

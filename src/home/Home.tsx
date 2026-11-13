@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
+import Settings from './Settings';
 import SourceView from './SourceView';
 import { listSections, multiTitle, pdfPreview, type IR, type SectionRef } from './api';
 import { loadIr, type LoadProgress } from '../library';
@@ -14,7 +15,7 @@ import type { LLMProvider } from '../llm/provider';
 import { isDetailLevel, type DetailLevel } from '../gen/script';
 
 export type StartMeta = { pdfPath: string; title: string; detail: DetailLevel };
-export type LibraryRoute = { s: 'home' } | { s: 'folder'; folderId: string } | { s: 'source'; sourceId: string; folderId?: string };
+export type LibraryRoute = { s: 'settings' } | { s: 'home' } | { s: 'folder'; folderId: string } | { s: 'source'; sourceId: string; folderId?: string };
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
 export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore, provider = providers.claude, route: controlledRoute, onNavigate }: {
@@ -116,17 +117,18 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     const sources = library.sources.filter(s => s.folderId === f.id);
     return { ...f, sourceCount: sources.length, sources };
   });
+  if (route.s === 'settings') return <Settings onBack={home} />;
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
     sections={content?.id === source.id ? content.sections : []} videos={recentVideos(videos, new Set([source.pdfPath]))}
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
     loading={loading} progress={loading ? progress : undefined} error={error} cleanupPending={cleanup === 'pending'} onRetryCleanup={cleanup === 'failed' ? () => setCleanupAttempt(n => n + 1) : undefined}
-    onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home}
+    onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onGenerate={(ids, detail) => { if (content?.id !== source.id) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
   return <LibraryView folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
-    onBack={home} onHome={home} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
+    onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
     onOpenSource={id => navigate({ s: 'source', sourceId: id, folderId: folder?.id })} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     onChoosePdf={() => { void open({ filters: [{ name: 'PDF', extensions: ['pdf'] }] }).then(path => { if (typeof path === 'string') return importPath(path); }).catch(e => setError(String(e))); }}
     onDropFile={file => { void importPath((file as File & { path?: string }).path ?? file.name); }}

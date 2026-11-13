@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
+import Select from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/TextField';
 import Icon from '@/components/Icon';
 import ShinyText from '@/components/ShinyText';
 import LoadingCircle from '@/components/LoadingCircle';
@@ -13,7 +15,7 @@ import { LibraryShell, VideoList, type SourceSummary } from './LibraryView';
 
 export type SourceViewProps = {
   source: SourceSummary; folderName?: string; sections: SectionRef[]; videos: VideoBundle[];
-  onBack: () => void; onHome?: () => void; onOpenVideo: (video: VideoBundle) => void;
+  onBack: () => void; onHome?: () => void; onSettings?: () => void; onOpenVideo: (video: VideoBundle) => void;
   onGenerate: (ids: string[], detail: DetailLevel) => void | Promise<void>;
   renderPage?: RenderPage;
   onDeleteVideo?: (id: string) => void | Promise<void>;
@@ -66,7 +68,7 @@ export default function SourceView(props: SourceViewProps) {
     try { await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video: ${String(e)}`); }
     finally { setGenerating(false); }
   };
-  return <LibraryShell onHome={props.onHome ?? props.onBack} wide>
+  return <LibraryShell onHome={props.onHome ?? props.onBack} onSettings={props.onSettings} wide>
     <button className="tl-back" onClick={props.onBack}><Icon icon={ArrowLeft01Icon} size={16} />{props.folderName ?? 'Home'}</button>
     <div className="tl-heading tl-source-heading"><div><p className="tl-eyebrow">READING MATERIAL</p><h1>{source.name}</h1><p>{source.pageCount ? `${source.pageCount} pages · ` : ''}{sections.length} sections</p></div></div>
     {(error || props.error) && <p className="tl-error" role="alert">{error || props.error}</p>}
@@ -85,10 +87,10 @@ export default function SourceView(props: SourceViewProps) {
             onPointerDown={e => { suppressClick.current = false; if (!selecting || e.button !== 0 || e.pointerType === 'touch' || (e.target as HTMLElement).tagName === 'INPUT') return; e.preventDefault(); suppressClick.current = true; drag.current = { start: index, base: selected, add: !selected.has(section.id) }; selectRange(index); }}
             onPointerEnter={e => { if (selecting && e.buttons === 1) selectRange(index); else drag.current = null; }}
             onClick={e => { if (suppressClick.current) { e.preventDefault(); suppressClick.current = false; } }}>
-            {selecting && <input type="checkbox" aria-label={`Select ${section.title}`} checked={selected.has(section.id)} onChange={e => setSelected(previous => { const next = new Set(previous); if (e.target.checked) next.add(section.id); else next.delete(section.id); return next; })} />}
+            {selecting && <Checkbox aria-label={`Select ${section.title}`} checked={selected.has(section.id)} onChange={e => setSelected(previous => { const next = new Set(previous); if (e.target.checked) next.add(section.id); else next.delete(section.id); return next; })} />}
             <span style={{ paddingLeft: Math.min(4, Math.max(0, section.level - 1)) * 16 }}>{section.title}</span><small>{pages(section)}</small>
           </label>)}</div>
-          {selecting && <div className="tl-generation"><div className="tl-generation-top"><label htmlFor="video-detail">Detail level</label><select id="video-detail" value={detail} onChange={e => { const value = e.target.value; if (!isDetailLevel(value)) return; setDetail(value); props.onDetailChange?.(value); }}>{DETAIL_LEVELS.map(d => <option value={d} key={d}>{detailLabel[d]}</option>)}</select></div>
+          {selecting && <div className="tl-generation"><div className="tl-generation-top"><label htmlFor="video-detail">Detail level</label><Select id="video-detail" value={detail} onChange={e => { const value = e.target.value; if (!isDetailLevel(value)) return; setDetail(value); props.onDetailChange?.(value); }}>{DETAIL_LEVELS.map(d => <option value={d} key={d}>{detailLabel[d]}</option>)}</Select></div>
             <p>{detailHint[detail]}</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!ids.length || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${ids.length ? ` · ${ids.length} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
           </div>}
         </>}

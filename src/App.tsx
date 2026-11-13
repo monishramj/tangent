@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
+import Settings from "./home/Settings";
 import PlayerScreen from "./player/PlayerScreen";
 import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
@@ -20,6 +21,7 @@ type Screen =
 export default function App({ provider, store = tauriJsonStore, videoStore = tauriVideoStore, initial = { s: "home" } }: { provider?: LLMProvider; store?: JsonStore; videoStore?: VideoStore; initial?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
   switch (screen.s) {
+    case "settings": return <Settings onBack={() => setScreen({ s: "home" })} />;
     case "watch": return <Watch video={screen.video} provider={provider} store={store} onBack={() => setScreen(screen.back ?? { s: "home" })} />;
     case "generate": return <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
       onRetry={() => setScreen({ ...screen, attempt: screen.attempt + 1 })} onBack={() => setScreen(screen.back ?? { s: "home" })} />;

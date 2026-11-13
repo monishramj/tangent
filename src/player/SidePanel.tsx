@@ -1,3 +1,4 @@
+import { TextArea } from '@/components/ui/TextField';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, TextAlignLeftIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
@@ -154,10 +155,10 @@ function Ask({ threads, activeThread, onSelectThread, onSend, thinking, time, on
       </div>
       <form className="flex items-end gap-2 border-t border-line p-3" onSubmit={e => { e.preventDefault(); submit(); }}>
         {thread && <button type="button" aria-label="New question" onClick={() => onSelectThread(null)} className="grid size-11 shrink-0 place-items-center rounded-full border border-line text-muted transition-colors hover:bg-fg/10 hover:text-fg"><Icon icon={PlusSignIcon} size={18} /></button>}
-        <textarea aria-label={thread ? "Reply in thread" : "Ask about this moment"} rows={1} value={draft} autoFocus
+        <TextArea aria-label={thread ? "Reply in thread" : "Ask about this moment"} rows={1} value={draft} autoFocus
           onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder={thread ? "Follow up…" : "Why does the bigger child swap?"}
-          className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-line bg-bg/60 px-4 py-2.5 text-fg transition-colors placeholder:text-subtle focus-visible:border-fg/50" />
+          className="max-h-32 flex-1 rounded-2xl bg-bg/60 px-4" />
         <button type="submit" aria-label="Send" disabled={thinking || !draft.trim()} className="grid size-11 shrink-0 place-items-center rounded-full bg-fg text-bg transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100"><Icon icon={ArrowUp02Icon} size={20} /></button>
       </form>
     </>

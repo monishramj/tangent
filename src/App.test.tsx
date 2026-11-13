@@ -57,3 +57,12 @@ it("Back from a saved video restores the source and its folder", async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Course' }));
   expect(await screen.findByRole('heading', { name: /Course/ })).toBeTruthy();
 });
+
+it('routes the Home gear to Settings and its back button to Home', async () => {
+  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([])} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  expect(screen.queryByTestId('dropzone')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+});

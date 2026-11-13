@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft02Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import Menu from "@/components/ui/Menu";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
@@ -96,7 +97,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   thumbsRef.current = thumbs;
   const scrubResume = useRef(false);
   const idleTimer = useRef(0);
-  const speedMenu = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ x: number; t: number; label: string } | null>(null);
 
   /** Auto-pop the next checkpoint after a scene: not one already shown this session or answered in an earlier one. */
@@ -317,13 +317,6 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const chrome = !playing || !idle || overChrome || speedOpen || !!activeCp || buffering || !canPlay;
   const chromeHover = { onPointerEnter: () => setOverChrome(true), onPointerLeave: () => setOverChrome(false) };
 
-  useEffect(() => {
-    if (!speedOpen) return;
-    const away = (e: PointerEvent) => { if (!speedMenu.current?.contains(e.target as Node)) setSpeedOpen(false); };
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [speedOpen]);
-
   const keys = useRef({ toggle, seek, time, toggleCc, stepSpeed, poke, blocked: false });
   keys.current = { toggle, seek, time, toggleCc, stepSpeed, poke, blocked: !!activeCp || !!quiz };
 
@@ -443,15 +436,10 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           <button type="button" aria-label="Forward 10 seconds" title="Forward 10 s (→)" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
           <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
           <div className="ml-auto flex items-center gap-0.5">
-            <div ref={speedMenu} className="relative">
-              <button type="button" aria-label="Playback speed" aria-haspopup="menu" aria-expanded={speedOpen} title="Speed (< >)" onClick={() => setSpeedOpen(o => !o)}
-                className={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>{fmtSpeed(speed)}</button>
-              {speedOpen && <div role="menu" aria-label="Speed" className="glass-solid fade-in absolute right-0 bottom-full mb-2 w-36 rounded-xl p-1">
-                {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" aria-checked={r === speed} onClick={() => { changeSpeed(r); setSpeedOpen(false); }}
-                  className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm tabular-nums transition-colors hover:bg-fg/10 ${r === speed ? "text-fg" : "text-muted"}`}>
-                  {r === 1 ? "Normal" : fmtSpeed(r)}{r === speed && <Icon icon={Tick02Icon} size={16} />}</button>)}
-              </div>}
-            </div>
+            <Menu label="Playback speed" menuLabel="Speed" trigger={fmtSpeed(speed)} open={speedOpen} onOpenChange={setSpeedOpen} above triggerClassName={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>
+              {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" tabIndex={-1} aria-checked={r === speed} onClick={() => changeSpeed(r)}>
+                {r === 1 ? "Normal" : fmtSpeed(r)}{r === speed && <Icon icon={Tick02Icon} size={16} />}</button>)}
+            </Menu>
             <button type="button" aria-label="Captions" aria-pressed={cc} title="Captions (C)" onClick={toggleCc} className={iconBtn}><Icon icon={ClosedCaptionIcon} /></button>
           </div>
         </div>

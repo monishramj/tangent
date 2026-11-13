@@ -356,16 +356,16 @@ const WEBGL_SHADOW = [
 ].join(', ');
 
 const FRAME_SHADOW = [
-  '0 0 2px 1px light-dark(color-mix(in oklch, black, transparent 85%), color-mix(in oklch, white, transparent 65%)) inset',
-  '0 0 10px 4px light-dark(color-mix(in oklch, black, transparent 90%), color-mix(in oklch, white, transparent 85%)) inset',
+  '0 0 0 1px var(--line) inset',
+  '0 0 8px 2px color-mix(in srgb, var(--line), transparent 65%) inset',
   '0px 4px 16px rgba(17, 17, 26, 0.05) inset',
   '0px 8px 24px rgba(17, 17, 26, 0.05) inset',
   '0px 16px 56px rgba(17, 17, 26, 0.05) inset'
 ].join(', ');
 
 const LINE = {
-  svg: 'light-dark(color-mix(in oklch, black, transparent 85%), color-mix(in oklch, white, transparent 65%))',
-  fallback: 'light-dark(color-mix(in oklch, black, transparent 88%), color-mix(in oklch, white, transparent 72%))'
+  svg: 'var(--line)',
+  fallback: 'var(--line)'
 };
 
 const GLOW = {
@@ -374,8 +374,8 @@ const GLOW = {
 };
 
 const SVG_SHADOW = [
-  '0 0 2px 1px light-dark(color-mix(in oklch, black, transparent 85%), color-mix(in oklch, white, transparent 65%)) inset',
-  '0 0 10px 4px light-dark(color-mix(in oklch, black, transparent 90%), color-mix(in oklch, white, transparent 85%)) inset',
+  '0 0 0 1px var(--line) inset',
+  '0 0 8px 2px color-mix(in srgb, var(--line), transparent 65%) inset',
   '0px 4px 16px rgba(17, 17, 26, 0.05)',
   '0px 8px 24px rgba(17, 17, 26, 0.05)',
   '0px 16px 56px rgba(17, 17, 26, 0.05)',

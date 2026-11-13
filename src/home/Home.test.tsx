@@ -113,11 +113,13 @@ it('creates, imports inside, renames and deletes a folder without deleting its P
   expect(library.sources[0].folderId).toBe(library.folders[0].id);
   fireEvent.click(screen.getByRole('button', { name: 'CS 251' }));
   await screen.findByRole('heading', { name: /CS 251/ });
-  fireEvent.click(screen.getByText('Rename folder'));
+  fireEvent.click(screen.getByRole('button', { name: 'Folder actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Rename folder' }));
   fireEvent.change(screen.getByLabelText('Folder name'), { target: { value: 'Algorithms' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
   await screen.findByRole('heading', { name: /Algorithms/ });
-  fireEvent.click(screen.getByText('Delete folder', { selector: 'button' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Folder actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete folder' }));
   fireEvent.click(within(screen.getByRole('region', { name: 'Delete folder' })).getByRole('button', { name: 'Delete folder' }));
   await screen.findByRole('heading', { name: 'library' });
   expect((jsonStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(1);
@@ -155,7 +157,8 @@ it('move-to-folder persists the chosen folder', async () => {
   const source = sourceFor('/book.pdf');
   const store = memoryJsonStore({ library: { folders: [{ id: 'f1', name: 'Course', emoji: '📚', openedAt: 1 }], sources: [source] } });
   setup({ jsonStore: store });
-  const select = await screen.findByLabelText('Folder for book.pdf');
+  fireEvent.click(await screen.findByRole('button', { name: 'Move book.pdf' }));
+  const select = screen.getByLabelText('Folder for book.pdf');
   fireEvent.change(select, { target: { value: 'f1' } });
   await waitFor(() => expect((store.data.get('library') as { sources: { folderId: string }[] }).sources[0].folderId).toBe('f1'));
 });
@@ -172,11 +175,11 @@ it('does not overwrite durable sources when the library read fails', async () =>
   expect(write).not.toHaveBeenCalled();
 });
 
-it("the settings panel saves a GIPHY key", async () => {
+it("the settings screen saves a GIPHY key", async () => {
   const { invoke } = await import("@tauri-apps/api/core");
   render(<Home />);
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-  const dlg = screen.getByRole("dialog", { name: "Settings" });
+  const dlg = screen.getByRole("main");
   expect(within(dlg).getByText(/reaction gifs · off/i)).toBeTruthy();
   fireEvent.change(within(dlg).getByLabelText("GIPHY API key"), { target: { value: " abc " } });
   await act(async () => { fireEvent.click(within(dlg).getByRole("button", { name: "Save" })); });
@@ -223,4 +226,21 @@ it('shows parser titles while tidying, retains partial success and retries only 
   expect(await screen.findByText('Restoring heap order')).toBeTruthy();
   expect(screen.getByText('Binary heaps')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Retry section titles' })).toBeNull();
+});
+
+it('opens a Settings screen, persists playback defaults, and returns to the library', async () => {
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.change(screen.getByLabelText(/^Speed/), { target: { value: '1.5' } });
+  fireEvent.change(screen.getByLabelText(/^Captions/), { target: { value: 'off' } });
+  expect(localStorage.getItem('tangent.speed')).toBe('1.5');
+  expect(localStorage.getItem('tangent.cc')).toBe('off');
+  expect(screen.getByText(/^Version /)).toBeTruthy();
+  expect(screen.getByText('Update checks are coming soon.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+  expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  expect((screen.getByLabelText(/^Speed/) as HTMLSelectElement).value).toBe('1.5');
 });

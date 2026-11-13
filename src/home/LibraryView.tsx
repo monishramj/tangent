@@ -5,7 +5,10 @@ import Folder from '@/components/Folder';
 import SpotlightCard from '@/components/SpotlightCard';
 import AnimatedList from '@/components/AnimatedList';
 import ShinyText from '@/components/ShinyText';
-import Settings from './Settings';
+import { Settings01Icon } from '@hugeicons/core-free-icons';
+import TextField from '@/components/ui/TextField';
+import Select from '@/components/ui/Select';
+import Menu from '@/components/ui/Menu';
 import { videoDuration, type VideoBundle } from '../storage/videos';
 import type { LoadProgress } from '../library';
 import logo from '../../assets/tangent-icon.png';
@@ -22,7 +25,7 @@ export type FolderSummary = {
 type Mutation = void | Promise<void>;
 export type LibraryViewProps = {
   folders: FolderSummary[]; sources: SourceSummary[]; videos: VideoBundle[]; folder?: FolderSummary;
-  onOpenFolder: (id: string) => void; onBack: () => void; onHome?: () => void;
+  onOpenFolder: (id: string) => void; onBack: () => void; onHome?: () => void; onSettings?: () => void;
   onOpenSource: (id: string) => void; onOpenVideo: (video: VideoBundle) => void;
   onChoosePdf: () => void; onDropFile: (file: File) => void;
   onCreateFolder: (name: string, emoji?: string) => Mutation;
@@ -33,9 +36,9 @@ export type LibraryViewProps = {
   over?: boolean; loading?: string; progress?: LoadProgress; error?: string; onRetry?: () => void;
 };
 
-export function LibraryShell({ children, onHome, wide = false }: { children: ReactNode; onHome: () => void; wide?: boolean }) {
+export function LibraryShell({ children, onHome, onSettings, wide = false }: { children: ReactNode; onHome: () => void; onSettings?: () => void; wide?: boolean }) {
   return <main className="tl-library"><div className={`tl-wrap ${wide ? 'tl-wide' : ''}`}>
-    <header className="tl-header"><button className="tl-wordmark" onClick={onHome} aria-label="Tangent home"><img src={logo} alt="" />tangent</button><Settings /></header>
+    <header className="tl-header"><button className="tl-wordmark" onClick={onHome} aria-label="Tangent home"><img src={logo} alt="" />tangent</button>{onSettings && <button type="button" aria-label="Settings" onClick={onSettings} className="tl-icon-button"><Icon icon={Settings01Icon} size={20} /></button>}</header>
     {children}
   </div></main>;
 }
@@ -100,18 +103,18 @@ export default function LibraryView(props: LibraryViewProps) {
   const startForm = (kind: 'create' | 'rename' | 'delete') => { setForm(kind); setName(kind === 'rename' ? folder?.name ?? '' : ''); setEmoji('📚'); setError(''); };
   const shownFolders = allFolders ? folders : folders.slice(0, 3);
   const isAllFolders = allFolders && !folder;
-  return <LibraryShell onHome={home}>
+  return <LibraryShell onHome={home} onSettings={props.onSettings}>
     {(folder || allFolders) && <button className="tl-back" onClick={() => { cancelOpening(); if (folder) onBack(); else setAllFolders(false); }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
     <div className="tl-content" key={folder?.id ?? (allFolders ? 'all' : 'home')}>
       <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
-        {folder ? <details className="tl-menu"><summary aria-label="Folder actions"><Icon icon={MoreHorizontalIcon} size={20} /></summary><div><button onClick={() => startForm('rename')}>Rename folder</button><button onClick={() => startForm('delete')}>Delete folder</button></div></details>
+        {folder ? <Menu label="Folder actions" trigger={<Icon icon={MoreHorizontalIcon} size={20} />}><button role="menuitem" tabIndex={-1} onClick={() => startForm('rename')}>Rename folder</button><button role="menuitem" tabIndex={-1} onClick={() => startForm('delete')}>Delete folder</button></Menu>
           : <button className="tl-text-button" onClick={() => startForm('create')}><Icon icon={Add01Icon} size={17} />New folder</button>}
       </div>
       {form && <section className="tl-form" aria-label={form === 'create' ? 'Create folder' : form === 'rename' ? 'Rename folder' : 'Delete folder'}>
         {form === 'delete' && folder ? <><p>Delete “{folder.name}”? Its PDFs will stay in your library.</p><div className="tl-form-actions"><button className="tl-primary" disabled={busy} onClick={() => void mutate(() => props.onDeleteFolder(folder.id))}>Delete folder</button><button className="tl-text-button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div></>
           : <form onSubmit={e => { e.preventDefault(); if (!name.trim()) return; void mutate(() => form === 'create' ? props.onCreateFolder(name.trim(), emoji.trim() || '📚') : props.onRenameFolder(folder!.id, name.trim())); }}>
-            <label>Folder name<input autoFocus required maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. CS 251" /></label>
-            {form === 'create' && <label className="tl-emoji-input">Emoji<input aria-label="Folder emoji" maxLength={16} value={emoji} onChange={e => setEmoji(e.target.value)} /></label>}
+            <label>Folder name<TextField autoFocus required maxLength={100} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. CS 251" /></label>
+            {form === 'create' && <label className="tl-emoji-input">Emoji<TextField aria-label="Folder emoji" maxLength={16} value={emoji} onChange={e => setEmoji(e.target.value)} /></label>}
             <div className="tl-form-actions"><button className="tl-primary" disabled={busy || !name.trim()}>{form === 'create' ? 'Create folder' : 'Save name'}</button><button type="button" className="tl-text-button" disabled={busy} onClick={() => setForm(null)}>Cancel</button></div>
           </form>}
       </section>}
@@ -128,7 +131,7 @@ export default function LibraryView(props: LibraryViewProps) {
       {!isAllFolders && <>
         {folder && sourceList()}
         <SpotlightCard data-testid="dropzone" spotlightColor="#fff" intensity={0.07} borderGlow={0.3} className="tl-drop"
-          style={{ '--spotlight-card-surface': dragOver || props.over ? 'rgba(255,255,255,0.05)' : 'transparent', '--spotlight-card-border': dragOver || props.over ? '#888' : 'var(--line)', '--spotlight-card-shadow': 'none' } as CSSProperties}
+          style={{ '--spotlight-card-surface': dragOver || props.over ? 'rgba(255,255,255,0.05)' : 'transparent', '--spotlight-card-border': dragOver || props.over ? 'var(--line-hover)' : 'var(--line)', '--spotlight-card-shadow': 'none' } as CSSProperties}
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files?.[0]; if (file && !props.loading) props.onDropFile(file); }}>
           {props.loading ? <div className="tl-loading" role="status"><ShinyText text={props.loading} color="#999" shineColor="#fff" />{props.progress && <><progress aria-label="Reading PDF" value={props.progress.fraction} max={1} /><small>{props.progress.label}</small></>}</div>
             : <><Icon icon={Upload04Icon} size={23} /><div><strong>Drop a PDF here</strong>{folder && <span>Add reading material to {folder.name}.</span>}</div><button className="tl-quiet" onClick={() => { if ('__TAURI_INTERNALS__' in window) props.onChoosePdf(); else input.current?.click(); }}>Choose PDF <Icon icon={Add01Icon} size={16} /></button></>}
@@ -146,7 +149,7 @@ export default function LibraryView(props: LibraryViewProps) {
     if (!sources.length) return <p className="tl-empty">{folder ? 'No reading material yet. Drop in your first PDF below.' : 'No PDFs outside folders yet.'}</p>;
     return <ul className="tl-files" aria-label="Reading material">{sources.map(s => <li key={s.id}>
       <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}</span><span><strong>{s.name}</strong><small>PDF{s.pageCount ? ` · ${s.pageCount} pages` : ''}</small></span><Icon icon={ArrowRight01Icon} size={18} /></button>
-      <details className="tl-menu"><summary aria-label={`Move ${s.name}`}><Icon icon={MoreHorizontalIcon} size={18} /></summary><div><label>Move to folder<select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</select></label></div></details>
+      <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
     </li>)}</ul>;
   }
 }

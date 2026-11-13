@@ -8,7 +8,9 @@
   --fg: #ffffff;
   --fg-muted: rgba(255, 255, 255, 0.72); /* ~11:1 on black */
   --fg-subtle: rgba(255, 255, 255, 0.56); /* ~6.5:1 on black */
-  --line: rgba(255, 255, 255, 0.16);
+  --line: rgba(255, 255, 255, 0.11);
+  --line-hover: rgba(255, 255, 255, 0.22);
+  --focus: rgba(255, 255, 255, 0.55);
   --accent: #ffffff;
 }
 
@@ -29,7 +31,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -60,7 +62,7 @@ body {
 /* Tinted glass (React Bits GlassSurface look, monochrome) */
 .glass {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
@@ -77,7 +79,7 @@ body {
 /* Solid translucent surface for anything over/near the video: no backdrop-filter (it re-composites every frame). */
 .glass-solid {
   background: rgba(10, 10, 10, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
@@ -96,9 +98,31 @@ body {
 .rich .katex-display { margin: 0.4em 0; overflow-x: auto; overflow-y: hidden; }
 
 /* No visible scrollbars anywhere; scrolling (wheel, trackpad, keyboard) still works. */
-* { scrollbar-width: none; }
-*::-webkit-scrollbar { display: none; }
+html, body, * { scrollbar-width: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 [data-sizing="true"] .passage-highlight { transition: none; }
 /* Skip the large backdrop filter while the panel edge moves. */
 .panel-open[data-resizing="true"] > :last-child { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+/* Shared house controls: one hairline, including focus, without a second outline. */
+@layer components {
+.ui-field { min-width:0;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:10px 12px;color:var(--fg);font:inherit;font-size:14px;transition:border-color 150ms; }
+.ui-field::placeholder { color:var(--fg-subtle); }
+.ui-field:hover:not(:disabled) { border-color:var(--line-hover); }
+.ui-field:disabled { opacity:.4;cursor:default; }
+.ui-textarea { resize:none; }
+.ui-select { appearance:none;cursor:pointer;padding-right:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23999' stroke-width='1.2'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center; }
+.ui-checkbox { accent-color:var(--fg);width:18px;height:18px;flex-shrink:0;cursor:pointer; }
+.ui-menu { position:relative;flex-shrink:0; }
+.ui-menu-trigger { display:grid;place-items:center;width:44px;min-height:44px;border-radius:8px;color:var(--fg-subtle);cursor:pointer; }
+.ui-menu-trigger:hover,.ui-menu-trigger[aria-expanded=true] { background:var(--surface-2);color:var(--fg); }
+.ui-menu-content { position:absolute;right:0;top:100%;z-index:30;min-width:190px;max-width:min(280px,85vw);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 8px 24px #0008; }
+.ui-menu-above { top:auto;bottom:100%;margin-bottom:8px; }
+.ui-menu-content > button { display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;text-align:left;width:100%;padding:8px 12px;font-size:13px;border-radius:6px;color:var(--fg-muted); }
+.ui-menu-content > button:hover,.ui-menu-content > button:focus-visible { background:#ffffff0d;color:var(--fg); }
+.ui-menu-content label { display:block;font-size:12px;color:var(--fg-muted);padding:6px; }
+.ui-menu-content select { display:block;width:100%;margin-top:8px; }
+
+}
+.ui-field:focus-visible { outline:none;border-color:var(--focus); }
