@@ -84,6 +84,19 @@ export function bindingFromEvent(event: KeyboardEvent): string | null {
   return [...(event.metaKey ? [isMac() ? 'Mod' : 'Meta'] : []), ...(event.ctrlKey ? [isMac() ? 'Ctrl' : 'Mod'] : []),
     ...(event.altKey ? ['Alt'] : []), ...(shift ? ['Shift'] : []), key].join('+');
 }
+/** Reverse of `bindingFromEvent`: a synthetic keydown so a native menu click (src/menu.ts)
+ * replays through the same `dispatchKeybind` path a real key press uses. */
+export function dispatchBinding(binding: string) {
+  const parts = binding.split('+');
+  const key = parts.pop()!;
+  const mac = isMac();
+  window.dispatchEvent(new KeyboardEvent('keydown', {
+    key: key === 'Space' ? ' ' : key,
+    metaKey: parts.includes('Meta') || (mac && parts.includes('Mod')),
+    ctrlKey: parts.includes('Ctrl') || (!mac && parts.includes('Mod')),
+    altKey: parts.includes('Alt'), shiftKey: parts.includes('Shift'), bubbles: true,
+  }));
+}
 export function isTyping(target: EventTarget | null) {
   return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]');
 }

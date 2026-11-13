@@ -5,6 +5,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 mod llm;
+mod menu;
 mod pages;
 mod store;
 mod videos;
@@ -144,7 +145,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(State_::default())
-        .invoke_handler(tauri::generate_handler![pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret])
+        .on_menu_event(|app, event| menu::on_click(app, event.id().0.as_str()))
+        .setup(|app| { menu::install(app.handle())?; Ok(()) })
+        .invoke_handler(tauri::generate_handler![pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {

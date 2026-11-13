@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArrowLeft02Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, ClosedCaptionIcon, FullScreenIcon, GoBackward10SecIcon, GoForward10SecIcon, PauseIcon, PlayIcon, TextAlignLeftIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import useKeybinds from "@/hooks/useKeybinds";
+import { syncMenu } from "@/menu";
 import Menu from "@/components/ui/Menu";
 import Icon from "@/components/Icon";
 import GlassSurface from "@/components/GlassSurface";
@@ -339,6 +340,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     fullscreen: () => { void fullscreen(); },
     home: onBack,
   }, true, true);
+  useEffect(() => { syncMenu({ player: true, blocked, textbook: !!textbook, checks: checkpoints.length > 0 }); },
+    [blocked, textbook, checkpoints.length]);
 
   const cpIndex = activeCp ? checkpoints.findIndex(c => c.id === activeCp.id) : -1;
   const fmtSpeed = (r: number) => `${r}×`;
