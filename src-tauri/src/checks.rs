@@ -4,8 +4,12 @@ use serde::Serialize;
 use serde_json::Value;
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+const OUT_CAP: usize = 64 * 1024;
 
 const VERSION_ARGS: &[&str] = &["--version"];
 const AUTH_ARGS: &[&str] = &["auth", "status", "--json"];
@@ -63,34 +67,95 @@ fn logged_in(out: &str) -> Option<bool> {
     serde_json::from_str::<Value>(&out[start..=end]).ok()?.get("loggedIn")?.as_bool()
 }
 
+struct Drain {
+    buf: Arc<Mutex<Vec<u8>>>,
+    done: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+/// Read until EOF or the deadline. Keep at most `keep` bytes; further bytes are discarded so the pipe cannot fill.
+fn start_drain(mut reader: impl Read + Send + 'static, deadline: Instant, keep: usize) -> Drain {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicBool::new(false));
+    let (buf2, done2) = (buf.clone(), done.clone());
+    let handle = std::thread::spawn(move || {
+        let mut tmp = [0u8; 8192];
+        while Instant::now() < deadline {
+            let n = match reader.read(&mut tmp) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            if Instant::now() >= deadline { break; } // a read that returns past the deadline is dropped
+            if keep > 0 {
+                let mut got = buf2.lock().unwrap();
+                let room = keep.saturating_sub(got.len());
+                if room > 0 { got.extend_from_slice(&tmp[..n.min(room)]); }
+            }
+        }
+        done2.store(true, Ordering::Release);
+    });
+    Drain { buf, done, handle: Some(handle) }
+}
+
+impl Drain {
+    fn finish(mut self) -> Vec<u8> {
+        if let Some(handle) = self.handle.take() { let _ = handle.join(); }
+        self.buf.lock().unwrap().clone()
+    }
+}
+
+fn kill_tree(child: &mut Child) {
+    #[cfg(unix)]
+    unsafe { libc::killpg(child.id() as i32, libc::SIGKILL); }
+    #[cfg(windows)]
+    { let _ = Command::new("taskkill").args(["/T", "/F", "/PID", &child.id().to_string()]).status(); }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 pub fn run_probe(exe: &Path, args: &[&str], timeout: Duration) -> Probe {
     if !exe.is_file() { return Probe { kind: ProbeKind::Missing, out: String::new() }; }
     let home = crate::llm::home_dir();
     let dirs = crate::llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let mut cmd = Command::new(exe);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Ok(path) = std::env::join_paths(&dirs) { cmd.env("PATH", path); }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // so a timeout can kill grandchildren that inherited the pipes
+    }
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Probe { kind: ProbeKind::Missing, out: String::new() },
         Err(_) => return Probe { kind: ProbeKind::Failed, out: String::new() },
     };
     let deadline = Instant::now() + timeout;
+    let stdout = start_drain(child.stdout.take().unwrap(), deadline, OUT_CAP);
+    let stderr = start_drain(child.stderr.take().unwrap(), deadline, 0); // discard; may contain account text
+    // try_wait reaps, so a later call returns None. Remember the first status and keep waiting for EOF.
+    let mut status = None;
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Probe { kind: ProbeKind::Timeout, out: String::new() };
-            }
-            // ponytail: poll; these checks return in well under a second
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(_) => return Probe { kind: ProbeKind::Failed, out: String::new() },
+        if Instant::now() >= deadline {
+            kill_tree(&mut child);
+            let _ = (stdout.finish(), stderr.finish());
+            return Probe { kind: ProbeKind::Timeout, out: String::new() };
         }
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(found) => status = found,
+                Err(_) => {
+                    kill_tree(&mut child);
+                    let _ = (stdout.finish(), stderr.finish());
+                    return Probe { kind: ProbeKind::Failed, out: String::new() };
+                }
+            }
+        }
+        if status.is_some() && stdout.done.load(Ordering::Acquire) && stderr.done.load(Ordering::Acquire) { break status.unwrap(); }
+        std::thread::sleep(Duration::from_millis(20));
     };
-    let mut out = String::new();
-    if let Some(mut stdout) = child.stdout.take() { let _ = stdout.read_to_string(&mut out); }
+    let out = String::from_utf8_lossy(&stdout.finish()).into_owned();
+    let _ = stderr.finish();
     Probe { kind: if status.success() { ProbeKind::Ok } else { ProbeKind::Failed }, out }
 }
 
@@ -168,8 +233,37 @@ mod tests {
         let ok = run_probe(Path::new("/bin/echo"), &["9.9.9"], Duration::from_secs(2));
         assert_eq!(ok.kind, ProbeKind::Ok);
         assert!(ok.out.contains("9.9.9"));
+        assert!(ok.out.len() <= OUT_CAP);
         assert_eq!(run_probe(Path::new("/no/such/claude-bin"), &["--version"], Duration::from_millis(200)).kind, ProbeKind::Missing);
         assert_eq!(run_probe(Path::new("/bin/sh"), &["-c", "exit 3"], Duration::from_secs(2)).kind, ProbeKind::Failed);
-        assert_eq!(run_probe(Path::new("/bin/sleep"), &["5"], Duration::from_millis(400)).kind, ProbeKind::Timeout);
+        let start = Instant::now();
+        assert_eq!(run_probe(Path::new("/bin/sleep"), &["5"], Duration::from_millis(200)).kind, ProbeKind::Timeout);
+        assert!(start.elapsed() < Duration::from_millis(800), "slept {:?}", start.elapsed());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn flood_is_capped_and_does_not_false_timeout() {
+        let start = Instant::now();
+        let p = run_probe(Path::new("/bin/sh"), &["-c", "dd if=/dev/zero bs=65536 count=32 2>/dev/null"], Duration::from_secs(3));
+        assert_eq!(p.kind, ProbeKind::Ok, "{:?}", start.elapsed());
+        assert!(p.out.len() <= OUT_CAP);
+        assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grandchild_holding_the_pipe_cannot_outrun_the_deadline() {
+        let marker = std::env::temp_dir().join(format!("tangent-probe-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        // The background subshell inherits our stdout pipe, then the shell exits. Redirecting that subshell would hide the bug.
+        let script = format!("(sleep 1; echo x > '{}') & exit 0", marker.display());
+        let start = Instant::now();
+        let p = run_probe(Path::new("/bin/sh"), &["-c", &script], Duration::from_millis(150));
+        assert_eq!(p.kind, ProbeKind::Timeout);
+        assert!(start.elapsed() < Duration::from_millis(800), "deadline slipped to {:?}", start.elapsed());
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "grandchild outlived the timeout");
+        let _ = std::fs::remove_file(&marker);
     }
 }

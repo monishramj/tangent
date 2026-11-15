@@ -65,6 +65,9 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16 PR #31 review: `run_probe` drains stdout and stderr while it waits, keeps at most 64KiB, and kills the process group (Windows: `taskkill /T`) at the deadline so a grandchild holding the pipe cannot hang the check.
+  Evidence: cargo test — sleep past the deadline, a 2MB flood, and a grandchild that inherits the pipe. Not verified: the Windows `taskkill` path.
+
 - 2026-11-16 Step 22: `.github/workflows/release.yml` (tag `v*` -> draft release; macOS arm64+x64, Windows, Linux; tauri-action action-v0.6.2; manual run = dry run with workflow artifacts). Secrets `TAURI_SIGNING_PRIVATE_KEY` + `_PASSWORD`; ad-hoc mac signing kept; owner steps in `docs/release.md`.
   Decided: added macOS x64 (`macos-15-intel`), tag must equal `tauri.conf.json` version, `release.sh` left as local fallback; ci.yml untouched.
   Evidence: YAML parses (ruby); actionlint/yamllint not installed. Not verified: any real run (see `docs/release.md` last section).

@@ -2,6 +2,7 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+2026-11-16 — PR #31: Claude check timeout kills the process group and stops reading at the deadline (64KiB cap).
 - 2026-11-16 Step 13: checkpoints now use spoken narration and cited paragraphs, with numeric + fail-closed Haiku grounding checks and textbook-first scene priority; fake-LLM/importer tests added, optional cloud eval skipped.
 2026-11-16 — Step 15 failed scenes: retry once (existing), then a 2 s "Skipping ahead" card in the queue; failures logged with reason and counted (`failedScenes()`); tests only, no real run.
 2026-11-16 — Step 23: first-launch Claude Code checks (install + `auth status`, no `claude -p`) before the library and in Settings; Ollama hidden until a real provider exists.
