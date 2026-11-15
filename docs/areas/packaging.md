@@ -5,6 +5,8 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Contract
 
+- **Do not regress (P0 no-audio, 2026-11-16):** the ad-hoc macOS bundle (`signingIdentity: "-"`) must NOT enable hardened runtime or an entitlements file. Entitlements.plist made the ad-hoc signature carry the `runtime` flag in v0.1.3 and the installed app played with no sound; the owner confirmed a copy without the flag has sound. Without hardened runtime library validation is not enforced, so venv/PDFium dylibs still load. `scripts/macos-signing.test.ts` fails if this is reintroduced.
+
 ### Desktop shell: Tauri (decided)
 - System webview (WKWebView on macOS) + Rust core → ~10 MB bundle and a much lower baseline RAM than Electron's bundled Chromium + Node.
 - Known risks: rendering differences across webviews (WKWebView / WebView2 / WebKitGTK). Linux WebKitGTK WebGL performance is the weak spot for the later OSS release. PixiJS on WebGL is fine on macOS.
@@ -64,6 +66,10 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 - Merged (2026-11-10, via `review/merge-all`): the audio fix, the Settings side panel + file-based secrets, PocketTTS replacing Kokoro, and the homepage dev design pages (`src/dev/home-design*`).
 
 ## Log
+
+### 2026-11-16 P0 no-audio: hardened runtime removed
+- Dropped Entitlements.plist from the ad-hoc bundle; owner confirmed a copy without the runtime flag has sound. Added scripts/macos-signing.test.ts (passes).
+- Not verified: dylib loading (venv/PDFium) in a rebuilt app; owner to confirm in the next build.
 
 - 2026-11-16 PR #31 review: `run_probe` drains stdout and stderr while it waits, keeps at most 64KiB, and kills the process group (Windows: `taskkill /T`) at the deadline so a grandchild holding the pipe cannot hang the check.
   Evidence: cargo test — sleep past the deadline, a 2MB flood, and a grandchild that inherits the pipe. Not verified: the Windows `taskkill` path.
