@@ -26,6 +26,12 @@ Windows remains advisory; platform fixes are deferred, with no new skips. [CI ru
 
 ## Log
 
+### 2026-11-16 — Step 14: recorded public replay answers
+- Coordinator authorized cloud `claude -p`; recorded five OpenStax sections only with `TANGENT_EVAL='--record'`, isolated output and a nonexistent local manifest (exact command in `docs/eval-set.md`).
+- Committed seven responses (five initial scripts, two repairs); 26 beats, zero unsupported-number beats, drops or remaining lint violations; mean recorded script time 8.0 s.
+- Evidence: public-only offline replay plus fixture/loader tests passed 4/4 across 2 files, covering all five sections with no recording misses.
+- No local models, judge, scene, native, Rust or Python checks; semantic accuracy is not established by numeric/lint replay.
+
 ### 2026-11-16 — Step 14: public eval sections and private manifests
 - Added five CC BY 4.0 OpenStax Statistics sections; provenance, expected facts/numbers and owner-only STAT 350/CS 251 TODO templates in `docs/eval-set.md`.
 - Optional ignored local manifest/IR paths and absent replay answers skip explicitly; public replay slot is empty pending coordinator recording.

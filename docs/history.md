@@ -6,6 +6,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 2026-11-16 — PR #21 follow-ups: bootstrap-only capability + per-command app permissions, main window created only after setup, Windows job-before-spawn (unverified), checksummed uv licences, CPython pinned 3.12.14.
 2026-11-15 — Section picker mockups round 2: three brace-flair variants of thin tree lines (curl tip, pinch, curl elbows) on `src/dev/section-picker.html?v=1|2|3`; screenshots `c1-`..`c3-` in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 2026-11-15 — Quarantined flaky Home.test.tsx multi-drop test (CI macos-15 run 43696901697); root cause open, see docs/areas/testing.md.
+- 2026-11-16 Step 14 follow-up: recorded seven public-only cloud eval answers for five OpenStax sections / 26 beats; committed replay passes 4 offline tests with no recording misses, judge/scenes not run.
 - 2026-11-16 Step 14: added five attributed CC BY OpenStax eval fixtures, optional ignored local manifests and explicit offline recording skips; 4 offline tests pass, coordinator recording pending (see `docs/eval-set.md`).
 - 2026-11-15: v1 step 4 added `docs/testing-and-ci.md` owner guide; commands verified locally (tsc, 5 focused tests, deliberate break fails 2), CI half of drill and pytest not run.
 2026-11-15 — v1 step 10: bounded post-repair minor-style waivers plus current-beat tutor passages, optional persisted scene passage IDs, focused tests and TypeScript passed; live models/audio/native builds not verified.

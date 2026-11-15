@@ -92,10 +92,12 @@ TANGENT_EVAL=1 TANGENT_EVAL_DIR=/tmp/tangent-eval-empty \
   bash scripts/heavy.sh node_modules/.bin/vitest run scripts/eval-generation --maxWorkers=2 --silent=false
 ```
 
-`tests/fixtures/eval/recordings.json` is the public replay slot, initially `{}`. No model
-answers were recorded for this change. Until the coordinator records them, five explicit
-recording-miss skips are expected; this is fixture/loader coverage, not generation-accuracy
-proof. Actual generation errors in available recordings fail the replay test.
+`tests/fixtures/eval/recordings.json` contains seven public cloud responses recorded on
+2026-11-16: five initial script answers and two targeted repairs. Offline replay covers all
+five sections / 26 beats with zero missing recordings, unsupported-number beats, dropped
+beats, or remaining lint violations. Mean recorded script time is 8.0 seconds. Judge and
+scene stages were not recorded; numeric/lint results do not prove semantic accuracy.
+Actual generation errors in available recordings fail the replay test.
 
 Recordings are keyed by `sha256(model + "\n" + prompt)`, with values
 `{ "text": "<exact model response>", "ms": 1234 }`. Replay first loads the public slot,
@@ -103,9 +105,23 @@ then overlays private `<TANGENT_EVAL_DIR>/recordings.json`. The private default 
 `~/Library/Application Support/com.tangent.app/eval`, outside the repo. Prompt changes
 invalidate exact-key recordings. New answers are only requested with `--record`.
 
-Later, the coordinator may explicitly authorize a model run and record public entries
+To refresh answers after a prompt change, explicitly authorize a cloud model run and record public entries
 using `TANGENT_EVAL="--record"`, an empty dedicated `TANGENT_EVAL_DIR`, and a nonexistent
 `TANGENT_EVAL_LOCAL`. Review the output and copy **only those public answers** into the
 public replay slot. Add `--judge --scenes` if those stages also need recorded coverage.
 Never copy the owner's default/private recording store into git. No recording commands
-were run as part of this task.
+were run during the initial fixture-only change; the coordinator subsequently authorized
+the public-only cloud run below.
+
+
+Public recording command (seven sequential cloud calls; no local models):
+
+```sh
+TANGENT_EVAL='--record' TANGENT_EVAL_DIR=/tmp/tangent-s14-public-record \
+  TANGENT_EVAL_LOCAL=/tmp/tangent-s14-no-local.json \
+  bash scripts/heavy.sh node_modules/.bin/vitest run scripts/eval-generation --maxWorkers=2 --silent=false
+```
+
+The dedicated output was reviewed for public-only content and copied into the public slot.
+An offline run with a different empty `TANGENT_EVAL_DIR` verifies the committed answers
+without reading that recording output or any owner's private store.
