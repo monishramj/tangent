@@ -6,7 +6,7 @@ import './section-picker.css';
 
 // Static mockups for plan step 8. Nothing here touches the sidecar, the app state or any PDF.
 type Row = { id: string; title: string; level: number; p0: number; p1: number };
-type Variant = 'curl' | 'pinch' | 'elbow';
+type Variant = 'tree' | 'brace';
 type State = 'none' | 'some' | 'full';
 
 // ---- fixtures ----
@@ -87,15 +87,6 @@ const partial = (rows: Row[], m: Model) => {
 };
 
 // ---- picker ----
-// Curly-brace flair, all drawn with the hairline stroke of the tree lines (var(--sw), colour var(--lc)).
-const Tip = ({ onClick, label }: { onClick: () => void; label: string }) =>
-  <button type="button" tabIndex={-1} aria-hidden className="pk-tip" title={label} onClick={onClick}><svg viewBox="0 0 16 12"><path d="M7.5 12V8C7.5 3.6 10 1.3 14.5 1" /></svg></button>;
-const Pinch = ({ onClick, label }: { onClick: () => void; label: string }) =>
-  <button type="button" tabIndex={-1} aria-hidden className="pk-pinch" title={label} onClick={onClick}><svg viewBox="0 0 14 22"><path d="M7.5 0C7.5 7 6 10 1.5 11 6 12 7.5 15 7.5 22" /></svg></button>;
-// Elbow: the connector is a short brace curl, with a tiny flick at its end. Last child bends down-to-right, others branch off the trunk.
-const Elbow = ({ last }: { last: boolean }) =>
-  <svg className="pk-curl" viewBox="0 0 18 16">{last ? <path d="M8.5 0C8.5 5.5 10 8 14 8H15.6C16.6 8 17.2 7.3 17.4 6.2" /> : <path d="M8.5 16C8.5 10.5 10 8 14 8H15.6C16.6 8 17.2 7.3 17.4 6.2" />}</svg>;
-
 function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Variant; initial: boolean; label: string }) {
   const m = useMemo(() => model(rows), [rows]);
   const [sel, setSel] = useState<Set<string>>(() => initial ? partial(rows, m) : new Set());
@@ -123,21 +114,19 @@ function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Varia
     else if (e.key === 'ArrowLeft' && m.parent[i] >= 0) go(m.parent[i]);
     else if (e.key === ' ' || e.key === 'Enter') { kbd.current = null; toggle(i); e.preventDefault(); }
   };
-  const renderNode = (i: number, last: boolean): ReactElement => {
+  const renderNode = (i: number, pos: string, nub = false): ReactElement => {
     const r = rows[i], st = stateOf(i, sel, rows, m), d = Math.min(r.level, 6), hasKids = m.kids[i].length > 0;
-    return <div role="none" key={r.id} className={`pk-node${last ? ' pk-last' : ''}`} data-d={d}>
-      {m.parent[i] >= 0 && <button type="button" tabIndex={-1} aria-hidden className="pk-trunk" title="Select the whole section" onClick={() => toggle(m.parent[i])}>{variant === 'elbow' && <Elbow last={last} />}</button>}
+    return <div role="none" key={r.id} className="pk-node" data-d={d} data-pos={pos} data-nub={nub || undefined}>
+      {m.parent[i] >= 0 && <button type="button" tabIndex={-1} aria-hidden className="pk-trunk" title="Select the whole section" onClick={() => toggle(m.parent[i])} />}
       <div role="treeitem" ref={el => { refs.current[i] = el; }} data-i={i} data-state={st} data-ring={(kb && i === focus) || undefined} className="pk-row" aria-level={r.level} aria-selected={st === 'full'} aria-description={st === 'some' ? 'Partly selected' : undefined}
         tabIndex={i === focus ? 0 : -1} onFocus={() => setFocus(i)}
         onPointerDown={e => { if (e.button !== 0 || e.pointerType === 'touch') return; drag.current = { start: i, base: sel, add: st !== 'full', moved: false }; }}
         onPointerEnter={e => { const dr = drag.current; if (!dr) return; if (e.buttons !== 1) { drag.current = null; return; } dr.moved = true; setSel(paint(dr.base, rows, m, dr.start, i, dr.add)); }}
         onClick={() => { const dr = drag.current; if (dr?.moved) { drag.current = null; return; } toggle(i); }}>
-        <span className="pk-title">{r.title}</span><span className="pk-pages">{pages(r)}</span>
+        <span className="pk-dot" aria-hidden /><span className="pk-title">{r.title}</span><span className="pk-pages">{pages(r)}</span>
       </div>
-      {hasKids && <div role="none" className="pk-kids" data-state={st}>
-        {variant === 'curl' && <Tip label="Select the whole section" onClick={() => toggle(i)} />}
-        {variant === 'pinch' && m.end[i] - i >= 5 && <Pinch label="Select the whole section" onClick={() => toggle(i)} />}
-        {m.kids[i].map((k, n, all) => renderNode(k, n === all.length - 1))}
+      {hasKids && <div role="none" className={`pk-kids${m.kids[i].length === 1 ? ' pk-one' : ''}`} data-state={st}>
+        {m.kids[i].map((k, n, all) => renderNode(k, all.length === 1 ? 'only' : n === 0 ? 'first' : n === all.length - 1 ? 'last' : 'mid', all.length > 2 && n === Math.floor(all.length / 2)))}
       </div>}
     </div>;
   };
@@ -146,8 +135,8 @@ function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Varia
   return <div className="pk-frame">
     <div className="pk-head"><span>Choose sections<small>{top ? `${top} selected` : 'Click or drag to select'}</small></span>
       <span className="pk-head-r"><button className="tl-text-button" onClick={() => setSel(all ? new Set() : new Set(rows.map(r => r.id)))}>{all ? 'Clear' : 'Select all'}</button><button className="tl-primary" disabled={!top}>Make video</button></span></div>
-    <div className="pk-scroll"><div role="tree" aria-label={label} aria-multiselectable onPointerDownCapture={() => setKb(false)} className={`pk-tree pk-v-${variant}`} onKeyDown={onKey}>
-      {roots.map((i, n) => renderNode(i, n === roots.length - 1))}
+    <div className="pk-scroll"><div role="tree" aria-label={label} aria-multiselectable onPointerDownCapture={() => setKb(false)} className={`pk-root pk-${variant}`} onKeyDown={onKey}>
+      {roots.map(i => renderNode(i, 'root'))}
     </div></div>
   </div>;
 }
@@ -159,14 +148,14 @@ function Page() {
   const [run, setRun] = useState(0);
   const only = q.get('v'), w = Number(q.get('w')) || 0;
   const rows = FIXTURES[fx];
-  const cols: [Variant, string, string, string][] = [['curl', '1', 'Curl tip', 'The trunk ends in a small curl under its parent'], ['pinch', '2', 'Pinch', 'A brace point at the trunk’s midpoint'], ['elbow', '3', 'Curl elbows', 'Every connector is a tiny brace curl']];
+  const cols: [Variant, string, string][] = [['tree', 'A', 'Tree'], ['brace', 'B', 'Brace']];
   return <div className="tl-library pk-page"><div className="tl-wrap tl-wide">
-    <div className="pk-bar"><h1>Section picker<small>Three static variants of thin tree lines with brace flair. {rows.length} rows. Try click, drag, arrows, Space, Shift+arrows.</small></h1>
+    <div className="pk-bar"><h1>Section picker<small>Two finished variants. The trunk or title selects a whole section. {rows.length} rows. Try click, drag, arrows, Space, Shift+arrows.</small></h1>
       <div className="pk-bar-tools"><div className="tl-tabs" role="tablist" aria-label="Fixture">{(['deep', 'shallow'] as const).map(k => <button key={k} role="tab" aria-selected={fx === k} onClick={() => { setFx(k); setRun(n => n + 1); }}>{k === 'deep' ? 'Deep outline' : 'Shallow book'}</button>)}</div>
         <button className="tl-quiet" onClick={() => { setSeed(s => !s); setRun(n => n + 1); }}>{seed ? 'Start empty' : 'Start with a selection'}</button></div></div>
-    <div className="pk-cols" style={w || only ? { maxWidth: w || 720, margin: '0 auto', gridTemplateColumns: 'minmax(0,1fr)' } : undefined}>
-      {cols.filter(([, k]) => !only || only === k).map(([v, k, name, note]) => <div className="pk-col" key={`${v}${fx}${run}`}>
-        <div className="pk-cap"><b>{k} · {name}</b><span>{note}</span></div>
+    <div className="pk-cols" style={w ? { maxWidth: w, margin: '0 auto', gridTemplateColumns: 'minmax(0,1fr)' } : undefined}>
+      {cols.filter(([v]) => !only || only === (v === 'tree' ? 'a' : 'b')).map(([v, k, name]) => <div className="pk-col" key={`${v}${fx}${run}`}>
+        <div className="pk-cap"><b>{k} · {name}</b><span>{v === 'tree' ? 'Hairline tree, curled elbows, brace nub' : 'One curly brace spans each group'}</span></div>
         <Picker rows={rows} variant={v} initial={seed} label={`${name} section picker`} />
       </div>)}
     </div></div></div>;
