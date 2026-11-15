@@ -33,7 +33,7 @@ it('creates every page slot and renders only the first until another page approa
   openPdf();
   await screen.findByAltText('Page 1');
   expect(container.querySelectorAll('[data-page]')).toHaveLength(3);
-  expect(renderPage).toHaveBeenCalledExactlyOnceWith('/book.pdf', 1, expect.any(Number));
+  expect(renderPage).toHaveBeenCalledExactlyOnceWith('/book.pdf', 1, expect.any(Number), expect.any(AbortSignal));
   expect(pdfInfo).not.toHaveBeenCalled();
   const second = container.querySelector('[data-page="2"]')!;
   act(() => observed.get(second)!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
