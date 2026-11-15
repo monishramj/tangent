@@ -1,0 +1,55 @@
+{
+  "provenance": "Ten verbatim source transcriptions and decoder strings from PR #24, docs/formula-check-2026-11.md; orig is the report transcription, not an archived PDF text-layer capture.",
+  "examples": [
+    {
+      "id": "1 / 33",
+      "orig": "\\sigma_{\\bar X}=8/\\sqrt{16}=8/4=2\\ \\mathrm{ms}",
+      "decoded": "\\sigma _ { \\bar { X } } = \\frac { 8 } { \\sqrt { 1 6 } } = \\frac { 8 } { 4 } = 2 \\ m s"
+    },
+    {
+      "id": "3 / 33",
+      "orig": "\\mathrm{SE}_{old}/\\mathrm{SE}_{new}=(\\sigma/\\sqrt{n_{old}})/(\\sigma/\\sqrt{n_{new}})=\\sqrt{n_{new}/n_{old}}=\\sqrt{64/16}=2",
+      "decoded": "\\text {In general} \\colon \\frac { \\text {SE} _ { o l d } } { \\text {SE} _ { n e w } } = \\frac { \\sigma / \\sqrt { n _ { o l d } } } { \\sigma / \\sqrt { n _ { n o w } } } = \\sqrt { \\frac { n _ { n o w } } { n _ { o l d } } } = \\sqrt { \\frac { 6 4 } { 1 6 } } = 2 ."
+    },
+    {
+      "id": "4 / 33",
+      "orig": "\\text{We need }\\sigma/\\sqrt n\\le1,\\text{ which gives }\\sqrt n\\ge\\sigma=8,\\text{ so }n\\ge64.",
+      "decoded": "\\ W \\text { need } \\frac { \\sigma } { \\sqrt { n } } \\leq 1 , \\text { which gives } \\sqrt { n } \\geq \\sigma = 8 , \\text { so } n \\geq 6 4 ."
+    },
+    {
+      "id": "8 / 39",
+      "orig": "3=20/\\sqrt n\\Rightarrow\\sqrt n=20/3\\Rightarrow n=(20/3)^2=400/9=44.44",
+      "decoded": "3 = \\frac { 2 0 } { \\sqrt { n } } \\, \\Longrightarrow \\, \\sqrt { n } = \\frac { 2 0 } { 3 } \\, \\Longrightarrow \\, n = \\left ( \\frac { 2 0 } { 3 } \\right ) ^ { 2 } = \\frac { 4 0 0 } { 9 } = 4 4 . 4 4"
+    },
+    {
+      "id": "11 / 43",
+      "orig": "P(X>35)=P(Z>(35-32)/3)=P(Z>1.00)=1-0.8413=0.1587",
+      "decoded": "P ( X > 3 5 ) = P \\left ( Z > \\frac { 3 5 - 3 2 } { 3 } \\right ) = P ( Z > 1 . 0 0 ) = 1 - 0 . 8 1 3 = 0 . 1 5 8 7"
+    },
+    {
+      "id": "14 / 43",
+      "orig": "P(\\bar X>33)=P(Z>(33-32)/0.866)=P(Z>1.15)=1-\\Phi(1.15)=1-0.8749=0.1251",
+      "decoded": "P ( \\bar { X } > 3 3 ) & = P \\left ( Z > \\frac { 3 3 - 3 2 } { 0 . 8 6 6 } \\right ) = P ( Z > 1 . 1 5 ) \\\\ & = 1 - \\Phi ( 1 . 1 5 ) = 1 - 0 . 8 7 4 9 = 0 . 1 2 5 1"
+    },
+    {
+      "id": "18 / 58",
+      "orig": "P(\\bar X>52)\\approx P(Z>(52-50)/2)=P(Z>1.00)=1-0.8413=0.1587",
+      "decoded": "P ( \\bar { X } > 5 2 ) \\approx P \\left ( Z > \\frac { 5 2 - 5 0 } { 2 } \\right ) = P ( Z > 1 . 0 0 ) = 1 - 0 . 8 4 1 3 = 0 . 1 5 8 7"
+    },
+    {
+      "id": "22 / 58",
+      "orig": "\\sigma_{\\bar X}=8/\\sqrt{256}=0.5\\ \\mathrm g",
+      "decoded": "\\sigma _ { X } = \\frac { 8 } { \\sqrt { 2 5 6 } } = 0 . 5 \\, g"
+    },
+    {
+      "id": "25 / 83",
+      "orig": "\\mu=np=90,\\quad\\sigma^2=np(1-p)=200(0.45)(0.55)=49.5;\\quad X\\overset{approx}{\\sim}N(90,49.5),\\quad\\sigma=\\sqrt{49.5}=7.04",
+      "decoded": "\\mu = n p = 9 0 , \\quad \\sigma ^ { 2 } = n p ( 1 - p ) = 2 0 0 ( 0 . 4 5 ) ( 0 . 5 5 ) = 4 9 . 5 \\\\ \\\\ X ^ { \\text {approx} } \\sim N ( 9 0 , 4 9 . 5 ) , \\quad \\text {with } \\sigma = \\sqrt { 4 9 . 5 } = 7 . 0 4"
+    },
+    {
+      "id": "28 / 83",
+      "orig": "\\bullet\\ n(1-p)=500(0.98)=490\\ge10\\quad\\checkmark",
+      "decoded": "\\bullet \\ n ( 1 - p ) = 5 0 0 ( 0 . 9 8 ) = 4 9 0 \\geq 1 0 \\, \\sqrt { \\ }"
+    }
+  ]
+}

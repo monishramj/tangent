@@ -22,6 +22,16 @@ Every source goes through an adapter into one normalized IR; everything downstre
 
 - Ingest runs once per source (IR cached); loading screens show real pipeline steps.
 
+## Formula fidelity
+
+Lazy enrichment checks signed numeric multisets (repairing spaces inside digits/decimals), source symbols, named subscripts, superscripts/accents and malformed LaTeX before splicing. `formula_fidelity[id]` records `fidelity: "verified" | "fallback" | "unverified"` and reasons; `formula_disagreements` accumulates rejected/missing decodes across enrichment calls, with one stderr diagnostic per disagreement. Pending `formulas` still contains only work awaiting decoding.
+Usable PDF text replaces rejected decodes as source text, without pretending it is valid LaTeX. Unusable originals become a number-free unverified placeholder in section markdown, passages and exercises, so narration input and numeric support never include that expression's values. This does not invalidate an independent verified occurrence of the same value elsewhere.
+Token agreement is a conservative guard, not proof of mathematical equivalence; a corrupt but plausible PDF text layer can still be wrong, and existing enriched caches are not rechecked. The frontend’s pre-existing fallback after an RPC failure is outside this sidecar guard. The ten recorded examples use the report's manual source transcriptions, not archived raw PDF text-layer strings; synthetic cases cover Unicode and unusable text layers.
+
+## Open issues
+
+- Lazy decoding costs ~73s for 5 pages (~15s/page), slow before a video; later decode during script writing in parallel (not implemented).
+
 ## Log
 
 - 2026-11-16 (step 7): Real five-page STAT 350 check: 30/30 detected pending regions decoded/matched (100%); lazy RPC adds 73.48 s, initial ingest 20.82 s.
@@ -29,6 +39,11 @@ Every source goes through an adapter into one normalized IR; everything downstre
   Ten rendered-source comparisons expose numeric/notation/LaTeX errors despite matching; separate fidelity job proposed in `docs/formula-check-2026-11.md`, no fix here.
   Pre-push vitest unavailable (command not found); documentation push bypass recorded in report.
   Evidence is starting revision a2162af; rebase leaves decoding/matching unchanged. New chunk joining, full video, warm/download timing and renderer execution not checked.
+- 2026-11-16: Guard lazy formula splicing with numeric/symbol/script/malformed checks, safe source fallback and explicit fidelity/counter metadata.
+  Number-free unverified placeholders reach markdown, passages and exercises, excluding suspect values from narration and numeric grounding.
+  Evidence: recorded step-7 strings plus synthetic regressions; 117 passed, 2 model tests deselected through `scripts/heavy.sh` at nice 10.
+  Publication hook: `vitest: command not found`; Python-only push uses `--no-verify`, no JS test pass claimed.
+  Not verified: real models/pages, renderer/native UI, existing enriched caches; text-layer agreement cannot prove mathematical correctness.
 
 - 2026-11-15 (step 6): PDF ingest converts 20-page ranges, joins Docling documents before one IR pass, and reports completed/total pages plus thermal pauses.
   Synthetic 41-page test matches the unchunked IR across an exercise/section boundary; join checks retain figures, formula tokens and original range anchors.

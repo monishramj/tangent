@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
+from .formula_fidelity import check_formula
 from .limits import limit_torch, threads, wait_until_cool
 from .postprocess import strip_footers
 
@@ -392,18 +393,24 @@ def match_formulas(wanted, found, tolerance=0.02):
 
 
 def splice_formulas(ir, wanted, latex):
-    """Replace the tokens of `wanted` everywhere in the IR: LaTeX when decoded, else the PDF text layer."""
-    def fill(n):
-        if n in latex:
-            return f"$${latex[n]}$$"
-        orig = wanted[n]["orig"]
-        return f"$${orig}$$" if orig else ""
+    """Check and replace selected formulas on every source surface, including exercises."""
+    replacements, fidelity = {}, dict(ir.get("formula_fidelity", {}))
+    disagreements = 0
+    for n, formula in wanted.items():
+        replacement, status, reasons = check_formula(latex.get(n, ""), formula["orig"])
+        replacements[n] = replacement
+        fidelity[n] = {"fidelity": status, "reasons": reasons}
+        if reasons:
+            disagreements += 1
+            print(f"formula {n}: {status}: {', '.join(reasons)}", file=sys.stderr)
 
     sections = _map_strings(ir["sections"], lambda t: FORMULA_TOKEN.sub(
-        lambda m: fill(m[1]) if m[1] in wanted else m[0], t))
+        lambda m: replacements.get(m[1], m[0]), t))
     rest = {n: f for n, f in ir.get("formulas", {}).items() if n not in wanted}
     out = {k: v for k, v in ir.items() if k != "formulas"}
     out["sections"] = sections
+    out["formula_fidelity"] = fidelity
+    out["formula_disagreements"] = ir.get("formula_disagreements", 0) + disagreements
     return {**out, "formulas": rest} if rest else out
 
 
