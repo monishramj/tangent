@@ -1,0 +1,110 @@
+{
+  "attribution": "Adapted short selections from Statistics (Introductory Statistics), Barbara Illowsky and Susan Dean, OpenStax / Rice University. Access for free at https://openstax.org/books/introductory-statistics/pages/1-introduction",
+  "license": "CC-BY-4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "sourceRevision": "2762445d71879a11499032d004a5b666754ac1c6",
+  "licenseEvidence": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/collections/statistics.collection.xml",
+  "changes": "Selected and condensed prose; normalized math notation; omitted exercises, figures, and tables.",
+  "sections": [
+    {
+      "id": "definitions",
+      "title": "1.1 Definitions of Statistics, Probability, and Key Terms",
+      "markdown": "The science of statistics deals with collecting, analyzing, interpreting, and presenting data. Descriptive statistics organizes and summarizes data. Inferential statistics uses probability to draw conclusions from data.\n\nA population is the whole collection under study. A sample is a subset of the population. A statistic describes a sample; a parameter describes the whole population.\n\nExam scores of 86, 75, and 92 have a mean of 84.3 to one decimal place. In a class of 40 students, 22 men and 18 women give proportions of 22/40 and 18/40.",
+      "passages": [
+        {
+          "id": "p1",
+          "markdown": "The science of statistics deals with collecting, analyzing, interpreting, and presenting data. Descriptive statistics organizes and summarizes data. Inferential statistics uses probability to draw conclusions from data."
+        },
+        {
+          "id": "p2",
+          "markdown": "A population is the whole collection under study. A sample is a subset of the population. A statistic describes a sample; a parameter describes the whole population."
+        },
+        {
+          "id": "p3",
+          "markdown": "Exam scores of 86, 75, and 92 have a mean of 84.3 to one decimal place. In a class of 40 students, 22 men and 18 women give proportions of 22/40 and 18/40."
+        }
+      ],
+      "source": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/modules/m79593/index.cnxml"
+    },
+    {
+      "id": "terminology",
+      "title": "3.1 Terminology",
+      "markdown": "An outcome is a result of an experiment. The sample space is the set of all possible outcomes. An event is a subset of the sample space.\n\nProbabilities lie between 0 and 1 inclusive. Probability 0 means an event never happens; probability 1 means it always happens. Probability 0.5 means it is equally likely to happen or not happen.\n\nEqually likely outcomes have equal probabilities. Each face of a fair six-sided die is equally likely. Heads and tails are equally likely for a fair coin.",
+      "passages": [
+        {
+          "id": "p1",
+          "markdown": "An outcome is a result of an experiment. The sample space is the set of all possible outcomes. An event is a subset of the sample space."
+        },
+        {
+          "id": "p2",
+          "markdown": "Probabilities lie between 0 and 1 inclusive. Probability 0 means an event never happens; probability 1 means it always happens. Probability 0.5 means it is equally likely to happen or not happen."
+        },
+        {
+          "id": "p3",
+          "markdown": "Equally likely outcomes have equal probabilities. Each face of a fair six-sided die is equally likely. Heads and tails are equally likely for a fair coin."
+        }
+      ],
+      "source": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/modules/m79611/index.cnxml"
+    },
+    {
+      "id": "independence",
+      "title": "3.2 Independent and Mutually Exclusive Events",
+      "markdown": "Independent and mutually exclusive do not mean the same thing. For independent events, knowing that one occurred does not change the chance of the other occurring.\n\nA bag contains four blue and three white marbles. Drawing a marble, recording its color, and replacing it leaves the probability of blue at 4/7 on the second draw.\n\nWithout replacement, if the first marble drawn is blue, three blue and three white remain. The chance of blue on the second draw is then 3/6, or 1/2. Removing the first marble changes the second-draw probabilities.",
+      "passages": [
+        {
+          "id": "p1",
+          "markdown": "Independent and mutually exclusive do not mean the same thing. For independent events, knowing that one occurred does not change the chance of the other occurring."
+        },
+        {
+          "id": "p2",
+          "markdown": "A bag contains four blue and three white marbles. Drawing a marble, recording its color, and replacing it leaves the probability of blue at 4/7 on the second draw."
+        },
+        {
+          "id": "p3",
+          "markdown": "Without replacement, if the first marble drawn is blue, three blue and three white remain. The chance of blue on the second draw is then 3/6, or 1/2. Removing the first marble changes the second-draw probabilities."
+        }
+      ],
+      "source": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/modules/m79612/index.cnxml"
+    },
+    {
+      "id": "binomial",
+      "title": "4.3 Binomial Distribution (Optional)",
+      "markdown": "A binomial experiment has a fixed number n of trials. Each trial has two possible outcomes, called success and failure. The trials are independent and use identical conditions.\n\nThe probability of success on a trial is p; the probability of failure is q. These probabilities stay the same on each trial, and p + q = 1. The random variable X counts successes in the n trials.\n\nIn an elementary physics course, the withdrawal rate is 30 percent and 70 percent of students stay for the entire term. If X counts students who withdraw, withdrawal is called success. Success names the outcome measured; it need not be a good outcome.",
+      "passages": [
+        {
+          "id": "p1",
+          "markdown": "A binomial experiment has a fixed number n of trials. Each trial has two possible outcomes, called success and failure. The trials are independent and use identical conditions."
+        },
+        {
+          "id": "p2",
+          "markdown": "The probability of success on a trial is p; the probability of failure is q. These probabilities stay the same on each trial, and p + q = 1. The random variable X counts successes in the n trials."
+        },
+        {
+          "id": "p3",
+          "markdown": "In an elementary physics course, the withdrawal rate is 30 percent and 70 percent of students stay for the entire term. If X counts students who withdraw, withdrawal is called success. Success names the outcome measured; it need not be a good outcome."
+        }
+      ],
+      "source": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/modules/m79624/index.cnxml"
+    },
+    {
+      "id": "standard-normal",
+      "title": "6.1 The Standard Normal Distribution",
+      "markdown": "The standard normal distribution has mean 0 and standard deviation 1. A z-score tells how many standard deviations a score lies above or below the mean.\n\nThe formula is z = (x - mu) / sigma. Solving for the original score gives x = mu + z * sigma.\n\nFor a data set with mean 5 and standard deviation 2, a score of 11 has z-score 3. Scores above the mean have positive z-scores; scores below it have negative z-scores. A score equal to the mean has z-score zero.",
+      "passages": [
+        {
+          "id": "p1",
+          "markdown": "The standard normal distribution has mean 0 and standard deviation 1. A z-score tells how many standard deviations a score lies above or below the mean."
+        },
+        {
+          "id": "p2",
+          "markdown": "The formula is z = (x - mu) / sigma. Solving for the original score gives x = mu + z * sigma."
+        },
+        {
+          "id": "p3",
+          "markdown": "For a data set with mean 5 and standard deviation 2, a score of 11 has z-score 3. Scores above the mean have positive z-scores; scores below it have negative z-scores. A score equal to the mean has z-score zero."
+        }
+      ],
+      "source": "https://github.com/openstax/osbooks-statistics/blob/2762445d71879a11499032d004a5b666754ac1c6/modules/m79641/index.cnxml"
+    }
+  ]
+}
