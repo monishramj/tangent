@@ -14,6 +14,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-15 Run cool (step 6): separate OS priority classes, shared capped ML budget, 20-page ingest with thermal pause/resume and real page progress; synthetic/offline proof, no model runs.
 - 2026-11-16 Section picker round 2 redone: two polished variants (Tree, Brace) on `src/dev/section-picker.html`, white accent, no checkboxes; screenshots replaced.
+- 2026-11-16 Open-source cleanup: MIT licence file (confirmation still pending), third-party notices, README, course IR and textbook screenshots removed from the tree only (history rewrite is an owner decision).
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 

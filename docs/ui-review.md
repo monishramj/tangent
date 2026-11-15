@@ -59,7 +59,7 @@ The source→sections→video relationship is understandable, and the dedicated 
 
 ### Original PDF
 
-![Original PDF with fixture page](ui-review/06-original-pdf.png)
+The original-PDF screenshot was removed: it reproduced a textbook page.
 
 The document is pushed below a tall header and has a separate 70vh scroller inside the scrolling page. **P1 / M:** give the reader the remaining window height, one primary scrolling region, a page-number/jump control, and the same zoom/Fit width controls as Textbook. Keep original/dark colors explicit; inversion is useful for text but should not be presented as faithful figure colors. Preserve lazy page rendering and settled-resolution upgrades. A native document-reader toolbar is the reference pattern, rather than a large image embedded in a page.
 
