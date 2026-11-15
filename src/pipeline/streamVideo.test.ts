@@ -382,11 +382,11 @@ it("fills gif src from an injected gifSearch", async () => {
 });
 
 it("emits checkpoints exactly once from the side call, and an invalid answer yields none", async () => {
-  const good = JSON.stringify([{ afterScene: 5, kind: "mcq", prompt: "Q?", choices: ["a", "b"], answer: "a", explanation: "Because.", source: "generated" }, { bad: true }]);
+  const good = JSON.stringify([{ afterScene: 5, kind: "mcq", prompt: "Q?", choices: ["a", "b"], answer: "a", explanation: "Because.", source: "generated", cite: "[p1]" }, { bad: true }]);
   for (const answer of [good, "not json"]) {
     const { options, provider } = setup(2);
     const base = vi.mocked(provider.complete).getMockImplementation()!;
-    vi.mocked(provider.complete).mockImplementation(async (p, o) => p.startsWith("Write checkpoint questions") ? answer : base(p, o));
+    vi.mocked(provider.complete).mockImplementation(async (p, o) => p.startsWith("Write checkpoint questions") ? answer : p.startsWith("Check checkpoint grounding") ? JSON.stringify([{ id: "cp1", supported: true }]) : base(p, o));
     const events = collect(streamVideo({ ...options, exercises: [{ id: "e1", markdown: "Do a thing" }] }));
     await vi.runAllTimersAsync();
     const all = await events;
@@ -395,7 +395,10 @@ it("emits checkpoints exactly once from the side call, and an invalid answer yie
     expect(sceneEvents(all)).toHaveLength(2);
     if (answer === good) expect(cps[0].items).toMatchObject([{ id: "cp1", afterScene: 1, source: "generated" }]); // clamped to the last scene
     else expect(cps[0].items).toEqual([]);
-    expect(vi.mocked(provider.complete).mock.calls.filter(c => c[0].startsWith("Write checkpoint questions"))).toHaveLength(1);
+    const prompts = vi.mocked(provider.complete).mock.calls.filter(c => c[0].startsWith("Write checkpoint questions"));
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0][0]).toContain("SceneAA grows. SceneAB grows. SceneAC grows.");
+    expect(prompts[0][0]).not.toContain('What was actually said in each scene (JSON): ["Grow an array"');
   }
 });
 
@@ -519,4 +522,7 @@ it("fact-check on: a hanging check never delays scene 1; a cut beat in a later s
   if (second.type === "scene") expect(second.scene.beats).toHaveLength(3); // 4 beats, first one cut
   const scene2Tts = s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2");
   expect(scene2Tts.map(c => c[0].length)).toEqual([4, 3]);
+  const prompt = vi.mocked(s.provider.complete).mock.calls.find(c => c[0].startsWith("Write checkpoint questions"))![0];
+  expect(prompt).toContain("SceneAE grows. SceneAF grows. SceneAG grows.");
+  expect(prompt).not.toContain("SceneAD grows.");
 });

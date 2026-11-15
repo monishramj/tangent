@@ -1,6 +1,7 @@
 // Checkpoint questions shown between scenes. Textbook exercises first; generated ones only where the
 // source has none, and labeled as generated. Never blocks the video: failure = no checkpoints.
 import { z } from "zod";
+import { supportSet, unsupportedNumbers } from "./grounding";
 import type { LLMProvider } from "../llm/provider";
 import { dataBlock, dataReminder, dataRule, sanitizeModelText, type DataTag } from "./sanitize";
 
@@ -69,6 +70,8 @@ export function needsMissingData(cp: Pick<Checkpoint, "prompt" | "choices" | "ta
   return `"${cp.prompt.slice(0, 120)}" mentions "${hit[0]}" but the card does not show that data. Restate the data in the prompt, attach a "table", or use a listed figure src.`;
 }
 
+type SourceParagraph = { id: string; markdown: string };
+
 function promptFor({ sectionMarkdown, exercises, scenes, figures }: { sectionMarkdown: string; exercises: Exercise[]; scenes: string[]; figures: CheckpointFigure[] }, retry?: string[]) {
   const last = scenes.length - 1;
   return `Write checkpoint questions for a video lesson split into ${scenes.length} scenes. The student sees ONLY the question card while answering: no video frame, no textbook. Return JSON only (no fences): an array of {"afterScene": index, "kind": "mcq"|"short", "prompt", "choices"?: [2-5], "answer", "explanation", "source": "textbook"|"generated", "cite"?, "table"?: {"headers": [...], "rows": [[...]]}, "figure"?: src}.
@@ -79,6 +82,9 @@ Coverage:
 - At most ${MAX_PER_SCENE} questions per earlier scene, and at most ${MAX_TOTAL} in total.
 - Use the textbook exercises below first (source "textbook", cite their page if given). Rephrase them for a quick in-video check; keep their meaning and answer. Skip ones that need long derivations.
 - Only where no usable exercise fits, write a question (source "generated").
+- The scenes contain the words actually spoken. Generated questions must check ONLY ideas taught in that narration, never extra topics from the source. The source paragraphs are evidence for answers, not a list of topics to quiz.
+- Every generated question MUST cite its supporting paragraph ids, like "[p1]" or "[p1], [p2]". Use only ids supplied below. Its answer and every claim in its explanation must follow from those paragraphs, including any arithmetic.
+- Write for the ear: short questions, familiar words, one idea at a time. Explain a term before using it. Avoid nested sentences and parentheticals.
 
 Every question must be self-contained:
 - Never refer to "the table", "the figure", "the chart", "the graph", "the diagram", "above", "below", "shown", "the following", "the example" or "this data" unless that data is on the card.
@@ -93,21 +99,20 @@ Format:
 
 ${dataRule(CP_TAGS)}
 
-${dataBlock("scenes", `What each scene covers (JSON): ${JSON.stringify(scenes)}`)}
+${dataBlock("scenes", `What was actually said in each scene (JSON): ${JSON.stringify(scenes)}`)}
 
 ${dataBlock("exercises", `Textbook exercises (JSON): ${JSON.stringify(exercises.map(e => ({ markdown: e.markdown.slice(0, 1200), pages: e.anchors?.map(a => a.page) })))}`)}
 
 ${dataBlock("figures", `Figures you may attach (JSON): ${JSON.stringify(figures.slice(0, 20).map(f => ({ src: f.src, caption: f.caption.slice(0, 300) })))}`)}
 
-${dataBlock("section", sectionMarkdown.slice(0, 20000))}
+${dataBlock("section", sectionMarkdown)}
 
 ${dataReminder(CP_TAGS)}${retry?.length ? ` Your previous answer had questions the student could not answer from the card. Fix these problems: ${JSON.stringify(retry.slice(0, 10))}` : ""} Return only the JSON array.`;
 }
 
-/** Validate, clamp and cap model items; returns kept checkpoints and the reasons for dropped ones. */
+/** Validate and clamp model items; returns kept checkpoints and the reasons for dropped ones. */
 function accept(items: unknown[], scenes: number, figureSrcs: string[]): { kept: Checkpoint[]; dropped: string[]; total: number } {
   const dropped: string[] = [];
-  const perScene = new Map<number, number>();
   const kept = items.flatMap((x) => {
     const clean = Raw.safeParse(x);
     const r = Checkpoint.safeParse(clean.success ? clean.data : x);
@@ -116,28 +121,73 @@ function accept(items: unknown[], scenes: number, figureSrcs: string[]): { kept:
     if (cp.figure && !figureSrcs.includes(cp.figure)) delete cp.figure;
     const why = needsMissingData(cp, figureSrcs);
     if (why) { dropped.push(why); return []; }
-    const n = perScene.get(cp.afterScene) ?? 0;
-    const cap = cp.afterScene === scenes - 1 ? MAX_PER_SCENE + 4 : MAX_PER_SCENE;
-    if (n >= cap) return [];
-    perScene.set(cp.afterScene, n + 1);
     return [cp];
-  }).slice(0, MAX_TOTAL);
+  });
   return { kept: kept.map((c, i) => ({ ...c, id: `cp${i + 1}` })), dropped, total: items.length };
 }
 
-export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, figures = [], provider }: {
-  sectionMarkdown: string; exercises: Exercise[]; scenes: string[]; figures?: CheckpointFigure[]; provider: LLMProvider;
+/** Apply source-exercise priority before caps so generated items cannot crowd out textbook checks. */
+function capQuestions(items: Checkpoint[], scenes: number): Checkpoint[] {
+  const textbookScenes = new Set(items.filter(c => c.source === "textbook").map(c => c.afterScene));
+  const counts = new Map<number, number>();
+  return items.filter(c => c.source === "textbook" || !textbookScenes.has(c.afterScene))
+    .sort((a, b) => a.afterScene - b.afterScene)
+    .filter(c => {
+      const n = counts.get(c.afterScene) ?? 0;
+      counts.set(c.afterScene, n + 1);
+      return n < (c.afterScene === scenes - 1 ? MAX_PER_SCENE + 4 : MAX_PER_SCENE);
+    }).slice(0, MAX_TOTAL).map((c, i) => ({ ...c, id: `cp${i + 1}` }));
+}
+
+/** Missing/unknown citations, unsupported numbers and missing/invalid judge verdicts all fail closed. */
+async function groundQuestions(items: Checkpoint[], paragraphs: SourceParagraph[], scenes: string[], provider: LLMProvider): Promise<Checkpoint[]> {
+  const candidates = items.flatMap(c => {
+    if (c.source === "textbook") return [];
+    const ids = c.cite?.match(/\[[^\[\]]+\]/g) ?? [];
+    if (!ids.length || c.cite!.replace(/\[[^\[\]]+\]/g, "").replace(/[,\s]/g, "")) return [];
+    const cited = ids.map(id => paragraphs.find(p => `[${p.id}]` === id));
+    if (cited.some(p => !p)) return [];
+    const source = (cited as SourceParagraph[]).map(p => p.markdown).join("\n\n");
+    if (unsupportedNumbers(`${c.answer}\n${c.explanation}`, supportSet(source)).length) return [];
+    return [{ id: c.id, question: c, narration: c.afterScene === scenes.length - 1 ? scenes.join(" ") : scenes[c.afterScene], source }];
+  });
+  const supported = new Set<string>();
+  if (candidates.length) {
+    const tags: DataTag[] = ["question"];
+    try {
+      const verdicts = z.array(z.unknown()).parse(parseJson(await provider.complete(`Check checkpoint grounding. For each item, decide independently whether the question tests an idea actually taught in its narration, the answer is correct, and EVERY factual claim in the answer and explanation is supported by its cited source paragraphs or correct arithmetic from them. Check the question's premises and attached data too. For MCQ, verify the keyed choice is the single correct choice; wrong distractors need not be supported. Outside knowledge, overstatements, contradictions or uncertainty mean supported=false. Return JSON only: [{"id": "cp1", "supported": true|false}].
+
+${dataRule(tags)}
+${dataBlock("question", JSON.stringify(candidates))}
+${dataReminder(tags)}`, { model: "haiku" })));
+      for (const c of candidates) {
+        const matches = verdicts.filter(v => v && typeof v === "object" && "id" in v && v.id === c.id);
+        if (matches.length === 1 && z.object({ id: z.string(), supported: z.literal(true) }).safeParse(matches[0]).success) supported.add(c.id);
+      }
+    } catch { /* No verdict means no generated question. Textbook exercises survive. */ }
+  }
+  return items.filter(c => c.source === "textbook" || supported.has(c.id));
+}
+
+export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, figures = [], passages = [], provider }: {
+  sectionMarkdown: string; exercises: Exercise[]; scenes: string[]; figures?: CheckpointFigure[]; passages?: SourceParagraph[]; provider: LLMProvider;
 }): Promise<Checkpoint[]> {
-  const input = { sectionMarkdown, exercises, scenes, figures };
+  if (!scenes.length) return [];
+  // Older sources have no IR passage ids; give their paragraphs local anchors for this check only.
+  const paragraphs = passages.length ? passages : sectionMarkdown.split(/\n\s*\n/).filter(p => p.trim()).map((markdown, i) => ({ id: `p${i + 1}`, markdown }));
+  const input = { sectionMarkdown: paragraphs.map(p => `[${p.id}] ${p.markdown}`).join("\n\n"), exercises, scenes, figures };
   const srcs = figures.map(f => f.src);
   const run = async (retry?: string[]) => accept(z.array(z.unknown()).parse(parseJson(await provider.complete(promptFor(input, retry)))), scenes.length, srcs);
   let first: ReturnType<typeof accept>;
   try { first = await run(); } catch { return []; }
-  if (first.dropped.length * 3 <= first.total) return first.kept;
-  try {
-    const second = await run(first.dropped);
-    return second.kept.length >= first.kept.length ? second.kept : first.kept;
-  } catch { return first.kept; }
+  let selected = first;
+  if (first.dropped.length * 3 > first.total) {
+    try {
+      const second = await run(first.dropped);
+      if (second.kept.length >= first.kept.length) selected = second;
+    } catch { /* Keep the individually valid first-pass questions. */ }
+  }
+  return capQuestions(await groundQuestions(capQuestions(selected.kept, scenes.length), paragraphs, scenes, provider), scenes.length);
 }
 
 export type Grade = { correct: boolean; feedback: string };

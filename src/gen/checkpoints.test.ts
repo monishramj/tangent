@@ -1,7 +1,13 @@
 import { expect, it, vi } from "vitest";
 import { generateCheckpoints, gradeAnswer, needsMissingData, type Checkpoint } from "./checkpoints";
 
-const reply = (s: unknown) => ({ complete: vi.fn(async () => typeof s === "string" ? s : JSON.stringify(s)) });
+const reply = (s: unknown) => ({ complete: vi.fn(async (prompt: string) => {
+  if (prompt.startsWith("Check checkpoint grounding")) {
+    const data = JSON.parse(prompt.match(/<question>\n([\s\S]*?)\n<\/question>/)![1]);
+    return JSON.stringify(data.map((c: { id: string }) => ({ id: c.id, supported: true })));
+  }
+  return typeof s === "string" ? s : JSON.stringify(s);
+}) });
 
 it("keeps valid checkpoints, clamps scene index, drops bad ones", async () => {
   const items = [
@@ -49,7 +55,7 @@ it("caps model feedback and checkpoint text", async () => {
   const g = await gradeAnswer(short, "x", reply({ correct: false, feedback: "too long ".repeat(200) }));
   expect(g.feedback.length).toBeLessThanOrEqual(600);
   const [cp] = await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: ["a"], provider: reply([
-    { afterScene: 0, kind: "mcq", prompt: "Q\u0007?  ", choices: [" max ", "min"], answer: "max", explanation: "x ".repeat(1000), source: "generated" }]) });
+    { afterScene: 0, kind: "mcq", prompt: "Q\u0007?  ", choices: [" max ", "min"], answer: "max", explanation: "x ".repeat(1000), source: "generated", cite: "[p1]" }]) });
   expect(cp.prompt).toBe("Q?");
   expect(cp.answer).toBe("max");
   expect(cp.explanation.length).toBeLessThanOrEqual(600);
@@ -84,14 +90,14 @@ it("accepts plain conceptual questions, including common MCQ phrasing", () => {
   expect(needsMissingData({ prompt: "What share of a normal distribution lies above the mean?" })).toBeNull();
 });
 
-const cp = (over: Record<string, unknown> = {}) => ({ afterScene: 0, kind: "mcq", prompt: "Root of a max-heap?", choices: ["max", "min"], answer: "max", explanation: "Parents beat children.", source: "generated", ...over });
+const cp = (over: Record<string, unknown> = {}) => ({ afterScene: 0, kind: "mcq", prompt: "Root of a max-heap?", choices: ["max", "min"], answer: "max", explanation: "Parents beat children.", source: "generated", cite: "[p1]", ...over });
 
 it("drops unanswerable checkpoints, keeps tables and listed figures, and strips unknown figures", async () => {
   const items = [cp(), cp({ ...crash, answer: crash.choices[0], table, afterScene: 1 }), cp({ figure: "asset://evil" }), cp({ prompt: "Root of a min-heap?", choices: ["min", "max"], answer: "min", afterScene: 1 }), cp({ ...crash, answer: crash.choices[0] })];
   const p = reply(items);
   const r = await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: ["a", "b"], figures: [{ id: "f1", caption: "A tree", src: "asset://f1.png" }], provider: p });
-  expect(p.complete).toHaveBeenCalledTimes(1); // 1 of 5 dropped: no retry
-  expect(r.map(c => c.prompt)).toEqual(["Root of a max-heap?", crash.prompt, "Root of a max-heap?", "Root of a min-heap?"]);
+  expect(p.complete).toHaveBeenCalledTimes(2); // generation + grounding; 1 of 5 dropped: no retry
+  expect(r.map(c => c.prompt)).toEqual(["Root of a max-heap?", "Root of a max-heap?", crash.prompt, "Root of a min-heap?"]);
   expect(r.find(c => c.table)?.table).toEqual(table);
   expect(r.every(c => c.figure === undefined)).toBe(true);
   const prompt = (p.complete.mock.calls[0] as unknown as [string])[0];
@@ -104,9 +110,10 @@ it("regenerates once with the reasons when more than a third are unanswerable", 
   const bad = cp({ ...crash, answer: crash.choices[0] });
   const complete = vi.fn()
     .mockResolvedValueOnce(JSON.stringify([bad, bad, cp()]))
-    .mockResolvedValueOnce(JSON.stringify([cp(), cp({ afterScene: 1 }), cp({ ...crash, answer: crash.choices[0], table })]));
+    .mockResolvedValueOnce(JSON.stringify([cp(), cp({ afterScene: 1 }), cp({ ...crash, answer: crash.choices[0], table })]))
+    .mockResolvedValueOnce(JSON.stringify([1, 2, 3].map(i => ({ id: `cp${i}`, supported: true }))));
   const r = await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: ["a", "b"], provider: { complete } });
-  expect(complete).toHaveBeenCalledTimes(2);
+  expect(complete).toHaveBeenCalledTimes(3);
   const retry = complete.mock.calls[1][0] as string;
   expect(retry).toContain("could not answer from the card");
   expect(retry.indexOf("app-performance table")).toBeGreaterThan(retry.lastIndexOf("</section>"));
@@ -118,4 +125,91 @@ it("caps checkpoints per scene and in total", async () => {
   const r = await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: Array.from({ length: 10 }, (_, i) => `s${i}`), provider: reply(many) });
   expect(r.length).toBeLessThanOrEqual(16);
   for (let s = 0; s < 9; s++) expect(r.filter(c => c.afterScene === s).length).toBeLessThanOrEqual(2);
+});
+
+it("writes questions from spoken narration and checks each generated answer against its cited paragraphs", async () => {
+  const provider = reply([cp()]);
+  const result = await generateCheckpoints({
+    sectionMarkdown: "Untaught sorting details.", scenes: ["A max-heap keeps its largest value at the root."], exercises: [],
+    passages: [{ id: "p12", markdown: "Parents are at least as large as children." }],
+    provider: { complete: vi.fn(async (prompt) => {
+      if (prompt.startsWith("Write checkpoint questions")) return JSON.stringify([cp({ cite: "[p12]" })]);
+      return provider.complete(prompt);
+    }) },
+  });
+  expect(result).toHaveLength(1);
+  const judge = provider.complete.mock.calls[0][0];
+  expect(judge).toContain("A max-heap keeps its largest value at the root.");
+  expect(judge).toContain("Parents are at least as large as children.");
+  expect(judge).not.toContain("Untaught sorting details.");
+});
+
+it("drops unsupported, missing, malformed and duplicate verdicts independently", async () => {
+  const items = Array.from({ length: 6 }, (_, i) => cp({ prompt: `Question ${i}?` }));
+  const complete = vi.fn().mockResolvedValueOnce(JSON.stringify(items)).mockResolvedValueOnce(JSON.stringify([
+    { id: "cp1", supported: true }, { id: "cp2", supported: false }, { id: "cp3", supported: "true" },
+    { id: "cp5", supported: true }, { id: "cp5", supported: false },
+  ]));
+  const result = await generateCheckpoints({ sectionMarkdown: "Parents beat children.", exercises: [], scenes: ["Root is max."], provider: { complete } });
+  expect(result.map(c => c.prompt)).toEqual(["Question 0?"]);
+});
+
+it("fails closed on judge errors but keeps textbook exercises first and skips generated replacements", async () => {
+  for (const judge of ["not json", "[]", null]) {
+    const complete = vi.fn().mockResolvedValueOnce(JSON.stringify([
+      cp(), cp({ source: "textbook", prompt: "Textbook root?" }), cp({ afterScene: 1 }),
+    ]));
+    if (judge === null) complete.mockRejectedValueOnce(new Error("offline"));
+    else complete.mockResolvedValueOnce(judge);
+    const result = await generateCheckpoints({ sectionMarkdown: "Parents beat children.", exercises: [{ id: "e", markdown: "Find the root." }], scenes: ["Root is max.", "Parents beat children."], provider: { complete } });
+    expect(result.map(c => c.prompt)).toEqual(["Textbook root?"]);
+    const check = complete.mock.calls[1][0] as string;
+    expect(check).not.toContain('"afterScene":0');
+    expect(complete.mock.calls[0][0]).toContain("Use the textbook exercises below first");
+  }
+});
+
+it("rejects missing or invented cite anchors and numbers not supported by the cited paragraph", async () => {
+  const provider = reply([
+    cp({ cite: undefined }), cp({ cite: "[p404]" }),
+    cp({ answer: "41%", choices: ["41%", "25%"], explanation: "The share is 41%." }),
+  ]);
+  expect(await generateCheckpoints({ sectionMarkdown: "The share is 25%.", scenes: ["The share is twenty-five percent."], exercises: [], provider })).toEqual([]);
+  expect(provider.complete).toHaveBeenCalledTimes(1);
+});
+
+it("accepts computed answers but checks all explanation numbers against only the cited source", async () => {
+  const provider = reply([
+    cp({ answer: "15", choices: ["15", "40"], explanation: "3 times 5 is 15." }),
+    cp({ answer: "15", choices: ["15", "40"], explanation: "3 times 5 is 15; the population is 999." }),
+  ]);
+  const result = await generateCheckpoints({ sectionMarkdown: "Ignored.", passages: [
+    { id: "p1", markdown: "There are 3 groups of 5." }, { id: "p2", markdown: "The population is 999." },
+  ], scenes: ["Three groups of five."], exercises: [], provider });
+  expect(result).toHaveLength(1);
+  expect(result[0].answer).toBe("15");
+});
+
+it("passes narration and complete anchored evidence to generation without the old truncation", async () => {
+  const provider = reply([]);
+  await generateCheckpoints({ sectionMarkdown: "Unused raw section topic.", passages: [{ id: "p7", markdown: "Evidence ".repeat(3000) + "END_OF_EVIDENCE" }], scenes: ["Only this idea was spoken."], exercises: [], provider });
+  const prompt = provider.complete.mock.calls[0][0];
+  expect(prompt).toContain('What was actually said in each scene (JSON): ["Only this idea was spoken."]');
+  expect(prompt).toContain("[p7]");
+  expect(prompt).toContain("END_OF_EVIDENCE");
+  expect(prompt).not.toContain("Unused raw section topic.");
+  expect(prompt).toContain("Generated questions must check ONLY ideas taught in that narration");
+});
+
+it("keeps textbook exercises ahead of generated questions and never fills their scene with generated items", async () => {
+  const provider = reply([cp({ afterScene: 1 }), cp(), cp({ source: "textbook", prompt: "Source exercise?" })]);
+  const result = await generateCheckpoints({ sectionMarkdown: "Parents beat children.", exercises: [{ id: "e1", markdown: "Source exercise?" }], scenes: ["Parents beat children.", "The root is max."], provider });
+  expect(result.map(c => [c.afterScene, c.source])).toEqual([[0, "textbook"], [1, "generated"]]);
+  expect(result.map(c => c.id)).toEqual(["cp1", "cp2"]);
+});
+
+it("returns no checkpoints and makes no model call for no scenes", async () => {
+  const provider = reply([cp()]);
+  expect(await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: [], provider })).toEqual([]);
+  expect(provider.complete).not.toHaveBeenCalled();
 });

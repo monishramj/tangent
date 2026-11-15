@@ -162,6 +162,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         });
         // pause 0: beats are contiguous slices of the single wav (each clip already ends with its pause).
         const timeline = compileOps(scene, clips, 0);
+        groups[index].beats = beats;
         ready_++; progress("ready", index);
         if (index === 0) devlog(`generation: first-scene-ready +${clock.now() - started}ms`);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
@@ -234,7 +235,12 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       }).finally(() => { scriptDone = true; });
       // Wait for the full scene list for checkpoints, without delaying any playable scene.
       let checkpoints: Checkpoint[] | null = null, sent = false;
-      const pending = continuation.then(() => generateCheckpoints({ sectionMarkdown, exercises, figures, scenes: groups.map(g => g.plan.concept), provider: complete }))
+      // With fact checking enabled, wait for repairs/cuts so checks use the narration that actually shipped.
+      let releaseChecks = () => {};
+      const narrationReady = factCheck ? new Promise<void>(resolve => { releaseChecks = resolve; }) : Promise.resolve();
+      const pending = continuation.then(() => narrationReady).then(() => generateCheckpoints({ sectionMarkdown, exercises, figures,
+        scenes: groups.map(g => g.beats.map(b => b.say).join(" ")),
+        passages: passages.filter(p => groups.some(g => g.beats.some(b => b.passages?.includes(p.id)))), provider: complete }))
         .then(items => { checkpoints = items; }, () => { checkpoints = []; });
       while (cursor < groups.length || !scriptDone) {
         if (cursor === groups.length) {
@@ -250,6 +256,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         yield event;
         if (checkpoints && !sent) { sent = true; yield { type: "checkpoints", items: checkpoints }; }
       }
+      releaseChecks();
       if (continuationError) yield continuationError;
       if (!sent) { await Promise.race([pending, aborted]); yield { type: "checkpoints", items: checkpoints ?? [] }; }
     } finally {
