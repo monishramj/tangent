@@ -28,6 +28,13 @@ describe("checkScript", () => {
     ["list brackets", "The array holds [3, 9, 7].", ["brackets"]],
     ["emoji", "Heaps are fast 🔥.", ["emoji"]],
     ["simple math ok", "So x < y, and the cost is O(n \\log n).", []],
+    ["utilize", "We utilize a heap.", ["stiff-word"]],
+    ["stiff inflections", "He utilized it, then she commences.", ["stiff-word"]],
+    ["FURTHERMORE", "FURTHERMORE the tree grows.", ["stiff-word"]],
+    ["thus", "Thus the root is max.", ["stiff-word"]],
+    ["thusly is a whole word", "We proceed thusly.", []],
+    ["utilization is not utilize", "The utilization stays low.", []],
+    ["everyday words", "We use a heap, so this shows the idea.", []],
   ];
   it.each(cases)("%s", (_n, say, expected) => {
     expect(rules(say).sort()).toEqual(expected.sort());
@@ -48,7 +55,8 @@ describe("generateScript", () => {
     expect(r).toEqual({ beats: JSON.parse(good), attempts: 1, violations: [], styleWaived: [] });
     const prompt = provider.complete.mock.calls[0][0];
     expect(provider.complete.mock.calls[0][1]).toMatchObject({ model: "sonnet" }); // Haiku scripts missed the speech rules
-    for (const t of ["JSON only", "parentheticals", "former", "respectively", "22 words", "Define a term", "n log n", "visualIntent", "<source>\n# Heaps\n</source>", "No markdown", "No emoji"])
+    for (const t of ["JSON only", "parentheticals", "former", "respectively", "22 words", "Define a term", "n log n", "visualIntent", "<source>\n# Heaps\n</source>", "No markdown", "No emoji",
+      "Talk like a smart friend explaining it to a first-year student. Use common words: use not utilize, so not therefore, show not demonstrate. Only use a technical term if the section uses it, and explain it in plain words the first time."])
       expect(prompt).toContain(t);
   });
 
@@ -211,6 +219,45 @@ describe("generateScript grounding", () => {
     expect(r.violations.filter(v => v.rule === "unsupported-number")).toHaveLength(2);
   });
 
+  it("repairs a stiff word, then ships it when the slip stays within 10% of beats", async () => {
+    const line = (say: string) => ({ say, visualIntent: "x" });
+    const script = Array.from({ length: 10 }, (_, i) => line(i === 3 ? "We utilize a heap." : "A heap is a tree."));
+    const provider = mockProvider(JSON.stringify(script), JSON.stringify({ 3: line("We utilize a heap.") }));
+    const r = await generateScript({ sectionMarkdown: "A heap is a tree.", provider });
+    expect(r.attempts).toBe(2);
+    expect(r.violations).toEqual([]);
+    expect(r.styleWaived).toEqual([3]);
+    expect(r.beats).toHaveLength(10);
+    const repair = provider.complete.mock.calls[1][0];
+    expect(repair).toContain("stiff-word");
+    expect(repair).toContain("Rewrite ONLY beats 3");
+  });
+
+  it("still fails when stiff words cover more than 10% of beats", async () => {
+    const line = (say: string) => ({ say, visualIntent: "x" });
+    const script = Array.from({ length: 10 }, (_, i) => line(i === 3 || i === 7 ? "We utilize a heap." : "A heap is a tree."));
+    const provider = mockProvider(JSON.stringify(script), JSON.stringify({ 3: line("We utilize a heap."), 7: line("We endeavor to sort.") }));
+    const r = await generateScript({ sectionMarkdown: "A heap is a tree.", provider });
+    expect(r.violations.map(v => v.rule)).toEqual(["stiff-word", "stiff-word"]);
+    expect(r.styleWaived).toEqual([]);
+    expect(r.dropped).toBeUndefined();
+  });
+
+  it("does not waive a hard speech rule or an unsupported number as a style slip", async () => {
+    const line = (say: string) => ({ say, visualIntent: "x" });
+    const style = Array.from({ length: 10 }, (_, i) => line(i === 1 ? "It swaps." : "A heap is a tree."));
+    const styleRun = await generateScript({ sectionMarkdown: "A heap is a tree.", provider: mockProvider(JSON.stringify(style), JSON.stringify({ 1: line("It swaps.") })) });
+    expect(styleRun.violations.map(v => v.rule)).toContain("starts-with-it");
+    expect(styleRun.styleWaived).toEqual([]);
+    const source = "A heap is a tree.";
+    const mixed = Array.from({ length: 10 }, (_, i) => line(i < 3 ? "About 90% agree." : i === 3 ? "We utilize a heap." : "A heap is a tree."));
+    const mixedRun = await generateScript({ sectionMarkdown: source, provider: mockProvider(JSON.stringify(mixed), "not json") });
+    expect(mixedRun.dropped).toBeUndefined();
+    expect(mixedRun.styleWaived).toEqual([]);
+    expect(mixedRun.violations.some(v => v.rule === "unsupported-number")).toBe(true);
+    expect(mixedRun.violations.some(v => v.rule === "stiff-word")).toBe(true);
+  });
+
   it("keeps style repairs targeted too and ignores beats it did not ask for", async () => {
     const provider = mockProvider(JSON.stringify(four("It misleads (a lot).")), JSON.stringify({ 1: beat("A straw man misleads."), 0: beat("Changed!") }));
     const r = await generateScript({ sectionMarkdown: source, provider });
@@ -236,6 +283,7 @@ describe("post-repair style allowance", () => {
     });
 
   it.each([
+    ["stiff word", "We utilize a heap.", true],
     ["long sentence", long, true],
     ["one parenthetical", "Heapify (also called sift down) fixes one spot.", true],
     ["parenthetical with a function call", "The cost (using O(n)) stays linear.", true],
