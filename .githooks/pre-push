@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+set -f
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in 0000000000000000000000000000000000000000) continue ;; esac
+  case "$remote_sha" in
+    0000000000000000000000000000000000000000) base=$(git merge-base "$local_sha" origin/main) ;;
+    *) base=$remote_sha ;;
+  esac
+  files=$(git diff --name-only --diff-filter=ACMR "$base" "$local_sha")
+  dirs=$(printf '%s\n' "$files" | sed -e '/^$/d' -e '/\//!s|.*|.|' -e 's|/[^/]*$||' | sort -u)
+  [ -n "$dirs" ] || continue
+  # Root config/dependency changes can affect every test.
+  if printf '%s\n' "$dirs" | grep -qx '\.'; then
+    nice -n 10 bun run test:focused
+  else
+    old_ifs=$IFS
+    IFS='
+'
+    set -- $dirs
+    IFS=$old_ifs
+    nice -n 10 bun run test:focused "$@"
+  fi
+done

@@ -3,6 +3,7 @@
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
 2026-11-15 — v1 step 10: bounded post-repair minor-style waivers plus current-beat tutor passages, optional persisted scene passage IDs, focused tests and TypeScript passed; live models/audio/native builds not verified.
+- 2026-11-15: T3 CI/evidence contract, focused hooks, PR checklist and CHANGELOG; TypeScript + 5 focused tests + 11 hook assertions passed; full/platform CI pending, native/model checks not run.
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 

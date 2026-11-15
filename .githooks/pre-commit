@@ -5,6 +5,9 @@ if echo "$files" | grep -qE '^(src|src-tauri|sidecar|packages)/' && ! echo "$fil
   echo "pre-commit: code changed; stage docs/history.md or a docs/areas/*.md Log entry." >&2
   exit 1
 fi
+if echo "$files" | grep -qE '\.(ts|tsx|mts|cts)$'; then
+  nice -n 10 bunx tsc --noEmit || exit $?
+fi
 if [ "$(git show :CLAUDE.md 2>/dev/null | wc -c)" -gt 10000 ]; then
   echo "pre-commit: CLAUDE.md exceeds 10000 bytes; move detail to docs/areas/ or docs/history.md." >&2
   exit 1
