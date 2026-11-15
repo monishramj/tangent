@@ -7,6 +7,7 @@ import type { Scene } from "@motion/dsl/schema";
 import { SceneRenderer } from "@motion/stage/renderer";
 import type { Annotation } from "@motion/annotations";
 import { applyEventsAt } from "@motion/stage/scene";
+import { sceneTransition } from "@motion/stage/transition";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -15,12 +16,13 @@ const css = (name: string) => getComputedStyle(document.documentElement).getProp
 // tutor, small (`maxW`) for checkpoint thumbnails.
 // It captures the Pixi canvas only: KaTeX and gif DOM overlays are not in it.
 type Props = {
+  previous?: { scene: Scene; timeline: Timeline };
   scene: Scene; timeline: Timeline; drawRef: RefObject<((t: number) => void) | null>; annotateRef?: RefObject<((a: Annotation[]) => void) | null>;
   timeRef?: RefObject<number>; snapshotRef?: RefObject<((maxW?: number) => Promise<string | null>) | null>;
 };
 const SNAP_MAX_W = 1280; // plenty for a vision model, and keeps the prompt small
 
-export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef, snapshotRef }: Props) {
+export default function Stage({ scene, timeline, previous, drawRef, annotateRef, timeRef, snapshotRef }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const math = useRef<HTMLDivElement>(null);
 
@@ -30,9 +32,20 @@ export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef, 
   useEffect(() => {
     const a = app.current;
     if (!ready || !a) return;
-    const r = new SceneRenderer(a, scene, math.current!, css);
+    const oldLayer = document.createElement("div"), newLayer = document.createElement("div");
+    oldLayer.className = newLayer.className = "absolute inset-0";
+    math.current!.append(oldLayer, newLayer);
+    const old = previous ? new SceneRenderer(a, previous.scene, oldLayer, css) : null;
+    const r = new SceneRenderer(a, scene, newLayer, css);
+    const oldState = previous ? applyEventsAt(previous.scene, previous.timeline, previous.timeline.totalSec) : null;
     let last = timeRef?.current ?? 0;
-    const draw = (t: number) => { last = t; r.draw(applyEventsAt(scene, timeline, t)); };
+    const draw = (t: number) => {
+      last = t;
+      const frames = sceneTransition(t);
+      if (old && oldState) old.draw(oldState, frames.outgoing, false);
+      r.draw(applyEventsAt(scene, timeline, t), old ? frames.incoming : { x: 0, opacity: 1 }, false);
+      a.render();
+    };
     const onResize = () => draw(last);
     a.renderer.on("resize", onResize);
     drawRef.current = draw;
@@ -57,9 +70,10 @@ export default function Stage({ scene, timeline, drawRef, annotateRef, timeRef, 
       drawRef.current = null;
       if (annotateRef) annotateRef.current = null;
       if (snapshotRef) snapshotRef.current = null;
-      r.destroy();
+      r.destroy(); old?.destroy();
+      oldLayer.remove(); newLayer.remove();
     };
-  }, [ready, scene, timeline, drawRef, annotateRef, timeRef, snapshotRef]);
+  }, [ready, scene, timeline, previous, drawRef, annotateRef, timeRef, snapshotRef]);
 
   // Declared after the renderer effect so unmount destroys the renderer first, then the app.
   // One Pixi app for the Stage's life; scene changes swap only the renderer (no destroy/re-init, no blank frame).

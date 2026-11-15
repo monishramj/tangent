@@ -19,6 +19,7 @@ export type TimelineEvent = {
   end: number;
   verb: Action["do"] | "say" | "transition" | "reaction"; // say = play this beat's clip
   target?: string;
+  anchorEnd?: number; // end of the narration phrase; retirement must preserve the target through it
   args: Record<string, unknown>;
   beat: number;
 };
@@ -84,6 +85,8 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
       const limit = Math.min(duration, ...placed.filter((q) => q.w > w && q.key === key).map((q) => words[q.w].start));
       const room = limit - local;
       const start = t + local;
+      const anchorWords = FRACTION_ANCHOR.test(act.at) ? 1 : act.at.split(/\s+/).map(norm).filter(Boolean).length;
+      const anchorEnd = t + words[Math.min(words.length - 1, w + anchorWords - 1)].end;
       const steps = ops?.get(act);
       const d = act.duration ?? DURATION[act.do];
       // op steps share the room, at least MIN_SEC each; plain motion keeps its default length if it fits.
@@ -92,9 +95,9 @@ export function compile(scene: Scene, audio: (BeatAudio | undefined)[], pause = 
       len = Math.max(0, Math.min(len, totalSec - start)); // never past the scene's audio
       if (steps) steps.forEach((step, i) => {
         for (const { at: _at, do: verb, target, ...args } of step)
-          events.push({ start: start + len * i / steps.length, end: start + len * (i + 1) / steps.length, verb, target, args, beat: b });
+          events.push({ start: start + len * i / steps.length, end: start + len * (i + 1) / steps.length, verb, target, anchorEnd, args, beat: b });
       });
-      else events.push({ start, end: start + len, verb, target, args, beat: b });
+      else events.push({ start, end: start + len, verb, target, anchorEnd, args, beat: b });
     }
     t += duration;
   });

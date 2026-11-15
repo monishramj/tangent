@@ -207,3 +207,10 @@ it("delay shifts an action past its anchor word, and a delayed repeat on the sam
   expect(fade.start).toBeCloseTo(.7);
   expect(fade.args.delay).toBeUndefined();
 });
+
+
+it("records the full aligned phrase even when its animation finishes before the word", () => {
+  const sc = oneBeat("long word", [{ at: "long word", do: "create", target: "a" }]);
+  const tl = compile(sc, [{ words: [{ word: "long", start: 0, end: .8 }, { word: "word", start: .8, end: 2 }], duration: 2 }]);
+  expect(tl.events.find(e => e.target === "a")).toMatchObject({ start: 0, end: .4, anchorEnd: 2 });
+});

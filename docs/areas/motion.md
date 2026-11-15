@@ -77,4 +77,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
-(none yet; prepend dated entries here)
+- 2026-11-15 Step 16: oldest objects above 8 visible fade over 0.3 s after their final narration/action; Tangenter stays.
+  Compiler stores aligned phrase ends; legacy timelines preserve targets through their spoken beat; validator rules unchanged.
+  Evidence: retirement/anchor/seek tests, renderer canvas+DOM composition tests, affected suite and TypeScript check.
+  Not verified: real GPU frames; no standalone frame-snapshot tool (only live Stage snapshots).

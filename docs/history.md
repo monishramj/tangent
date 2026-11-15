@@ -7,6 +7,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 - 2026-11-15: T3 documented Windows CI failures (3 Rust, 7 Python + 5 fixture errors), deferred to platform fixes; Linux green per coordinator, macOS replacement-runner proof pending.
 - 2026-11-15: T3 CI cache follow-up disables setup-uv's duplicate cache; explicit uv cache retained; workflow assertions passed, rerun/macOS proof pending; Windows failures advisory.
 - 2026-11-15: T3 CI/evidence contract, focused hooks, PR checklist and CHANGELOG; TypeScript + 5 focused tests + 11 hook assertions passed; full/platform CI pending, native/model checks not run.
+- 2026-11-15 Step 16: deterministic oldest-first retirement with narration protection and audio-time scene slide/cross-fade; affected tests/typecheck pass, real GPU frames unverified.
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 

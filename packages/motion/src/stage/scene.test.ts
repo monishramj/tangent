@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scene, timeline } from "./demo";
-import { applyEventsAt, HL_FADE } from "./scene";
+import { applyEventsAt, HL_FADE, MAX_VISIBLE, RETIRE_SEC } from "./scene";
 import { Scene } from "../dsl/schema";
 
 const at = (t: number) => applyEventsAt(scene, timeline, t);
@@ -141,4 +141,51 @@ describe("whip/push carry the cleared frame out", () => {
     expect(o("cut", 1.02, "old").opacity).toBe(0);
     expect(o("cut", 1.02, "new").x).toBeCloseTo(.5);
   });
+});
+
+
+describe("automatic retirement", () => {
+  const scene = Scene.parse({ scene: "crowded", objects: Array.from({ length: MAX_VISIBLE + 2 }, (_, i) => ({ id: `o${i}`, type: "text", text: `${i}` })), beats: [] });
+  const creates = scene.objects.map((o, i) => ({ start: i, end: i + .1, verb: "create" as const, target: o.id, args: {}, beat: 0 }));
+  const tl = { totalSec: 15, insertedSilences: [], events: creates };
+
+  it("retires oldest first, fades over timeline time, and reconstructs on backward seek", () => {
+    const mid = applyEventsAt(scene, tl, 8.1 + RETIRE_SEC / 2);
+    expect(mid.objects.get("o0")!.opacity).toBeCloseTo(.5);
+    expect(mid.objects.get("o1")!.opacity).toBe(1);
+    const end = applyEventsAt(scene, tl, 10);
+    expect(end.objects.get("o0")!.visible).toBe(false);
+    expect(end.objects.get("o1")!.visible).toBe(false);
+    expect([...end.objects.values()].filter(o => o.visible)).toHaveLength(MAX_VISIBLE);
+    expect(applyEventsAt(scene, tl, 8.1 + RETIRE_SEC / 2)).toEqual(mid);
+    expect(applyEventsAt(scene, tl, 7).objects.get("o0")!.opacity).toBe(1);
+  });
+
+  it("protects future narration targets and long anchor words, including sub-targets", () => {
+    const anchored = { ...tl, events: [...creates, { start: 8.2, end: 8.3, anchorEnd: 11, verb: "highlight" as const, target: "o0.slot[0]", args: {}, beat: 0 }].sort((a, b) => a.start - b.start) };
+    const state = applyEventsAt(scene, anchored, 10);
+    expect(state.objects.get("o0")!.opacity).toBe(1);
+    expect(state.objects.get("o1")!.visible).toBe(false);
+    expect(state.objects.get("o2")!.visible).toBe(false);
+    expect(applyEventsAt(scene, anchored, 11).objects.get("o0")!.opacity).toBe(1);
+  });
+
+  it("keeps all objects when all are still anchored", () => {
+    const anchored = { ...tl, events: creates.map(e => ({ ...e, anchorEnd: 12 })) };
+    expect([...applyEventsAt(scene, anchored, 10).objects.values()].filter(o => o.visible)).toHaveLength(MAX_VISIBLE + 2);
+  });
+});
+
+
+it("protects legacy saved narration targets through their entire beat", () => {
+  const scene = Scene.parse({ scene: "legacy", objects: Array.from({ length: 10 }, (_, i) => ({ id: `o${i}`, type: "text", text: `${i}` })), beats: [] });
+  const tl = { totalSec: 4, insertedSilences: [], events: [
+    { start: 0, end: 3, verb: "say" as const, beat: 0, args: {} },
+    ...scene.objects.map(o => ({ start: 0, end: .1, verb: "create" as const, target: o.id, args: {}, beat: 0 })),
+  ] };
+  expect([...applyEventsAt(scene, tl, 2).objects.values()].filter(o => o.visible)).toHaveLength(10);
+  const end = applyEventsAt(scene, tl, 4);
+  expect(end.objects.get("o0")!.visible).toBe(false);
+  expect(end.objects.get("o1")!.visible).toBe(false);
+  expect(end.objects.get("o2")!.visible).toBe(true);
 });
