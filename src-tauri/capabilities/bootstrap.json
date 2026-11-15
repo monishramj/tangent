@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "bootstrap",
-  "description": "First-launch setup window: only the setup commands",
+  "description": "First-launch setup window: only the setup commands. Scoped by window label; Tauri treats the setup:// protocol as local.",
   "windows": ["bootstrap"],
-  "remote": { "urls": ["setup://localhost/*", "http://setup.localhost/*"] },
+  "local": true,
   "permissions": ["allow-bootstrap-status", "allow-bootstrap-start", "allow-bootstrap-cancel"]
 }

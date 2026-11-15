@@ -153,7 +153,7 @@ fn run_uv(runtime: &Runtime, phase: &str, cancel: &AtomicBool) -> Result<(), Str
         // Unverified on real Windows (not compilable here). Resumes the suspended uv now that it is in the job.
         use std::os::windows::io::AsRawHandle;
         #[link(name = "ntdll")]
-        extern "system" { fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32; }
+        unsafe extern "system" { fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32; }
         if unsafe { NtResumeProcess(child.as_raw_handle()) } < 0 {
             let _ = child.kill(); let _ = child.wait();
             return Err("Could not start bundled uv".into());
@@ -224,8 +224,15 @@ pub fn bootstrap_start(app: AppHandle, state: State<'_, Setup>) -> Result<(), St
         }, |phase, _| run_uv(&runtime, phase, &state.cancel));
         state.running.store(false, Ordering::SeqCst);
         if runtime.ready() {
-            let _ = open_main(&app);
-            if let Some(window) = app.get_webview_window("bootstrap") { let _ = window.close(); }
+            let handoff = hand_off(|| open_main(&app).map_err(|e| e.to_string()), || {
+                if let Some(window) = app.get_webview_window("bootstrap") { let _ = window.close(); }
+            });
+            if let Err(error) = handoff {
+                // Keep the setup window open: it is the only recovery UI.
+                let progress = Progress::new("failed", "packages", 0, &format!("Setup finished but Tangent could not open its window: {error}. Choose Resume setup to retry."));
+                *state.progress.lock().unwrap() = progress.clone();
+                let _ = app.emit("runtime-setup", &progress);
+            }
         }
     });
     Ok(())
@@ -234,6 +241,13 @@ pub fn bootstrap_start(app: AppHandle, state: State<'_, Setup>) -> Result<(), St
 /// The main window is created (config `create: false`) only once setup is not needed, so the frontend
 /// can never call the sidecar before the runtime is ready.
 fn needs_setup(dev: bool, ready: bool) -> bool { !dev && !ready }
+
+/// Closes the setup window only after the main window exists.
+fn hand_off(open: impl FnOnce() -> Result<(), String>, close: impl FnOnce()) -> Result<(), String> {
+    open()?;
+    close();
+    Ok(())
+}
 
 fn open_main(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if app.get_webview_window("main").is_none() {
@@ -281,11 +295,23 @@ mod tests {
     }
 
     #[test]
+    fn setup_window_survives_main_window_failure() {
+        let closed = std::cell::Cell::new(false);
+        assert_eq!(hand_off(|| Err("no webview".into()), || closed.set(true)), Err("no webview".into()));
+        assert!(!closed.get());
+        assert!(hand_off(|| Ok(()), || closed.set(true)).is_ok());
+        assert!(closed.get());
+    }
+
+    #[test]
     fn bootstrap_capability_is_minimal_and_main_has_no_bootstrap_commands() {
         let cap = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
         let strings = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect::<Vec<_>>();
         let boot = cap(include_str!("../capabilities/bootstrap.json"));
         assert_eq!(strings(&boot["windows"]), ["bootstrap"]);
+        // setup:// is classified local by Tauri, so `remote` would not constrain anything; the label is the boundary.
+        assert!(boot.get("remote").is_none());
+        assert_eq!(boot["local"], true);
         assert_eq!(strings(&boot["permissions"]), ["allow-bootstrap-status", "allow-bootstrap-start", "allow-bootstrap-cancel"]);
         // Every command bootstrap.js invokes is granted, and nothing else is.
         let js = include_str!("bootstrap.js");

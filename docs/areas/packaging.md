@@ -65,6 +65,10 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16 PR #22 review fixes: `unsafe extern` for the Windows `NtResumeProcess` block (edition 2024); the setup window now closes only after the main window is created, otherwise it stays open with the error and a retry; `bootstrap.json` drops the ineffective `remote` urls (Tauri treats `setup://` as local) and is scoped by `windows:["bootstrap"]`, `local: true`.
+  Evidence: cargo test 43 pass (hand-off failure test, capability shape), cargo check, generated `gen/schemas/capabilities.json` shows `default`->main and `bootstrap`->bootstrap only.
+  Not verified: Windows compile, real window-creation failure, caller-URL guard (not added).
+
 - 2026-11-16 PR #21 review follow-ups: bootstrap window now has its own capability (only the 3 `bootstrap_*` commands, remote URLs `setup://`/`setup.localhost`); app commands got per-command permissions (`build.rs` manifest) and `default.json` (main only) lists them explicitly.
   Main window is `create: false` and built by `setup()` only when no setup is needed (or after it finishes), so the frontend cannot hit the sidecar early. Windows uv starts CREATE_SUSPENDED, joins the job, then `NtResumeProcess`. uv licences are SHA256-checked; CPython pinned to 3.12.14 (in the marker fingerprint).
   Evidence: cargo test (42 pass, incl. gating + capability-shape tests), cargo check, prepare-runtime python tests.
