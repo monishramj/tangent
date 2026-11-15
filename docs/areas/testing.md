@@ -26,6 +26,11 @@ Step 21 addresses the ledger below. Windows CI on that PR is the confirmation; t
 
 ## Log
 
+### 2026-11-16 — Step 21: Windows cache-hit mtime
+- Cache hits open the PNG read-write before `set_modified`. Windows error 5 on `File::open` left the stamp at the test's epoch+10, so `renders_real_pdf_and_hits_cache_without_pdfium_lock` failed after the compile was green.
+- Evidence: local `cargo test --locked -j3` with `TANGENT_PDFIUM`. Windows CI on the follow-up push is the confirmation.
+- Not verified: a real Windows process tree or ACL read.
+
 ### 2026-11-16 — Step 14: recorded public replay answers
 - Coordinator authorized cloud `claude -p`; recorded five OpenStax sections only with `TANGENT_EVAL='--record'`, isolated output and a nonexistent local manifest (exact command in `docs/eval-set.md`).
 - Committed seven responses (five initial scripts, two repairs); 26 beats, zero unsupported-number beats, drops or remaining lint violations; mean recorded script time 8.0 s.

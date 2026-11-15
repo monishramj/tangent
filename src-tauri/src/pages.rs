@@ -306,7 +306,8 @@ fn atomic_write(path: &Path, write: impl FnOnce(&mut File) -> Result<(), String>
 }
 
 fn cache_hit(png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
-    let file = match File::open(png) {
+    // write(true) so Windows accepts SetFileTime. File::open is read-only and returns access denied.
+    let file = match fs::OpenOptions::new().read(true).write(true).open(png) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),
@@ -320,7 +321,7 @@ fn cache_hit(png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String>
             if page > *count { return Err(format!("page must be in 1..={count}")); }
             let now = SystemTime::now();
             let _ = file.set_modified(now);
-            let _ = File::open(size).and_then(|f| f.set_modified(now));
+            let _ = fs::OpenOptions::new().write(true).open(size).and_then(|f| f.set_modified(now));
             return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
         }
     }
