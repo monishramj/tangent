@@ -1,0 +1,373 @@
+[
+ {
+  "name": "supported-paraphrase",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A binary heap is a complete binary tree in which every parent is no larger than its children."
+   },
+   {
+    "id": "p2",
+    "markdown": "Inserting into a heap takes O(log n) time."
+   }
+  ],
+  "beat": {
+   "say": "A heap is a tree where every parent is smaller than or equal to its kids.",
+   "visualIntent": "tree",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "supported-number",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "The sample has 25 students, and their mean score is 78 points."
+   }
+  ],
+  "beat": {
+   "say": "Twenty five students took part, and they averaged 78 points.",
+   "visualIntent": "bars",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "supported-with-joke",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Quicksort picks a pivot and partitions the array around it. Its average running time is O(n log n)."
+   }
+  ],
+  "beat": {
+   "say": "Quicksort picks a pivot, then splits the array around it. Fast on average: n log n.",
+   "visualIntent": "split",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "supported-two-paragraphs",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A hash table maps keys to slots using a hash function."
+   },
+   {
+    "id": "p2",
+    "markdown": "Two keys that land in the same slot are called a collision."
+   }
+  ],
+  "beat": {
+   "say": "A hash function sends each key to a slot. When two keys share a slot, that is a collision.",
+   "visualIntent": "slots",
+   "passages": [
+    "p1",
+    "p2"
+   ]
+  }
+ },
+ {
+  "name": "number-changed",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "The sample has 25 students, and their mean score is 78 points."
+   }
+  ],
+  "beat": {
+   "say": "Twenty five students took part, and they averaged 87 points.",
+   "visualIntent": "bars",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "claim-not-in-source",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Quicksort picks a pivot and partitions the array around it."
+   }
+  ],
+  "beat": {
+   "say": "Quicksort always runs in linear time, so it beats every other sort.",
+   "visualIntent": "race",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "claim-reversed",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A larger sample size makes the standard error smaller."
+   }
+  ],
+  "beat": {
+   "say": "A larger sample makes the standard error bigger.",
+   "visualIntent": "curve",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "wrong-anchor",
+  "expected": "wrong-anchor",
+  "rightAnchor": "p2",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A binary heap is a complete binary tree in which every parent is no larger than its children."
+   },
+   {
+    "id": "p2",
+    "markdown": "Inserting into a heap takes O(log n) time."
+   }
+  ],
+  "beat": {
+   "say": "Inserting into a heap takes log n time.",
+   "visualIntent": "sift",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-mean",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "The mean of a data set is the sum of its values divided by how many values there are."
+   }
+  ],
+  "beat": {
+   "say": "Add up all the values, then divide by how many there are. That is the mean.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-pvalue",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A p-value is the probability, assuming the null hypothesis is true, of seeing a result at least as extreme as the one observed."
+   }
+  ],
+  "beat": {
+   "say": "Assume the null is true. The p-value is how likely a result this extreme would be.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-stack",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A stack is a last-in, first-out structure. Push adds an item to the top and pop removes the top item."
+   }
+  ],
+  "beat": {
+   "say": "A stack is last in, first out. Push adds on top. Pop takes the top one off.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-bigO",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Binary search halves the remaining range on each step, so it needs at most about log2 n comparisons."
+   }
+  ],
+  "beat": {
+   "say": "Binary search cuts the range in half every step. So it needs about log n comparisons at most.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-normal",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "About 95 percent of values in a normal distribution lie within two standard deviations of the mean."
+   }
+  ],
+  "beat": {
+   "say": "In a normal distribution, about 95 percent of values sit within two standard deviations of the mean.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-recursion",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Every recursive function needs a base case that stops the recursion, and a recursive case that moves toward it."
+   }
+  ],
+  "beat": {
+   "say": "A recursive function needs a base case to stop. And each recursive step must move toward that base case.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-mux",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A multiplexer has 2 data inputs, one select input and one output. The select input chooses which data input reaches the output."
+   }
+  ],
+  "beat": {
+   "say": "A multiplexer has two data inputs and one select. The select picks which input reaches the output.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-variance",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Variance is the average of the squared differences from the mean."
+   }
+  ],
+  "beat": {
+   "say": "Variance is the average of the squared distances from the mean.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-hook-question",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Merge sort splits the list in half, sorts each half and merges the sorted halves."
+   }
+  ],
+  "beat": {
+   "say": "What if sorting a list just meant splitting it, sorting both halves, and merging? That is merge sort.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "ok-caveat",
+  "expected": "supported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "The central limit theorem applies when the sample is large enough, often taken as at least 30 observations."
+   }
+  ],
+  "beat": {
+   "say": "The central limit theorem needs a big enough sample. A common rule of thumb is at least 30.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "bad-always",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Hash tables give average constant time lookups."
+   }
+  ],
+  "beat": {
+   "say": "Hash tables always give constant time lookups, no matter what.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "bad-negative",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "Dijkstra's algorithm finds shortest paths from one source in a graph with non-negative edge weights."
+   }
+  ],
+  "beat": {
+   "say": "Dijkstra's algorithm finds shortest paths even when edge weights are negative.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ },
+ {
+  "name": "bad-extra",
+  "expected": "unsupported",
+  "sources": [
+   {
+    "id": "p1",
+    "markdown": "A queue is a first-in, first-out structure."
+   }
+  ],
+  "beat": {
+   "say": "A queue is first in, first out, and it was invented in 1952 at Bell Labs.",
+   "visualIntent": "x",
+   "passages": [
+    "p1"
+   ]
+  }
+ }
+]

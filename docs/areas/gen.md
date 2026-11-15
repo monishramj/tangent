@@ -52,6 +52,10 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+- 2026-11-16 — Step 12: `src/gen/factCheck.ts` + `streamVideo({ factCheck })`, **default OFF**. One haiku call per scene (beats vs source paragraphs: supported/unsupported/unclear); wrong cite anchor corrected; unsupported beat gets one repair (re-checked + speech/number gates) else is cut, never all beats; unusable answers fail open. Scene 1 never waits (log only); later scenes wait <=20 s beside TTS and redo audio only if narration changed.
+  Evidence: fake-LLM tests per outcome, flag-off/scene-1/ordering stream tests; 177 tests in src/gen + src/pipeline, tsc clean. Harness: `TANGENT_FACTCHECK_EVAL=1 npx vitest run src/gen/factCheck.eval` prints the false-flag rate (21 bundled synthetic fixtures; `TANGENT_FACTCHECK_FIXTURES=` for your own).
+  Not verified: false-flag rate (cloud eval run was blocked by the permission classifier here, so it is unmeasured and the flag stays OFF); real latency; the repair prompt on real beats. Flag is not wired to any UI/setting yet.
+
 - 2026-11-15 — Step 11: split the script into 3 opening beats + outline, then a concurrent continuation; added bounded retry/partial failure, lexical join repair/cut, and elapsed timing logs.
   Evidence: after incorporating current v1, 224 tests passed across 12 affected files; Home quarantine + offline eval skipped; TypeScript passed.
   Not verified: real first-scene latency or audio continuity; owner must listen to one video to assess the join.

@@ -132,7 +132,7 @@ function parse(response: string, min = 1): { beats?: Beat[]; error?: string } {
 }
 
 /** A targeted repair answer: {"<index>": beat} for only the listed beats. A full array is also accepted. */
-function parseRepair(response: string, beats: Beat[], indexes: number[]): Beat[] | null {
+export function parseRepair(response: string, beats: Beat[], indexes: number[]): Beat[] | null {
   try {
     const json = JSON.parse(unfence(response));
     if (Array.isArray(json)) return parse(response).beats ?? null;
