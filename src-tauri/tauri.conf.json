@@ -61,8 +61,7 @@
     ],
     "createUpdaterArtifacts": true,
     "macOS": {
-      "signingIdentity": "-",
-      "entitlements": "./Entitlements.plist"
+      "signingIdentity": "-"
     },
     "resources": {
       "resources/runtime/": "runtime/"
