@@ -19,7 +19,8 @@ impl Runtime {
         for name in ["pyproject.toml", "uv.lock"] {
             hash.update(fs::read(resource.join("sidecar").join(name)).map_err(|e| format!("Bundled {name}: {e}"))?);
         }
-        hash.update(b"python-3.12-bootstrap-v1");
+        hash.update(b"bootstrap-v2-python-");
+        hash.update(PYTHON.as_bytes());
         Ok(Self { resource, data, fingerprint: format!("{:x}", hash.finalize()) })
     }
     pub fn python(&self) -> PathBuf {
@@ -30,6 +31,9 @@ impl Runtime {
         self.python().is_file() && fs::read_to_string(self.marker()).is_ok_and(|v| v == self.fingerprint)
     }
 }
+
+// Exact CPython, so installs are reproducible; bump with the lock. Changing it invalidates the setup marker.
+const PYTHON: &str = "3.12.14";
 
 pub(crate) fn runtime() -> Result<&'static Runtime, String> {
     let runtime = RUNTIME.get().ok_or("Python setup has not started")?;
@@ -121,13 +125,13 @@ fn run_uv(runtime: &Runtime, phase: &str, cancel: &AtomicBool) -> Result<(), Str
     let mut cmd = {
         use std::os::windows::process::CommandExt;
         let mut cmd = Command::new(uv);
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x08000000 | 0x00000004); // CREATE_NO_WINDOW | CREATE_SUSPENDED: joins the job before it can spawn
         cmd
     };
     if phase == "python" {
-        cmd.args(["python", "install", "3.12"]);
+        cmd.args(["python", "install", PYTHON]);
     } else {
-        cmd.args(["sync", "--frozen", "--no-dev", "--python", "3.12", "--managed-python", "--project"])
+        cmd.args(["sync", "--frozen", "--no-dev", "--python", PYTHON, "--managed-python", "--project"])
             .arg(runtime.resource.join("sidecar"));
     }
     cmd.env("UV_PROJECT_ENVIRONMENT", runtime.data.join("env"))
@@ -144,6 +148,17 @@ fn run_uv(runtime: &Runtime, phase: &str, cancel: &AtomicBool) -> Result<(), Str
         Ok(job) => job,
         Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error); }
     };
+    #[cfg(windows)]
+    {
+        // Unverified on real Windows (not compilable here). Resumes the suspended uv now that it is in the job.
+        use std::os::windows::io::AsRawHandle;
+        #[link(name = "ntdll")]
+        extern "system" { fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32; }
+        if unsafe { NtResumeProcess(child.as_raw_handle()) } < 0 {
+            let _ = child.kill(); let _ = child.wait();
+            return Err("Could not start bundled uv".into());
+        }
+    }
     loop {
         if cancel.load(Ordering::SeqCst) {
             #[cfg(unix)]
@@ -209,22 +224,37 @@ pub fn bootstrap_start(app: AppHandle, state: State<'_, Setup>) -> Result<(), St
         }, |phase, _| run_uv(&runtime, phase, &state.cancel));
         state.running.store(false, Ordering::SeqCst);
         if runtime.ready() {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); }
+            let _ = open_main(&app);
             if let Some(window) = app.get_webview_window("bootstrap") { let _ = window.close(); }
         }
     });
     Ok(())
 }
 
+/// The main window is created (config `create: false`) only once setup is not needed, so the frontend
+/// can never call the sidecar before the runtime is ready.
+fn needs_setup(dev: bool, ready: bool) -> bool { !dev && !ready }
+
+fn open_main(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    if app.get_webview_window("main").is_none() {
+        WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?.build()?;
+    }
+    Ok(())
+}
+
 pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    if cfg!(debug_assertions) { return Ok(()); }
-    let runtime = Runtime::new(app.path().resource_dir()?.join("runtime"), app.path().app_data_dir()?.join("runtime"))?;
-    let ready = runtime.ready();
-    RUNTIME.set(runtime).map_err(|_| "Runtime already configured")?;
-    if !ready {
-        app.get_webview_window("main").ok_or("Missing main window")?.hide()?;
+    let dev = cfg!(debug_assertions);
+    let mut ready = true;
+    if !dev {
+        let runtime = Runtime::new(app.path().resource_dir()?.join("runtime"), app.path().app_data_dir()?.join("runtime"))?;
+        ready = runtime.ready();
+        RUNTIME.set(runtime).map_err(|_| "Runtime already configured")?;
+    }
+    if needs_setup(dev, ready) {
         WebviewWindowBuilder::new(app, "bootstrap", WebviewUrl::CustomProtocol("setup://localhost/".parse()?))
             .title("Set up Tangent").inner_size(560.0, 370.0).resizable(false).build()?;
+    } else {
+        open_main(app)?;
     }
     Ok(())
 }
@@ -240,6 +270,31 @@ pub fn response(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn main_window_waits_for_setup() {
+        assert!(!needs_setup(true, false)); // dev keeps its existing launch path
+        assert!(!needs_setup(false, true));
+        assert!(needs_setup(false, false));
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(config["app"]["windows"][0]["create"], false, "main must be created by setup()");
+    }
+
+    #[test]
+    fn bootstrap_capability_is_minimal_and_main_has_no_bootstrap_commands() {
+        let cap = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        let strings = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let boot = cap(include_str!("../capabilities/bootstrap.json"));
+        assert_eq!(strings(&boot["windows"]), ["bootstrap"]);
+        assert_eq!(strings(&boot["permissions"]), ["allow-bootstrap-status", "allow-bootstrap-start", "allow-bootstrap-cancel"]);
+        // Every command bootstrap.js invokes is granted, and nothing else is.
+        let js = include_str!("bootstrap.js");
+        for command in ["bootstrap_status", "bootstrap_start", "bootstrap_cancel"] { assert!(js.contains(&format!("'{command}'"))); }
+        assert_eq!(js.matches("invoke('").count(), 3);
+        let main = cap(include_str!("../capabilities/default.json"));
+        assert_eq!(strings(&main["windows"]), ["main"]);
+        assert!(!strings(&main["permissions"]).iter().any(|p| p.contains("bootstrap")));
+    }
     static ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     struct FakeUv(Runtime);
     impl FakeUv {

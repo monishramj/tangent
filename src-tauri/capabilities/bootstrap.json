@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "bootstrap",
+  "description": "First-launch setup window: only the setup commands",
+  "windows": ["bootstrap"],
+  "remote": { "urls": ["setup://localhost/*", "http://setup.localhost/*"] },
+  "permissions": ["allow-bootstrap-status", "allow-bootstrap-start", "allow-bootstrap-cancel"]
+}

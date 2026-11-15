@@ -3,13 +3,26 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": [
-    "main",
-    "bootstrap"
+    "main"
   ],
   "permissions": [
     "core:default",
     "dialog:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "allow-pdf-page",
+    "allow-sidecar-call",
+    "allow-llm-complete",
+    "allow-dev-log",
+    "allow-save-video-bundle",
+    "allow-list-video-bundles",
+    "allow-load-video-bundle",
+    "allow-delete-video-bundle",
+    "allow-store-read",
+    "allow-store-write",
+    "allow-store-delete",
+    "allow-get-secret",
+    "allow-set-secret",
+    "allow-sync-menu"
   ]
 }
