@@ -129,12 +129,13 @@ def test_ingest_rpc_clean_stdout_and_recovery(document, tmp_path, monkeypatch, c
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.7\nfixture")
 
-    def convert(path):
+    def convert(path, pages):
         assert path == pdf
         print("converter diagnostic")
         return document
 
     monkeypatch.setattr(ingest, "_convert_pdf", convert)
+    monkeypatch.setattr(ingest, "pdf_info", lambda params: {"pages": 3})
     requests = [
         {"id": 1, "method": "ingest_pdf", "params": {"path": str(tmp_path / "missing.pdf")}},
         {"id": 2, "method": "ingest_pdf", "params": {"path": str(pdf)}},
@@ -143,7 +144,9 @@ def test_ingest_rpc_clean_stdout_and_recovery(document, tmp_path, monkeypatch, c
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
     main()
     captured = capsys.readouterr()
-    replies = [json.loads(line) for line in captured.out.splitlines()]
+    messages = [json.loads(line) for line in captured.out.splitlines()]
+    replies = [message for message in messages if "progress" not in message]
+    assert [m["progress"]["completed"] for m in messages if "progress" in m] == [0, 3]
     assert "error" in replies[0]
     assert replies[1]["result"]["sections"]
     assert replies[2]["result"] == "pong"
@@ -218,7 +221,8 @@ def test_real_pdf(tmp_path, monkeypatch):
 def test_assets_dir_param_is_used_and_validated(document, tmp_path, monkeypatch):
     pdf = tmp_path / "t.pdf"
     pdf.write_bytes(b"%PDF-1.7\nfixture")
-    monkeypatch.setattr(ingest, "_convert_pdf", lambda path: document)
+    monkeypatch.setattr(ingest, "_convert_pdf", lambda path, pages: document)
+    monkeypatch.setattr(ingest, "pdf_info", lambda params: {"pages": 3})
     out = tmp_path / "figs" / "src1"
     ir = handle({"id": 1, "method": "ingest_pdf", "params": {"path": str(pdf), "assets_dir": str(out)}})["result"]
     figure = next(f for n in flatten(ir) for f in n["figures"])
@@ -256,3 +260,49 @@ def test_pdf_info(tmp_path):
     assert handle({"id": 1, "method": "pdf_info", "params": {"path": str(path)}}) == {"id": 1, "result": {"pages": 3}}
     for params in (None, {}, {"path": ""}, {"path": str(tmp_path / "nope.pdf")}):
         assert "error" in handle({"id": 2, "method": "pdf_info", "params": params})
+
+
+def test_chunk_progress_stitching_and_thermal_pause(tmp_path, monkeypatch):
+    from docling_core.types.doc import BoundingBox, DoclingDocument, DocItemLabel, ProvenanceItem, Size
+    from tangent_sidecar import limits
+    doc = DoclingDocument(name="Chapter")
+    for page in range(1, 42):
+        doc.add_page(page_no=page, size=Size(width=600, height=800))
+        prov = ProvenanceItem(page_no=page, charspan=(0, 0), bbox=BoundingBox(l=10, t=400, r=500, b=420))
+        if page == 1:
+            doc.add_heading(text="Chapter", level=1, prov=prov)
+        if page == 20:
+            doc.add_heading(text="Exercises", level=2, prov=prov)
+        doc.add_text(label=DocItemLabel.TEXT, text=f"Unique content for page {page}.", prov=prov)
+        if page in (20, 21):
+            doc.add_text(label=DocItemLabel.FORMULA, text="", orig=f"x {page}", prov=prov)
+    pdf = tmp_path / "chapter.pdf"
+    pdf.write_bytes(b"%PDF-1.7\nfixture")
+    monkeypatch.setattr(ingest, "pdf_info", lambda params: {"pages": 41})
+    conversions, events = [], []
+    def convert(path, pages):
+        conversions.append(pages)
+        return doc.filter(page_nrs=set(range(pages[0], pages[1] + 1)))
+    monkeypatch.setattr(ingest, "_convert_pdf", convert)
+    states = iter([0, 2, 3, 1, 0, 0])
+    monkeypatch.setattr(ingest, "wait_until_cool", lambda paused: limits.wait_until_cool(
+        source=lambda: next(states), sleep=lambda _: events.append("wait"), paused=paused))
+    ir = ingest.ingest_pdf({"path": str(pdf), "assets_dir": str(tmp_path)}, progress=events.append)
+    expected = ingest.document_to_ir(doc, tmp_path, pdf)
+    assert ir == expected
+    assert conversions == [(1, 20), (21, 40), (41, 41)]
+    assert [value["page"] for value in ir["formulas"].values()] == [20, 21]
+    assert [e["completed"] for e in events if isinstance(e, dict) and not e["paused"]] == [0, 20, 40, 41]
+    assert [e["completed"] for e in events if isinstance(e, dict) and e["paused"]] == [20, 20]
+    assert events.count("wait") == 2
+    assert ir["sections"][0]["children"][0]["anchors"][-1] == {"page": 41}
+
+
+def test_join_keeps_figures_formulas_and_original_range_anchors(document, tmp_path):
+    # Docling's filter and concatenate remap references and normalize page numbers.
+    chunks = [document.filter(page_nrs={1}), document.filter(page_nrs={2, 3})]
+    joined = ingest._join_documents(chunks, 1)
+    assert ingest.document_to_ir(joined, tmp_path) == ingest.document_to_ir(document, tmp_path)
+    ranged = ingest._join_documents([document.filter(page_nrs={2}), document.filter(page_nrs={3})], 2)
+    assert set(ranged.pages) == {2, 3}
+    assert {p.page_no for item, _ in ranged.iterate_items() for p in item.prov} == {2, 3}

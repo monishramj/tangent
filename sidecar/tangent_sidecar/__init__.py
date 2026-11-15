@@ -25,12 +25,14 @@ HANDLERS = {"ping": lambda params: "pong", "tts_align": tts_align,
             "enrich_formulas": enrich_formulas}
 
 
-def handle(req: Request) -> Response:
+def handle(req: Request, progress=None) -> Response:
     fn = HANDLERS.get(req.get("method"))
     if fn is None:
         return {"id": req.get("id"), "error": f"unknown method: {req.get('method')}"}
     try:
-        return {"id": req["id"], "result": fn(req.get("params", {}))}
+        result = (fn(req.get("params", {}), progress=progress)
+                  if req.get("method") == "ingest_pdf" and progress else fn(req.get("params", {})))
+        return {"id": req["id"], "result": result}
     except Exception as e:
         return {"id": req.get("id"), "error": str(e)}
 
@@ -40,7 +42,11 @@ def main() -> None:
     start_watchdog()
     for line in sys.stdin:
         try:
-            res = handle(json.loads(line))
+            req = json.loads(line)
+            output = sys.stdout  # ingest redirects model diagnostics to stderr
+            def progress(value):
+                print(json.dumps({"id": req["id"], "progress": value}), file=output, flush=True)
+            res = handle(req, progress=progress)
         except Exception as e:
             print(f"bad line: {e}", file=sys.stderr)
             res = {"id": None, "error": f"malformed request: {e}"}

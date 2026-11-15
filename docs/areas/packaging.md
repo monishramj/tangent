@@ -35,4 +35,8 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
-(none yet; prepend dated entries here)
+- 2026-11-15 (step 6): Dedicated ingest worker uses macOS nice 19 + background QoS, Linux nice 19, Windows IDLE; foreground workers use normal priority.
+  Both ML classes keep the existing serial execution order and share a ~30%-of-cores cap, clamped to 1–6 even for overrides; active ingest still delays foreground work.
+  Preserved watchdog/no-mid-job-restart rules, added non-signalling Windows process queries, and forward chunk progress to the existing UI caller in `src/library.ts`.
+  Evidence: simulated priority/thermal/Windows-watchdog tests, Python fast suite, Rust library tests, affected UI tests and typecheck.
+  Not verified: native Windows/Linux scheduling, real-model chunk quality/latency, physical thermal transitions; unknown thermal readings allow work to continue.

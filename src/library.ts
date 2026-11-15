@@ -1,11 +1,10 @@
 // Parse a PDF once (cached IR, figures in app data), with honest progress.
-import { enrichFormulas, figuresDir, ingestPdf, pdfInfo, repairSections, type IR } from "./home/api";
+import { enrichFormulas, figuresDir, ingestPdf, repairSections, type IR } from "./home/api";
+import { listen } from "@tauri-apps/api/event";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
 
-/** fraction is undefined once past the estimate: the bar goes indeterminate instead of faking 95%. */
+/** fraction is undefined until the sidecar reports its actual page count. */
 export type LoadProgress = { fraction?: number; label: string };
-const RATE_KEY = "tangent.secPerPage"; // learned from past ingests, so the estimate improves with use
-const rate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || 1.2; } catch { return 1.2; } };
 
 export const cachedIr = (pdfPath: string, store: JsonStore = tauriJsonStore) => irCache(store).get(sourceFor(pdfPath).id).catch(() => null);
 
@@ -13,7 +12,7 @@ export async function hasCachedIr(pdfPath: string, store: JsonStore = tauriJsonS
   return Boolean(await irCache(store).get(sourceFor(pdfPath).id).catch(() => null));
 }
 
-/** Cached IR, else Docling ingest. Docling gives no callbacks, so progress = elapsed vs. pages x learned sec/page; past that estimate it turns indeterminate. */
+/** Cached IR, else Docling ingest with completed-page progress. */
 export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => void, store: JsonStore = tauriJsonStore): Promise<IR> {
   const source = sourceFor(pdfPath);
   const cached = await irCache(store).get(source.id).catch(() => null);
@@ -24,25 +23,20 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
     if (repaired !== cached) await irCache(store).set(source.id, repaired);
     return repaired;
   }
-  const pages = await pdfInfo(pdfPath).then(r => r.pages, () => 0);
-  const expected = Math.max(10, pages * rate()), start = Date.now();
-  const tick = () => {
-    const sec = (Date.now() - start) / 1000, left = expected - sec, what = `Reading ${pages ? `${pages} pages` : "PDF"}`;
-    const mins = Math.floor(sec / 60), elapsed = mins ? `${mins} min ${Math.floor(sec % 60)} s` : `${Math.floor(sec)} s`;
-    onProgress?.(left > 0
-      ? { fraction: sec / expected, label: `${what} · ${left > 60 ? `~${Math.ceil(left / 60)} min` : `~${Math.ceil(left)} s`} left` }
-      : { label: `${what} · longer than expected · ${elapsed} so far` });
-  };
-  tick();
-  const h = setInterval(tick, 500);
+  onProgress?.({ label: "Reading PDF" });
+  const unlisten = await listen<{ path: string; progress: { completed: number; total: number; paused: boolean } }>("ingest-progress", ({ payload }) => {
+    if (payload.path !== pdfPath) return;
+    const { completed, total, paused } = payload.progress;
+    onProgress?.({ fraction: total ? completed / total : undefined,
+      label: paused ? `Paused to cool down · ${completed} of ${total} pages` : completed === total ? "Organizing sections" : `Read ${completed} of ${total} pages` });
+  });
   try {
     const dir = await figuresDir(source.id).catch(() => undefined);
     const ir = await ingestPdf(pdfPath, dir);
-    if (pages) try { localStorage.setItem(RATE_KEY, String((Date.now() - start) / 1000 / pages)); } catch { /* fine */ }
     onProgress?.({ fraction: 1, label: "Done" });
     await irCache(store).set(source.id, ir);
     return ir;
-  } finally { clearInterval(h); }
+  } finally { unlisten(); }
 }
 
 const FORMULA_TOKEN = /⟨formula (\d+)⟩/g;

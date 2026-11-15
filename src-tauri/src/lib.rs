@@ -9,7 +9,7 @@ mod menu;
 mod pages;
 mod store;
 mod videos;
-use tauri::{Manager, RunEvent, State};
+use tauri::{Emitter, Manager, RunEvent, State};
 
 struct Process {
     child: Child,
@@ -50,13 +50,16 @@ struct Sidecar {
 #[derive(Default)]
 struct State_ {
     work: Arc<Mutex<Sidecar>>,
+    ingest: Arc<Mutex<Sidecar>>,
+    // shortcut: jobs share a serial budget; yield between chunks if foreground latency needs preemption.
+    job: Arc<Mutex<()>>,
     ping: Arc<Mutex<Sidecar>>,
 }
 
 impl State_ {
     fn connection(&self, method: &str) -> Arc<Mutex<Sidecar>> {
         // Python handles requests serially, so health checks need a separate connection.
-        Arc::clone(if method == "ping" { &self.ping } else { &self.work })
+        Arc::clone(match method { "ping" => &self.ping, "ingest_pdf" => &self.ingest, _ => &self.work })
     }
 }
 
@@ -71,13 +74,13 @@ pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: b
         .unwrap_or_else(|| manifest.join("../sidecar")))
 }
 
-/// Heavy-work thread budget: TANGENT_SIDECAR_THREADS, else ~30% of cores (4 on 14), at least 2.
+/// Shared heavy-work thread budget: ~30% of cores, max 6, at least 1.
 fn sidecar_threads() -> usize {
     std::env::var("TANGENT_SIDECAR_THREADS").ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0)
-        .unwrap_or_else(|| (std::thread::available_parallelism().map_or(4, |n| n.get()) * 3 / 10).max(2))
+        .unwrap_or_else(|| (std::thread::available_parallelism().map_or(4, |n| n.get()) * 3 / 10).max(1)).min(6)
 }
 
-fn spawn() -> Result<Process, String> {
+fn spawn(background: bool) -> Result<Process, String> {
     let dir = sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from), Path::new(env!("CARGO_MANIFEST_DIR")), cfg!(debug_assertions))?
         .canonicalize().map_err(|e| format!("sidecar directory: {e}"))?;
     let home = llm::home_dir();
@@ -89,6 +92,7 @@ fn spawn() -> Result<Process, String> {
         .env("PATH", std::env::join_paths(&dirs).map_err(|e| e.to_string())?)
         .env("TANGENT_PARENT_PID", std::process::id().to_string()) // the sidecar's watchdog exits when we do
         .env("TANGENT_SIDECAR_THREADS", sidecar_threads().to_string())
+        .env("TANGENT_WORK_CLASS", if background { "background" } else { "foreground" })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
     #[cfg(unix)]
@@ -96,22 +100,33 @@ fn spawn() -> Result<Process, String> {
     Ok(Process::new(cmd.spawn().map_err(|e| e.to_string())?))
 }
 
+#[cfg(test)]
 fn call(s: &mut Sidecar, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
-    if s.proc.is_none() { s.proc = Some(spawn()?); }
+    call_progress(s, method, params, timeout, |_| {})
+}
+
+fn call_progress(s: &mut Sidecar, method: &str, params: Value, timeout: Duration, mut progress: impl FnMut(Value)) -> Result<Value, String> {
+    if s.proc.is_none() { s.proc = Some(spawn(method == "ingest_pdf")?); }
     s.next_id += 1;
     let id = s.next_id;
     let process = s.proc.as_mut().unwrap();
     let response = (|| {
         writeln!(process.stdin, "{}", json!({"id": id, "method": method, "params": params})).map_err(|e| e.to_string())?;
         process.stdin.flush().map_err(|e| e.to_string())?;
-        let line = process.lines.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => "sidecar timed out".to_string(),
-            // No respawn/retry here: the job fails and only the next request starts a fresh sidecar.
-            mpsc::RecvTimeoutError::Disconnected => "sidecar exited unexpectedly; retry to restart it".to_string(),
-        })??;
-        let r: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-        if r["id"] != id { return Err(format!("id mismatch: {}", r["id"])); }
-        Ok(r)
+        loop {
+            let line = process.lines.recv_timeout(timeout).map_err(|e| match e {
+                mpsc::RecvTimeoutError::Timeout => "sidecar timed out".to_string(),
+                // No respawn/retry here: the job fails and only the next request starts a fresh sidecar.
+                mpsc::RecvTimeoutError::Disconnected => "sidecar exited unexpectedly; retry to restart it".to_string(),
+            })??;
+            let r: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            if r["id"] != id { return Err(format!("id mismatch: {}", r["id"])); }
+            if let Some(value) = r.get("progress") {
+                progress(value.clone());
+                continue;
+            }
+            return Ok(r);
+        }
     })();
     let mut r = match response {
         Ok(r) => r,
@@ -127,11 +142,16 @@ fn call(s: &mut Sidecar, method: &str, params: Value, timeout: Duration) -> Resu
 }
 
 #[tauri::command]
-async fn sidecar_call(state: State<'_, State_>, method: String, params: Value, timeout_ms: Option<u64>) -> Result<Value, String> {
+async fn sidecar_call(app: tauri::AppHandle, state: State<'_, State_>, method: String, params: Value, timeout_ms: Option<u64>) -> Result<Value, String> {
     let connection = state.connection(&method);
+    let job = Arc::clone(&state.job);
     tauri::async_runtime::spawn_blocking(move || {
+        let _job = if method == "ping" { None } else { Some(job.lock().map_err(|e| e.to_string())?) };
+        let path = params.get("path").cloned().unwrap_or(Value::Null);
         let mut sidecar = connection.lock().map_err(|e| e.to_string())?;
-        call(&mut sidecar, &method, params, Duration::from_millis(timeout_ms.unwrap_or(300_000)))
+        call_progress(&mut sidecar, &method, params, Duration::from_millis(timeout_ms.unwrap_or(300_000)), |value| {
+            let _ = app.emit("ingest-progress", json!({"path": path, "progress": value}));
+        })
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -154,7 +174,7 @@ pub fn run() {
             // Exit covers window close and quit; ExitRequested fires first, so kill there too.
             if matches!(e, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 let state = app.state::<State_>();
-                for connection in [&state.work, &state.ping] {
+                for connection in [&state.work, &state.ingest, &state.ping] {
                     // try_lock: never hang quit behind a running job; the child's watchdog covers that case.
                     if let Ok(mut s) = connection.try_lock() { *s = Sidecar::default(); }
                 }
@@ -190,10 +210,10 @@ mod tests {
     #[test]
     fn slow_work_does_not_block_ping() {
         let state = State_::default();
-        *state.connection("tts_align").lock().unwrap() = fake_sidecar();
+        *state.connection("ingest_pdf").lock().unwrap() = fake_sidecar();
         *state.connection("ping").lock().unwrap() = fake_sidecar();
         let work = state.connection("ingest_pdf");
-        assert!(Arc::ptr_eq(&work, &state.connection("tts_align")));
+        assert!(!Arc::ptr_eq(&work, &state.connection("tts_align")));
         let (started, waiting) = mpsc::channel();
         let job = std::thread::spawn(move || {
             let mut sidecar = work.lock().unwrap();
@@ -245,7 +265,18 @@ mod tests {
     }
 
     #[test]
+    fn chunk_progress_is_forwarded_before_the_final_response() {
+        let child = Command::new("sh").args(["-c", r#"read line; printf '%s\n' '{"id":1,"progress":{"completed":20,"total":41,"paused":false}}' '{"id":1,"result":"done"}'"#])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut sidecar = Sidecar { proc: Some(Process::new(child)), next_id: 0 };
+        let mut events = vec![];
+        let result = call_progress(&mut sidecar, "ingest_pdf", json!({}), Duration::from_secs(3), |p| events.push(p)).unwrap();
+        assert_eq!(result, "done");
+        assert_eq!(events, vec![json!({"completed":20,"total":41,"paused":false})]);
+    }
+
+    #[test]
     fn thread_budget_defaults_and_overrides() {
-        assert!(sidecar_threads() >= 2);
+        assert!((1..=6).contains(&sidecar_threads()));
     }
 }
