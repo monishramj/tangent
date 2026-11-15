@@ -86,6 +86,22 @@ body {
 @keyframes captions-in { from { opacity: 0; } }
 .captions-in { animation: captions-in 160ms ease-out both; }
 
+/* Drawn ring while the player waits. Same stroke as the library preparation overlay. */
+.player-ring { width: 44px; height: 44px; overflow: visible; }
+.player-ring path {
+  fill: none; stroke: #fff; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 42 36; animation: player-ring-draw 2.4s ease-in-out infinite;
+}
+@keyframes player-ring-draw {
+  0% { stroke-dashoffset: 78; opacity: .45; }
+  50% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-ring path { animation: none !important; opacity: .75; stroke-dashoffset: 0; }
+}
+.player-ring[data-reduced="true"] path { animation: none; opacity: .75; stroke-dashoffset: 0; }
+
 /* Player chrome over the video: fades with opacity only (no layout shift, no canvas resize). */
 .chrome { transition: opacity 260ms ease-out; }
 .chrome[data-hidden] { opacity: 0; pointer-events: none; }
