@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from "vitest";
+import { devlog } from "../devlog";
+vi.mock("../devlog", () => ({ devlog: vi.fn() }));
+
 import type { LLMProvider } from "../llm/provider";
 import { streamVideo, type PipelineEvent, type Progress } from "./streamVideo";
 
@@ -44,7 +47,7 @@ function setup(count = 4, dslMs = (_i: number) => 200) {
   const provider: LLMProvider = { complete: vi.fn(async (prompt: string) => {
     if (prompt.includes("Rewrite the textbook section")) {
       await sleep(20);
-      return JSON.stringify(beats);
+      return prompt.includes("PART 1:") ? JSON.stringify({ outline: "Continue growing arrays.", beats: beats.slice(0, 3) }) : JSON.stringify(beats.slice(3));
     }
     if (prompt.startsWith("Write checkpoint questions")) return "[]";
     const group = groupOf(prompt);
@@ -196,7 +199,7 @@ it("caps invalid DSL at two scene attempts, each with one repair call", async ()
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("error");
-  expect(provider.complete).toHaveBeenCalledTimes(6); // script + checkpoints + 2 x (scene + repair)
+  expect(provider.complete).toHaveBeenCalledTimes(7); // two script parts + checkpoints + 2 x (scene + repair)
 });
 
 it("retries and recovers from a transient DSL transport error", async () => {
@@ -210,7 +213,7 @@ it("retries and recovers from a transient DSL transport error", async () => {
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("scene");
-  expect(provider.complete).toHaveBeenCalledTimes(4); // script + checkpoints + failed scene + scene
+  expect(provider.complete).toHaveBeenCalledTimes(5); // two script parts + checkpoints + failed scene + scene
 });
 
 it("converts math before synthesis and rejects rewritten narration", async () => {
@@ -246,7 +249,7 @@ it("rejects invalid alignment without calling the scene model", async () => {
   await vi.runAllTimersAsync();
   expect((await events)[0].type).toBe("error");
   expect(ttsAlign).toHaveBeenCalledTimes(2);
-  expect(provider.complete).toHaveBeenCalledTimes(2); // script + checkpoints only
+  expect(provider.complete).toHaveBeenCalledTimes(3); // two script parts + checkpoints only
 });
 
 it("rejects alignment whose segments do not match the beats", async () => {
@@ -255,7 +258,7 @@ it("rejects alignment whose segments do not match the beats", async () => {
   const events = collect(streamVideo(options));
   await vi.runAllTimersAsync();
   expect((await events)[0]).toMatchObject({ type: "error", error: expect.objectContaining({ message: expect.stringMatching(/segments/) }) });
-  expect(provider.complete).toHaveBeenCalledTimes(2);
+  expect(provider.complete).toHaveBeenCalledTimes(3);
 });
 
 it("cuts beats at the returned segment starts, so each beat clip ends with its pause on the single wav clock", async () => {
@@ -283,8 +286,8 @@ it("aborts promptly even if a dependency ignores cancellation", async () => {
   await rejected;
   await vi.runAllTimersAsync();
   expect(stream.status()).toBe("aborted");
-  expect(ttsAlign).toHaveBeenCalledTimes(3);
-  expect(provider.complete).toHaveBeenCalledTimes(2); // script + checkpoints
+  expect(ttsAlign).toHaveBeenCalledTimes(1);
+  expect(provider.complete).toHaveBeenCalledTimes(2); // opening and in-flight continuation
   expect(vi.mocked(provider.complete).mock.calls[0][1]?.signal?.aborted).toBe(true);
 });
 
@@ -403,7 +406,7 @@ it("attaches each beat's passage boxes to its scene; unknown ids are dropped; no
   const passages = [{ id: "p1", markdown: "Arrays grow.", boxes: [box(1)] }, { id: "p2", markdown: "Then shrink.", boxes: [box(2), box(3)] }];
   const tagged = beats.map((b, i) => ({ ...b, passages: i === 0 ? ["p1"] : i === 1 ? ["p2", "p404"] : i === 3 ? ["p1", "p2"] : [] }));
   options.provider.complete = vi.fn(async (prompt: string) => {
-    if (prompt.includes("Rewrite the textbook section")) return JSON.stringify(tagged);
+    if (prompt.includes("Rewrite the textbook section")) return prompt.includes("PART 1:") ? JSON.stringify({ outline: "Continue.", beats: tagged.slice(0, 3) }) : JSON.stringify(tagged.slice(3));
     if (prompt.startsWith("Write checkpoint questions")) return "[]";
     return answerFor(groupOf(prompt));
   });
@@ -421,4 +424,66 @@ it("attaches each beat's passage boxes to its scene; unknown ids are dropped; no
   const out = collect(streamVideo(plain.options));
   await vi.runAllTimersAsync();
   for (const s of sceneEvents(await out)) expect(s.type === "scene" && ("passages" in s || "passageIds" in s)).toBe(false);
+});
+
+it("starts and yields scene 1 before the second script call resolves, then appends the rest in order", async () => {
+  vi.mocked(devlog).mockClear();
+  const { options, provider, beats, ttsAlign } = setup(2);
+  const base = vi.mocked(provider.complete).getMockImplementation()!;
+  let resolvePart2!: (answer: string) => void;
+  const part2 = new Promise<string>(resolve => { resolvePart2 = resolve; });
+  vi.mocked(provider.complete).mockImplementation((p, o) => p.includes("PART 2:") ? part2 : base(p, o));
+  const stream = streamVideo(options);
+  let first: IteratorResult<PipelineEvent> | undefined;
+  const pending = stream.next().then(event => { first = event; });
+  await vi.advanceTimersByTimeAsync(400);
+  expect(first?.value).toMatchObject({ type: "scene", sceneId: "scene-1" });
+  expect(ttsAlign).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(devlog).mock.calls.map(([msg]) => msg)).toEqual([
+    "generation: script-part-1-start +0ms", "generation: script-part-1-ready +20ms",
+    "generation: script-part-2-start +20ms", "generation: first-scene-ready +320ms",
+  ]);
+  expect(vi.mocked(provider.complete).mock.calls.some(([p]) => p.includes("PART 2:"))).toBe(true);
+  await pending;
+  resolvePart2(JSON.stringify(beats.slice(3)));
+  const rest = collect(stream);
+  await vi.runAllTimersAsync();
+  expect(sceneEvents(await rest).map(e => e.sceneId)).toEqual(["scene-2"]);
+  expect(ttsAlign.mock.calls[1][0]).toEqual(beats.slice(3).map(b => b.say));
+});
+
+it.each(["transport", "invalid", "join"])("keeps scene 1 playable when part 2 fails its %s checks", async failure => {
+  const { options, provider, beats, ttsAlign } = setup(2);
+  beats[0].say = "A heap is a tree.";
+  const base = vi.mocked(provider.complete).getMockImplementation()!;
+  vi.mocked(provider.complete).mockImplementation(async (p, o) => {
+    if (!p.includes("PART 2:")) return base(p, o);
+    if (failure === "transport") throw new Error("part 2 offline");
+    return failure === "invalid" ? "not json" : JSON.stringify([{ say: "A heap means a tree.", visualIntent: "tree" }]);
+  });
+  const stream = streamVideo(options);
+  const events = collect(stream);
+  await vi.runAllTimersAsync();
+  const all = await events;
+  expect(sceneEvents(all)).toMatchObject([{ type: "scene", sceneId: "scene-1" }, { type: "error", sceneId: "scene-2" }]);
+  expect(ttsAlign).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(provider.complete).mock.calls.filter(([p]) => p.includes("PART 2:"))).toHaveLength(2);
+  expect(all.filter(e => e.type === "checkpoints")).toHaveLength(1);
+  expect(stream.status()).toBe("done");
+});
+
+it("aborts while waiting for the continuation after scene 1 has played", async () => {
+  const { options, provider } = setup(2);
+  const base = vi.mocked(provider.complete).getMockImplementation()!;
+  vi.mocked(provider.complete).mockImplementation((p, o) => p.includes("PART 2:") ? new Promise(() => {}) : base(p, o));
+  const controller = new AbortController();
+  const stream = streamVideo({ ...options, signal: controller.signal });
+  const first = stream.next();
+  await vi.advanceTimersByTimeAsync(400);
+  expect((await first).value).toMatchObject({ type: "scene" });
+  const next = stream.next();
+  const rejected = expect(next).rejects.toMatchObject({ name: "AbortError" });
+  controller.abort();
+  await rejected;
+  expect(stream.status()).toBe("aborted");
 });

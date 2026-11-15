@@ -1,4 +1,4 @@
-import { generateScript, type Beat, type DetailLevel } from "../gen/script";
+import { generateScript, type ScriptResult, type Beat, type DetailLevel } from "../gen/script";
 import { generateGroupScene, recentFor } from "../gen/scene";
 import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
 import { generateCheckpoints, type Checkpoint, type Exercise } from "../gen/checkpoints";
@@ -11,6 +11,7 @@ import { boxesFor } from "../follow/passages";
 import type { BeatBoxes, Passage } from "../follow/types";
 import type { LLMProvider } from "../llm/provider";
 import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
+import { devlog } from "../devlog";
 
 export type PipelineEvent =
   | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][] }
@@ -74,6 +75,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   };
   const jobs = new Map<number, Promise<PipelineEvent>>();
   const ready = new Map<number, PipelineEvent>();
+  let started = 0;
   let cursor = 0;
   let issued = 0;
   let active = 0;
@@ -142,6 +144,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         // pause 0: beats are contiguous slices of the single wav (each clip already ends with its pause).
         const timeline = compileOps(scene, clips, 0);
         ready_++; progress("ready", index);
+        if (index === 0) devlog(`generation: first-scene-ready +${clock.now() - started}ms`);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
           // Aligned with scene.beats (like `spoken`); absent when the IR has no passages.
           ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)), passageIds: beats.map(b => b.passages ?? []) } : {}) };
@@ -173,17 +176,53 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       checkAbort();
       onStatus?.("writing script");
       progress("script", 0);
-      const script = await generateScript({ sectionMarkdown, provider: complete, detail, passages });
-      if (!script.beats || script.violations.length) throw new Error("Invalid script: " + script.violations.slice(0, 5).map(v => `beat ${v.beat} ${v.rule}: ${v.message}`).join(" | "));
-      const beats = script.beats;
+      started = clock.now();
+      devlog("generation: script-part-1-start +0ms");
+      const valid = (script: ScriptResult) => {
+        if (!script.beats || script.violations.length) throw new Error("Invalid script: " + script.violations.slice(0, 5).map(v => `beat ${v.beat} ${v.rule}: ${v.message}`).join(" | "));
+        return script.beats;
+      };
+      const opening = await generateScript({ sectionMarkdown, provider: complete, detail, passages, part: "opening" });
+      const beats = valid(opening);
+      devlog(`generation: script-part-1-ready +${clock.now() - started}ms`);
       says = beats.map(b => b.say);
-      groups = chunkBeats(beats, 4, 3).map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));
+      groups = chunkBeats(beats).map(plan => ({ plan, beats: beats.slice(plan.start, plan.start + plan.count) }));
       fill();
-      // Checkpoints are one side call; they never delay a scene and failure just means none.
+      let scriptDone = false;
+      let continuationError: PipelineEvent | undefined;
+      // Part 2 overlaps scene 1, including TTS; it can never reject an already playing scene.
+      const continuation = (async () => {
+        devlog(`generation: script-part-2-start +${clock.now() - started}ms`);
+        let script: ScriptResult | undefined;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            script = await generateScript({ sectionMarkdown, provider: complete, detail, passages, part: { previous: beats, outline: opening.outline! } });
+            break;
+          } catch (error) {
+            checkAbort();
+            if (attempt === 1) throw error;
+          }
+        }
+        const rest = valid(script!);
+        const offset = beats.length;
+        says = [...says, ...rest.map(b => b.say)];
+        groups.push(...chunkBeats(rest).map(plan => ({ plan: { ...plan, start: plan.start + offset }, beats: rest.slice(plan.start, plan.start + plan.count) })));
+        devlog(`generation: script-part-2-ready +${clock.now() - started}ms`);
+        fill();
+      })().catch(cause => {
+        continuationError = { type: "error", sceneId: `scene-${groups.length + 1}`, error: cause instanceof Error ? cause : new Error(String(cause)) };
+        devlog(`generation: script-part-2-failed +${clock.now() - started}ms`);
+      }).finally(() => { scriptDone = true; });
+      // Wait for the full scene list for checkpoints, without delaying any playable scene.
       let checkpoints: Checkpoint[] | null = null, sent = false;
-      const pending = generateCheckpoints({ sectionMarkdown, exercises, figures, scenes: groups.map(g => g.plan.concept), provider: complete })
+      const pending = continuation.then(() => generateCheckpoints({ sectionMarkdown, exercises, figures, scenes: groups.map(g => g.plan.concept), provider: complete }))
         .then(items => { checkpoints = items; }, () => { checkpoints = []; });
-      while (cursor < groups.length) {
+      while (cursor < groups.length || !scriptDone) {
+        if (cursor === groups.length) {
+          await Promise.race([continuation, aborted]);
+          checkAbort();
+          if (cursor === groups.length) break;
+        }
         const event = await Promise.race([jobs.get(cursor)!, aborted]);
         checkAbort();
         ready.delete(cursor);
@@ -192,6 +231,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         yield event;
         if (checkpoints && !sent) { sent = true; yield { type: "checkpoints", items: checkpoints }; }
       }
+      if (continuationError) yield continuationError;
       if (!sent) { await Promise.race([pending, aborted]); yield { type: "checkpoints", items: checkpoints ?? [] }; }
     } finally {
       if (state !== "aborted") { state = "done"; onStatus?.("done"); }
