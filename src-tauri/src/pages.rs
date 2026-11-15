@@ -329,8 +329,13 @@ fn open_nofollow(path: &Path, write: bool) -> std::io::Result<File> {
     open.open(path)
 }
 
+#[cfg(unix)]
 fn cache_miss(error: &std::io::Error) -> bool {
-    error.kind() == std::io::ErrorKind::NotFound || (cfg!(unix) && error.raw_os_error() == Some(libc::ELOOP))
+    error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ELOOP)
+}
+#[cfg(not(unix))]
+fn cache_miss(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound
 }
 
 fn refresh_mtime(dir: &Path, path: &Path) {
