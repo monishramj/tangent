@@ -81,6 +81,8 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
   Evidence: `checks::` unit tests for missing, signed-out, ok, and timeout probes; vitest for the screen and the Settings section.
   Not verified: a real logged-out `auth status` on a machine without Claude, or the setup-window hand-off in a packaged build.
 
+- 2026-11-16 Step 21: Windows sidecar joins a kill-on-close job and gets a short stdin-close before that; secrets get a current-user-only DACL. Packaged python is `<app data>/runtime/env/Scripts/python.exe` and the project is `<resources>/runtime/sidecar`. Linux startup warns, with `WEBKIT_DISABLE_COMPOSITING_MODE=1`, when WebKitGTK or EGL is missing.
+  Evidence: host cargo tests for the path helper, graphics message, and secret round-trip. Not verified: a Windows process tree, an ACL read, or a Linux box with no GPU.
 - 2026-11-16 PR #22 review fixes: `unsafe extern` for the Windows `NtResumeProcess` block (edition 2024); the setup window now closes only after the main window is created, otherwise it stays open with the error and a retry; `bootstrap.json` drops the ineffective `remote` urls (Tauri treats `setup://` as local) and is scoped by `windows:["bootstrap"]`, `local: true`.
   Evidence: cargo test 43 pass (hand-off failure test, capability shape), cargo check, generated `gen/schemas/capabilities.json` shows `default`->main and `bootstrap`->bootstrap only.
   Not verified: Windows compile, real window-creation failure, caller-URL guard (not added).

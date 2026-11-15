@@ -15,8 +15,6 @@ permissions:
 jobs:
   web:
     runs-on: ${{ matrix.os }}
-    # shortcut: Windows is advisory until the platform fixes land.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +33,6 @@ jobs:
 
   rust:
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +66,6 @@ jobs:
 
   sidecar:
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:

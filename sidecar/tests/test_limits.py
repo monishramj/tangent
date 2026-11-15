@@ -28,22 +28,36 @@ def test_apply_sets_blas_env(monkeypatch):
     assert all(os.environ[v] == "3" for v in limits.THREAD_VARS)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX orphan fixture; Windows liveness is simulated below")
-def test_watchdog_exits_when_parent_dies():
-    # parent sh spawns the child python, prints its pid, then exits; the child must die by itself.
-    code = ("import time;from tangent_sidecar import limits;"
-            "limits.start_watchdog(0.1);time.sleep(30)")
-    out = subprocess.run(["sh", "-c", f"{sys.executable} -c '{code}' >/dev/null 2>&1 & echo $!; sleep 3"],
-                         capture_output=True, text=True, timeout=20).stdout
-    pid = int(out.strip())
-    for _ in range(50):
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        time.sleep(0.1)
-    os.kill(pid, 9)
-    raise AssertionError("sidecar outlived its parent")
+def test_watchdog_exits_when_parent_dies(tmp_path):
+    # The app's pid is TANGENT_PARENT_PID (uv may sit in between). Kill that pid; the child must exit.
+    ready, done = tmp_path / "ready", tmp_path / "done"
+    script = tmp_path / "watch.py"
+    script.write_text(
+        "import os, time\nfrom pathlib import Path\nfrom tangent_sidecar import limits\n"
+        f"Path({ready.as_posix()!r}).write_text('up')\n"
+        "limits.start_watchdog(0.05)\ntime.sleep(30)\n"
+        f"Path({done.as_posix()!r}).write_text('nope')\n"
+    )
+    holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], stdout=subprocess.DEVNULL)
+    env = os.environ.copy()
+    env["TANGENT_PARENT_PID"] = str(holder.pid)
+    child = subprocess.Popen([sys.executable, str(script)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(100):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("child never started")
+        holder.kill()
+        holder.wait(timeout=5)
+        assert child.wait(timeout=5) == 0
+        assert not done.exists()
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+        if child.poll() is None:
+            child.kill()
 
 
 @pytest.mark.parametrize("platform,background,expected", [

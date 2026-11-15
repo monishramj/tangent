@@ -1,7 +1,7 @@
 //! Packaged-only Python setup. uv's cache and incomplete env survive cancellation.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{fs, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{fs, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -23,9 +23,8 @@ impl Runtime {
         hash.update(PYTHON.as_bytes());
         Ok(Self { resource, data, fingerprint: format!("{:x}", hash.finalize()) })
     }
-    pub fn python(&self) -> PathBuf {
-        self.data.join(if cfg!(windows) { "env/Scripts/python.exe" } else { "env/bin/python" })
-    }
+    pub fn python(&self) -> PathBuf { python_at(&self.data, cfg!(windows)) }
+    pub fn project(&self) -> PathBuf { self.resource.join("sidecar") }
     fn marker(&self) -> PathBuf { self.data.join("complete") }
     pub fn ready(&self) -> bool {
         self.python().is_file() && fs::read_to_string(self.marker()).is_ok_and(|v| v == self.fingerprint)
@@ -34,6 +33,20 @@ impl Runtime {
 
 // Exact CPython, so installs are reproducible; bump with the lock. Changing it invalidates the setup marker.
 const PYTHON: &str = "3.12.14";
+
+pub(crate) fn python_at(data: &Path, windows: bool) -> PathBuf {
+    data.join(if windows { "env/Scripts/python.exe" } else { "env/bin/python" })
+}
+
+/// `<resource dir>/runtime/sidecar`, the bundled project from step 20.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn bundled_sidecar(resource_dir: &Path) -> PathBuf {
+    resource_dir.join("runtime").join("sidecar")
+}
+
+pub(crate) fn recorded_sidecar() -> Option<PathBuf> {
+    RUNTIME.get().map(|runtime| runtime.project())
+}
 
 pub(crate) fn runtime() -> Result<&'static Runtime, String> {
     let runtime = RUNTIME.get().ok_or("Python setup has not started")?;

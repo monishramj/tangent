@@ -2,7 +2,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::ffi::{CString, c_char, c_int, c_ulong, c_void};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, atomic::{AtomicUsize, Ordering}};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -79,7 +79,6 @@ macro_rules! pdfium {
 }
 pdfium! {
     FPDF_InitLibrary: unsafe extern "system" fn(),
-    FPDF_LoadDocument: unsafe extern "system" fn(*const c_char, *const c_char) -> Handle,
     FPDF_GetLastError: unsafe extern "system" fn() -> c_ulong,
     FPDF_GetPageCount: unsafe extern "system" fn(Handle) -> c_int,
     FPDF_LoadPage: unsafe extern "system" fn(Handle, c_int) -> Handle,
@@ -93,11 +92,38 @@ pdfium! {
     FPDFBitmap_Destroy: unsafe extern "system" fn(Handle),
     FPDF_ClosePage: unsafe extern "system" fn(Handle),
     FPDF_CloseDocument: unsafe extern "system" fn(Handle),
+    FPDF_LoadCustomDocument: unsafe extern "system" fn(*mut FileAccess, *const c_char) -> Handle,
+}
+
+// PDFium keeps this struct and calls get_block until the document is closed.
+#[repr(C)]
+struct FileAccess {
+    len: c_ulong,
+    get_block: unsafe extern "C" fn(*mut c_void, c_ulong, *mut u8, c_ulong) -> c_int,
+    param: *mut c_void,
+}
+
+struct OpenDoc {
+    key: String,
+    path: PathBuf,
+    file: Box<File>,
+    access: Box<FileAccess>,
+    doc: usize,
+}
+// ponytail: the file pointer is only touched under PDFIUM_LOCK; split the lock if PDFium calls back off-thread.
+unsafe impl Send for OpenDoc {}
+
+unsafe extern "C" fn read_pdf(param: *mut c_void, position: c_ulong, buf: *mut u8, size: c_ulong) -> c_int {
+    if param.is_null() || buf.is_null() || size == 0 { return 0; }
+    let file = unsafe { &mut *(param as *mut File) };
+    if file.seek(std::io::SeekFrom::Start(position as u64)).is_err() { return 0; }
+    let out = unsafe { std::slice::from_raw_parts_mut(buf, size as usize) };
+    match file.read_exact(out) { Ok(()) => 1, Err(_) => 0 }
 }
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 // PDFium is process-global; document handles are only accessed under this lock.
-static PDFIUM_LOCK: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
+static PDFIUM_LOCK: Mutex<Vec<OpenDoc>> = Mutex::new(Vec::new());
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
@@ -158,7 +184,43 @@ fn cache_key(path: &Path) -> Result<String, String> {
 #[derive(Debug, Serialize)]
 pub struct Page { path: String, width: u32, height: u32 }
 
-// Keep at most two documents open; pages and bitmaps are closed before leaving the lock.
+fn open_shared(path: &Path) -> Result<File, String> {
+    let mut opts = fs::OpenOptions::new();
+    opts.read(true);
+    // Rust's default share mode already includes delete; say so, so a replaced PDF is not stuck on Windows.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.share_mode(0x1 | 0x2 | 0x4);
+    }
+    opts.open(path).map_err(|e| e.to_string())
+}
+
+fn load_doc(api: &Pdfium, path: &Path, key: String) -> Result<OpenDoc, String> {
+    let mut file = Box::new(open_shared(path)?);
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    if len == 0 || len > c_ulong::MAX as u64 { return Err("PDF is empty or larger than PDFium can map".into()); }
+    let mut access = Box::new(FileAccess {
+        len: len as c_ulong,
+        get_block: read_pdf,
+        param: file.as_mut() as *mut File as *mut c_void,
+    });
+    // SAFETY: `access` and `file` are heap-stable for as long as this OpenDoc is in PDFIUM_LOCK.
+    let doc = unsafe { (api.FPDF_LoadCustomDocument)(access.as_mut(), std::ptr::null()) };
+    if doc.is_null() {
+        let err = unsafe { (api.FPDF_GetLastError)() };
+        return Err(format!("PDFium could not open PDF (error {err})"));
+    }
+    Ok(OpenDoc { key, path: path.to_path_buf(), file, access, doc: doc as usize })
+}
+
+fn close_doc(api: &Pdfium, doc: OpenDoc) {
+    unsafe { (api.FPDF_CloseDocument)(doc.doc as Handle); }
+    drop(doc.access);
+    drop(doc.file);
+}
+
+// Keep at most two documents open. A changed file closes the previous handle before the new one opens.
 fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result<(Vec<u8>, u32, u32, u32, u32), String> {
     let mut documents = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if PDFIUM.get().is_none() {
@@ -168,21 +230,21 @@ fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result
     }
     let api = PDFIUM.get().unwrap();
     let key = cache_key(path)?;
-    let filename = CString::new(path.to_str().ok_or("PDF path is not UTF-8")?).map_err(|e| e.to_string())?;
     // SAFETY: these symbols have PDFium's documented signatures; handles and buffers stay under the global lock.
     unsafe {
-        let doc = if let Some(index) = documents.iter().position(|(k, _)| k == &key) {
+        let doc = if let Some(index) = documents.iter().position(|d| d.path == path && d.key == key) {
             let entry = documents.remove(index);
-            let doc = entry.1 as Handle;
+            let doc = entry.doc as Handle;
             documents.push(entry);
             doc
         } else {
-            let doc = (api.FPDF_LoadDocument)(filename.as_ptr(), std::ptr::null());
-            if doc.is_null() { return Err(format!("PDFium could not open PDF (error {})", (api.FPDF_GetLastError)())); }
-            if documents.len() == 2 {
-                (api.FPDF_CloseDocument)(documents.remove(0).1 as Handle);
+            if let Some(index) = documents.iter().position(|d| d.path == path) {
+                close_doc(api, documents.remove(index));
             }
-            documents.push((key, doc as usize));
+            if documents.len() == 2 { close_doc(api, documents.remove(0)); }
+            let opened = load_doc(api, path, key)?;
+            let doc = opened.doc as Handle;
+            documents.push(opened);
             doc
         };
         (|| {
@@ -343,6 +405,12 @@ mod tests {
     use serde_json::json;
     use std::time::{Duration, Instant};
 
+    // File::open is read-only; Windows rejects SetFileTime on that handle (access denied).
+    fn set_mtime(path: impl AsRef<Path>, secs: u64) {
+        let file = fs::OpenOptions::new().write(true).open(path.as_ref()).unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("tangent-pages-{name}-{}-{}", std::process::id(), TEMP_ID.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir_all(&path).unwrap();
@@ -403,16 +471,30 @@ mod tests {
         let base = tmp("key");
         let path = pdf(&base);
         let first = cache_key(&path).unwrap();
-        File::open(&path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&path, 10);
         let second = cache_key(&path).unwrap();
         assert_ne!(first, second);
         fs::write(&path, b"%PDF-short").unwrap();
-        File::open(&path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&path, 10);
         assert_ne!(second, cache_key(&path).unwrap());
         let other = base.join("other.pdf");
         fs::copy(&path, &other).unwrap();
-        File::open(&other).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&other, 10);
         assert_ne!(cache_key(&path).unwrap(), cache_key(&other).unwrap());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn replacing_a_pdf_closes_the_previous_handle() {
+        let base = tmp("replace");
+        let path = pdf(&base);
+        let first = cached_page(&base, &path, 1, 100, None).unwrap();
+        let renders = RENDERS.load(Ordering::Relaxed);
+        set_mtime(&path, 40_000);
+        let second = cached_page(&base, &path, 1, 100, None).unwrap();
+        assert_ne!(Path::new(&first.path).parent(), Path::new(&second.path).parent());
+        assert!(RENDERS.load(Ordering::Relaxed) > renders);
+        fs::remove_file(&path).unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -430,9 +512,9 @@ mod tests {
         reader.next_frame(&mut pixels).unwrap();
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 0, 0]));
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 255, 255]));
-        File::open(&first.path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&first.path, 10);
         let size = Path::new(&first.path).parent().unwrap().join("2.size");
-        File::open(&size).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&size, 10);
         let _lock = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let renders = RENDERS.load(Ordering::Relaxed);
         let second = cached_page(&base, &path, 2, 150, None).unwrap();
@@ -492,7 +574,7 @@ mod tests {
         for (name, time) in [("old/a.png", 1), ("new/b.png", 2), ("new/c.png", 3)] {
             let path = root.join(name);
             fs::write(&path, [0; 10]).unwrap();
-            File::open(path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(time)).unwrap();
+            set_mtime(&path, time);
         }
         prune(&root, 30, 10).unwrap();
         assert!(root.join("old/a.png").exists()); // At the limit, leave it alone.

@@ -62,21 +62,104 @@ pub fn secret_set(base: &Path, name: &str, value: &str) -> Result<(), String> {
     }
     let dir = file.parent().unwrap();
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    { use std::os::unix::fs::PermissionsExt; fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?; }
+    #[cfg(windows)]
+    owner_only(dir)?;
     let tmp = file.with_extension("tmp");
     let mut open = fs::OpenOptions::new();
     open.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        open.mode(0o600);
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    }
+    { use std::os::unix::fs::OpenOptionsExt; open.mode(0o600); }
     let mut f = open.open(&tmp).map_err(|e| e.to_string())?;
     // mode() only applies on create: a stale .tmp left by a crash keeps its old bits, so force 0600 before writing.
     #[cfg(unix)]
     { use std::os::unix::fs::PermissionsExt; f.set_permissions(fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?; }
+    #[cfg(windows)]
+    owner_only(&tmp)?;
     std::io::Write::write_all(&mut f, value.as_bytes()).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &file).map_err(|e| e.to_string())
+    drop(f);
+    fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    if let Err(error) = owner_only(&file) {
+        let _ = fs::remove_file(&file);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Replace the DACL with one ACE for the current user. Inherited ACEs are blocked.
+#[cfg(windows)]
+fn owner_only(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{
+        SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, SE_FILE_OBJECT, SET_ACCESS, TRUSTEE_IS_SID, TRUSTEE_IS_USER,
+    };
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenUser, DACL_SECURITY_INFORMATION, GENERIC_ALL, NO_INHERITANCE,
+        PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut needed = 0u32;
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        let mut buf = vec![0u8; needed as usize];
+        if needed == 0 || GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let sid = (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let mut entry = EXPLICIT_ACCESS_W::default();
+        entry.grfAccessPermissions = GENERIC_ALL;
+        entry.grfAccessMode = SET_ACCESS;
+        entry.grfInheritance = NO_INHERITANCE;
+        entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        entry.Trustee.TrusteeType = TRUSTEE_IS_USER;
+        entry.Trustee.ptstrName = sid.cast();
+        let mut acl = std::ptr::null_mut();
+        let built = SetEntriesInAclW(1, &entry, std::ptr::null(), &mut acl);
+        if built != 0 {
+            CloseHandle(token);
+            return Err(format!("secret ACL: {built}"));
+        }
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let set = SetNamedSecurityInfoW(
+            wide.as_ptr(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(), std::ptr::null_mut(), acl, std::ptr::null_mut(),
+        );
+        if !acl.is_null() { LocalFree(acl.cast()); }
+        CloseHandle(token);
+        if set != 0 { return Err(format!("secret ACL: {set}")); }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn ace_count(path: &Path) -> Result<u16, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+    unsafe {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut dacl = std::ptr::null_mut();
+        let mut sd = std::ptr::null_mut();
+        let got = GetNamedSecurityInfoW(wide.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(), std::ptr::null_mut(), &mut dacl, std::ptr::null_mut(), &mut sd);
+        if got != 0 || dacl.is_null() {
+            if !sd.is_null() { LocalFree(sd); }
+            return Err(format!("secret ACL read: {got}"));
+        }
+        let count = (*dacl).AceCount;
+        LocalFree(sd);
+        Ok(count)
+    }
 }
 
 /// Secrets the webview may read back. GIPHY keys are meant for client-side use (GIPHY's docs: call it from the client,
@@ -152,6 +235,16 @@ mod tests {
         secret_set(&base, "giphy", "").unwrap();
         secret_set(&base, "giphy", "").unwrap();
         assert_eq!(secret_get(&base, "giphy").unwrap(), None);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_secret_dacl_is_current_user_only() {
+        let base = tmp("winacl");
+        secret_set(&base, "giphy", "abc").unwrap();
+        assert_eq!(ace_count(&base.join("secrets")).unwrap(), 1);
+        assert_eq!(ace_count(&base.join("secrets/giphy")).unwrap(), 1);
         let _ = fs::remove_dir_all(&base);
     }
 

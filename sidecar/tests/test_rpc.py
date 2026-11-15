@@ -23,6 +23,7 @@ def test_subprocess_roundtrip_survives_malformed():
         input="not json\n" + json.dumps(FIX["request"]) + "\n",
         capture_output=True, text=True, timeout=60, cwd=ROOT,
     )
-    lines = [json.loads(l) for l in p.stdout.splitlines()]
+    lines = [json.loads(line) for line in p.stdout.splitlines() if line.strip()]
+    assert p.returncode == 0 and len(lines) >= 2, p.stderr
     assert lines[0]["id"] is None and "error" in lines[0]
     assert lines[1] == FIX["response"]
