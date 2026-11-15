@@ -1,8 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { hasCachedIr, loadIr, pendingIn, withFormulas } from './library';
-import { enrichFormulas, repairSections } from './home/api';
+import { enrichFormulas, repairSections, ingestPdf, figuresDir } from './home/api';
 import { memoryJsonStore, sourceFor } from './storage/store';
-vi.mock('./home/api', () => ({ repairSections: vi.fn(), enrichFormulas: vi.fn() }));
+vi.mock('./home/api', () => ({ repairSections: vi.fn(), enrichFormulas: vi.fn(), ingestPdf: vi.fn(), figuresDir: vi.fn() }));
+const events = vi.hoisted(() => ({ receive: undefined as undefined | ((event: { payload: unknown }) => void), stop: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (_name, receive) => { events.receive = receive; return events.stop; }) }));
 beforeEach(() => vi.clearAllMocks());
 it('upgrades a cached outline once, persists the same IR used for generation, and reuses it', async () => {
   const key = `ir-${sourceFor('/book.pdf').id}`, cached = { sections: [] }, repaired = { sections: [], outline_version: 1 };
@@ -52,4 +54,33 @@ it('counts undecoded formulas in the chosen sections and their subsections only'
     formulas: { 1: { page: 1, bbox: [], orig: '' }, 2: { page: 1, bbox: [], orig: '' }, 3: { page: 2, bbox: [], orig: '' } } };
   expect(pendingIn(ir as never, ['a'])).toBe(2); // 9 is already decoded, 1 counted once
   expect(pendingIn(ir as never, ['b', 'a1'])).toBe(2);
+});
+
+
+it('reports actual page completion and thermal pauses, ignores other sources and removes the listener', async () => {
+  const report = vi.fn(), ir = { sections: [] }, store = memoryJsonStore();
+  vi.mocked(figuresDir).mockResolvedValue('/figures');
+  vi.mocked(ingestPdf).mockImplementation(async () => {
+    events.receive?.({ payload: { path: '/other.pdf', progress: { completed: 1, total: 1, paused: false } } });
+    events.receive?.({ payload: { path: '/new.pdf', progress: { completed: 20, total: 41, paused: false } } });
+    events.receive?.({ payload: { path: '/new.pdf', progress: { completed: 20, total: 41, paused: true } } });
+    return ir;
+  });
+  expect(await loadIr('/new.pdf', report, store)).toEqual(ir);
+  expect(report.mock.calls.map(([value]) => value)).toEqual([
+    { label: 'Reading PDF' },
+    { fraction: 20 / 41, label: 'Read 20 of 41 pages' },
+    { fraction: 20 / 41, label: 'Paused to cool down · 20 of 41 pages' },
+    { fraction: 1, label: 'Done' },
+  ]);
+  expect(events.stop).toHaveBeenCalledOnce();
+  expect(ingestPdf).toHaveBeenCalledWith('/new.pdf', '/figures');
+});
+
+it('removes the progress listener on ingest failure without caching a partial IR', async () => {
+  const store = memoryJsonStore();
+  vi.mocked(ingestPdf).mockRejectedValue(new Error('conversion failed'));
+  await expect(loadIr('/failed.pdf', undefined, store)).rejects.toThrow('conversion failed');
+  expect(events.stop).toHaveBeenCalledOnce();
+  expect(store.data.size).toBe(0);
 });

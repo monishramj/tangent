@@ -24,4 +24,8 @@ Every source goes through an adapter into one normalized IR; everything downstre
 
 ## Log
 
-(none yet; prepend dated entries here)
+- 2026-11-15 (step 6): PDF ingest converts 20-page ranges, joins Docling documents before one IR pass, and reports completed/total pages plus thermal pauses.
+  Synthetic 41-page test matches the unchunked IR across an exercise/section boundary; join checks retain figures, formula tokens and original range anchors.
+  macOS serious/critical heat pauses before chunks and IR assembly; injectable source/sleep prove resume, with 5-second pause heartbeats.
+  Replaced time estimates only in `src/library.ts` (and `src/library.test.ts`); no other home/source UI changes.
+  Evidence: Python fast suite, affected library/Home/App/sourceQueue tests, Rust transport tests and TypeScript check; no real model runs or native Windows/Linux checks.

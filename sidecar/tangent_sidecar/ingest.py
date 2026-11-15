@@ -8,11 +8,11 @@ import re
 import sys
 import tempfile
 from collections import defaultdict
-from contextlib import nullcontext, redirect_stdout
+from contextlib import redirect_stdout
 from functools import lru_cache
 from pathlib import Path
 
-from .limits import background, limit_torch, threads
+from .limits import limit_torch, threads, wait_until_cool
 from .postprocess import strip_footers
 
 
@@ -64,9 +64,7 @@ def _load_converter(formulas=False):
 def _convert_pdf(path, pages=None, formulas=False):
     from docling.datamodel.base_models import ConversionStatus
 
-    # Whole-book ingest is a background job (efficiency cores); formula enrichment is small and the user is waiting.
-    with (nullcontext() if formulas else background()):
-        result = _load_converter(formulas).convert(path, **({"page_range": pages} if pages else {}))
+    result = _load_converter(formulas).convert(path, **({"page_range": pages} if pages else {}))
     if result.status != ConversionStatus.SUCCESS:
         raise ValueError(f"PDF conversion incomplete: {result.status}")
     return result.document
@@ -104,7 +102,22 @@ def _assets_root():
     return Path(__file__).resolve().parents[1] / ".ingest"
 
 
-def ingest_pdf(params):
+def _join_documents(documents, first_page):
+    from docling_core.types.doc import ContentLayer, DoclingDocument
+
+    document = DoclingDocument.concatenate(documents)
+    # concatenate rebases to page 1; range ingests must retain original PDF anchors.
+    offset = first_page - 1
+    if offset:
+        document.pages = {n + offset: page.model_copy(update={"page_no": n + offset})
+                          for n, page in document.pages.items()}
+        for item, _ in document.iterate_items(included_content_layers=set(ContentLayer)):
+            for prov in item.prov:
+                prov.page_no += offset
+    return document
+
+
+def ingest_pdf(params, progress=lambda value: None):
     if not isinstance(params, dict):
         raise ValueError("params must be an object")
     value = params.get("path")
@@ -127,7 +140,22 @@ def ingest_pdf(params):
         raise ValueError("assets_dir must be an absolute path")
     # Model diagnostics must never become JSON-lines responses.
     with redirect_stdout(sys.stderr):
-        document = _convert_pdf(path, pages) if pages else _convert_pdf(path)
+        total_pages = pdf_info({"path": str(path)})["pages"]
+        first, last = pages or (1, total_pages)
+        if last > total_pages:
+            raise ValueError("pages exceed PDF page count")
+        total = last - first + 1
+        documents = []
+        def report(completed, paused=False):
+            progress({"completed": completed, "total": total, "paused": paused})
+        report(0)
+        for start in range(first, last + 1, 20):
+            wait_until_cool(paused=lambda: report(start - first, True))
+            end = min(start + 19, last)
+            documents.append(_convert_pdf(path, (start, end)))
+            report(end - first + 1)
+        wait_until_cool(paused=lambda: report(total, True))
+        document = _join_documents(documents, first)
         if assets_dir is not None:
             assets = Path(assets_dir)
             assets.mkdir(parents=True, exist_ok=True)

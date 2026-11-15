@@ -1,22 +1,23 @@
 """CPU politeness + orphan protection for the sidecar (stdout is reserved for RPC)."""
 
 import os
+import subprocess
+import sys
 import threading
 import time
-from contextlib import contextmanager
 
 THREAD_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS")
 
 
 def threads() -> int:
-    """TANGENT_SIDECAR_THREADS, else ~30% of cores (4 on a 14-core Mac), at least 2."""
+    """TANGENT_SIDECAR_THREADS, else ~30% of cores (4 on a 14-core Mac), max 6, at least 1."""
     try:
         n = int(os.environ["TANGENT_SIDECAR_THREADS"])
         if n > 0:
-            return n
+            return min(6, n)
     except (KeyError, ValueError):
         pass
-    return max(2, round((os.cpu_count() or 4) * 0.3))
+    return min(6, max(1, (os.cpu_count() or 4) * 3 // 10))
 
 
 def limit_torch() -> None:
@@ -29,13 +30,68 @@ def apply_limits() -> None:
     n = str(threads())
     for var in THREAD_VARS:  # before numpy/torch load their BLAS pools
         os.environ[var] = n
+    set_work_priority(os.environ.get("TANGENT_WORK_CLASS", "foreground"))
+
+
+def set_work_priority(work_class):
+    """Background workers stay background: raising Unix nice again requires privileges."""
+    background = work_class == "background"
     try:
-        os.nice(10)  # ponytail: whole process; split per-job QoS only if interactive TTS latency suffers
-    except OSError:
-        pass
+        if sys.platform == "win32":
+            import ctypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            if not kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x40 if background else 0x20):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            os.setpriority(os.PRIO_PROCESS, 0, 19 if background else 0)
+            if sys.platform == "darwin" and background:
+                os.setpriority(os.PRIO_DARWIN_PROCESS, 0, os.PRIO_DARWIN_BG)
+    except OSError as error:
+        print(f"sidecar priority ({work_class}): {error}", file=sys.stderr)
+
+
+def thermal_state():
+    """NSProcessInfo: 0 nominal, 1 fair, 2 serious, 3 critical; unavailable is unknown."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["/usr/bin/osascript", "-l", "JavaScript", "-e",
+             'ObjC.import("Foundation"); $.NSProcessInfo.processInfo.thermalState'],
+            capture_output=True, text=True, timeout=5, check=True,
+        )
+        return int(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def wait_until_cool(source=None, sleep=None, paused=lambda: None):
+    source = source or thermal_state
+    sleep = sleep or time.sleep
+    while source() in (2, 3):
+        paused()
+        sleep(5)
 
 
 def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) terminates processes on Windows; query a handle instead.
+        import ctypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        kernel.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return ctypes.get_last_error() != 87  # invalid PID; access denied still means alive
+        try:
+            code = ctypes.c_uint32()
+            return not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -46,7 +102,7 @@ def _alive(pid: int) -> bool:
 
 
 def parent_gone(orig_ppid: int, watched: int | None) -> bool:
-    return os.getppid() != orig_ppid or (watched is not None and not _alive(watched))
+    return os.getppid() != orig_ppid or not _alive(orig_ppid) or (watched is not None and not _alive(watched))
 
 
 def start_watchdog(interval: float = 1.0, exit=os._exit) -> threading.Thread:
@@ -63,23 +119,3 @@ def start_watchdog(interval: float = 1.0, exit=os._exit) -> threading.Thread:
     t = threading.Thread(target=run, daemon=True, name="parent-watchdog")
     t.start()
     return t
-
-
-@contextmanager
-def background():
-    """macOS background QoS for the block: efficiency cores, throttled I/O, so ingest stays cool.
-    Slower, but ingest is a queued background job and the RPC loop is serial (no TTS waits behind it).
-    TANGENT_INGEST_FAST=1 skips it. No-op off macOS."""
-    which = getattr(os, "PRIO_DARWIN_PROCESS", None)
-    if which is None or os.environ.get("TANGENT_INGEST_FAST") == "1":
-        yield
-        return
-    try:
-        os.setpriority(which, 0, os.PRIO_DARWIN_BG)
-    except OSError:
-        yield
-        return
-    try:
-        yield
-    finally:
-        os.setpriority(which, 0, 0)
