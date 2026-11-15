@@ -10,6 +10,7 @@
     "dialog:default",
     "updater:default",
     "process:allow-restart",
+    "allow-launch-checks",
     "allow-pdf-page",
     "allow-sidecar-call",
     "allow-llm-complete",
