@@ -1,3 +1,0 @@
-docs/history.md merge=union
-docs/areas/*.md merge=union
-CHANGELOG.md merge=union
