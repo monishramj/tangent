@@ -28,8 +28,8 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - Evidence and tests -> [testing](docs/areas/testing.md)
 
 ## Scope
-- **v1:** PDF + slides + notes + web-capture adapters, per-topic source merging, checkpoint questions (source-first), reaction gifs, caching/replay, open-source release (no content ships), signed self-updating macOS build.
-- **Out of v1:** animated branches, voice input, new course components, extra style packs, zyBooks scraping.
+- **v1:** see `docs/v1-plan.md`: dogfood fixes, run-cool ingest, section picker, generation accuracy, PPTX/DOCX + photo/notes adapters, per-topic merging, testing/CI, v0.2.0 beta for macOS/Windows/Linux, open-source release (no content ships).
+- **Out of v1:** animated branches, voice input, new course components, extra style packs, zyBooks/web capture.
 - **v2:** MP4 export, power-user editor, Pro usage meter, Klipy.
 
 ## Current state (2026-11-15)
@@ -37,14 +37,14 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - Pipeline works end to end: PDF -> IR (background FIFO preparation) -> script -> templated scenes -> TTS -> streamed playback -> saved bundles.
 - Lazy formula decoding (only for selected sections), fp32 formula model, background-QoS ingest.
 - Library, Settings, keybinds registry, native macOS menu bar, multi-PDF upload, textbook follow-along done.
-- Next: dogfood on real CS 251 chapters, then the T-tasks in `docs/v1-plan.md`.
+- Next: dogfooding on STAT 350; executing `docs/v1-plan.md`.
 
 ## Open issues
 - No end-to-end run on a real chapter with the newest templates and Tangenter yet; expect prompt tuning.
 - Native menu `build()`, hardware pinch, updater install and Windows/Linux builds are unexercised.
 - Cached IRs predating passages are not re-ingested (open question: "Re-read PDF" action).
 - Windows: secret files not owner-only; packaged sidecar path unset; no Windows/Linux build run.
-- First-scene latency unmeasured since planning call removal; beat/scene gaps untuned.
+- First-scene latency unmeasured since planning call removal.
 - GlassSurface refraction unsupported in WKWebView (plain blur fallback).
 - Full list in `docs/history.md` ("Open issues").
 
@@ -59,12 +59,12 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - Native menu forwards through the same keybind dispatch; only modifier bindings become accelerators.
 - Personal macOS build: ad-hoc signing + minisign updater key, silent check, user-confirmed install.
 - Home is sources first; lowercase heading only on "library"; videos belong to their PDF.
-- Scope cut 2026-11-15: branches, voice, extra components/styles out of v1.
+- Scope cut 2026-11-15: branches, voice, extra components/styles, web capture out of v1; MP4/editor/meter/Klipy to v2.
 
 ## Working conventions
 - **Notes convention:** read this file + only the area notes your spec names. On finishing, prepend one dated Log entry (<= 6 lines: what, evidence, not verified) to each area touched and one line to `docs/history.md`. Edit `CLAUDE.md` only when a rule, architecture line, scope, open issue or decision changes. Hook (`.githooks/pre-commit`, enable with `git config core.hooksPath .githooks`): code changes must stage `docs/history.md` or a `docs/areas/*.md`; `CLAUDE.md` must stay <= 10 000 bytes. `--no-verify` is the escape.
 - Double-check work; be precise; push back on bad ideas. Smallest thing that de-risks the next unknown; no speculative abstractions.
 - Speech-first script, word-anchored timing and computed visuals are non-negotiable.
-- **Agentic work goes through Orca, not native subagents.** Use the `orchestration` skill (`orca orchestration worker-start --agent codex|claude`), one worktree per parallel branch (`--worktree new-child`). Implementation defaults to Codex (start with `codex --approve-for-me`); Claude for review/polish. Never pass `--model opus` unless Monish asks in that message.
-- **CPU:** max 2 workers, `nice -n 10`, `cargo -j3`, `vitest --maxWorkers=2`; no model runs, dev servers or parallel headless browsers. Visual checks: one Orca browser window.
+- **Agentic work goes through Orca, not native subagents.** Use the `orchestration` skill (`orca orchestration worker-start --agent codex|claude`), one worktree per parallel branch (`--worktree new-child`). Workers run GPT Sol 6.1 (Codex/Cursor) or Claude Sonnet; Opus only as the coordinator. Cursor takes full self-contained jobs (it can't spawn helpers); Gemini small specified jobs only.
+- **CPU:** up to 4-5 workers; wrap heavy commands (builds, full tests) in `scripts/heavy.sh` (max 2 at once) and run `scripts/reap.sh --kill-orphans` before finishing (see `docs/ops.md`). `nice -n 10`, `cargo -j3`, `vitest --maxWorkers=2`; no model runs, dev servers or parallel headless browsers. Visual checks: one Orca browser window.
 - See `README.md` for run/test/debug; `[webview]` lines in the `tauri dev` terminal show pipeline status.
