@@ -35,7 +35,7 @@ Token agreement is a conservative guard, not proof of mathematical equivalence; 
 ## Log
 
 - 2026-11-16 Step 18: JPG/PNG/WEBP photos use faithful Claude transcription, one IR passage per paragraph/region, LaTeX and `[illegible]` preserved; passages/sections carry `unverified-source`. Cached in the existing FIFO; no title rewrite or PDF preview.
-  Evidence: fake-reader IR/cache tests, source-queue tests, 11 Rust LLM tests; no live model/photo run. HEIC currently asks for JPG/PNG export; native HEIC decoding is not implemented.
+  Evidence: fake-reader IR/cache tests, source-queue tests, 52 Rust tests (one ignored; existing PDFium path supplied); no live model/photo run. HEIC currently asks for JPG/PNG export; native HEIC decoding is not implemented.
 
 - 2026-11-16 PPTX/DOCX enter `ingest_pdf` by extension (OOXML zip; other files still rejected). Docling's office reader, no PDF/formula model. IR keeps passages and slide titles as sections; page anchors, boxes and formula crops are dropped. Verified: `sidecar/tests/test_office.py` on tiny python-pptx/docx files. Not verified: a real lecture deck.
 - 2026-11-16 (step 7): Real five-page STAT 350 check: 30/30 detected pending regions decoded/matched (100%); lazy RPC adds 73.48 s, initial ingest 20.82 s.

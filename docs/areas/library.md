@@ -15,7 +15,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 ## Log
 
 - 2026-11-16 Step 18: image picker/drop accepts JPG/JPEG/PNG/HEIC/WEBP; modal counts unique new photos and warns of Claude Pro usage before saving/reading. Source screen and its Source text tab label transcription for checking against notes.
-  Evidence: Home/dialog/SourceView/importer tests (33 files, 250 passing, one pre-existing skip), TypeScript. Not verified: native dialog/WKWebView; playback photo-text routing is outside this task’s file allowlist and remains pending.
+  Evidence: Home/dialog/SourceView/importer tests (pre-push full suite: 81 files, 1057 passing, three existing skips), TypeScript. Not verified: native dialog/WKWebView; playback photo-text routing is outside this task’s file allowlist and remains pending.
 
 - 2026-11-16 Library upload accepts .pdf/.pptx/.docx (dialog, drop, file input) and still rejects anything else. Slides and Word docs skip the PDF thumbnail. Verified: Home and source-queue tests. Not verified: the native file dialog on macOS.
 - 2026-11-16 Section picker on the source screen (plan step 9, round-1 A braces): `SectionPicker` replaces checkboxes while choosing sections. Hairline braces (round-1 B weight, 20% white), white accent, title or brace selects the subtree; `topSelected` still supplies generation ids. Partial, keyboard, reduced motion, 600px. Proof: `src/home` tests + `App.test.tsx` passed; screenshots `source-*` next to `ref-a-*` in `docs/ui-review/section-picker/`. Not verified: touch, screen reader, WKWebView.

@@ -174,11 +174,15 @@ fn photo_image(path: &Path) -> Result<String, String> {
     if !["jpg", "jpeg", "png", "webp", "heic"].contains(&extension.as_str()) {
         return Err("Choose a JPG, PNG, HEIC, or WEBP photo".into());
     }
+    if !std::fs::metadata(path).map_err(|e| format!("Cannot open photo: {e}"))?.is_file() {
+        return Err("Photo must be a file".into());
+    }
     let file = std::fs::File::open(path).map_err(|e| format!("Cannot open photo: {e}"))?;
     if !file.metadata().map_err(|e| e.to_string())?.is_file() { return Err("Photo must be a file".into()); }
     let mut bytes = Vec::new();
     file.take(5 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.len() > 5 * 1024 * 1024 { return Err("Photo is too large; choose one under 5 MiB".into()); }
+    // shortcut: HEIC needs JPG/PNG export; add conversion when a supported decoder is available.
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
         else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" }
         else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { "image/webp" }
