@@ -13,6 +13,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 - 2026-11-15 Step 11: two-part Sonnet scripts start scene 1 before the continuation completes; shared checks, lexical join guard, partial failure and latency stamps; 224 affected tests + TypeScript passed (Home quarantine and offline eval skipped), owner listening/real latency still required.
 
 - 2026-11-15 Run cool (step 6): separate OS priority classes, shared capped ML budget, 20-page ingest with thermal pause/resume and real page progress; synthetic/offline proof, no model runs.
+- 2026-11-16 Section picker round 2 redone: two polished variants (Tree, Brace) on `src/dev/section-picker.html`, white accent, no checkboxes; screenshots replaced.
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 
