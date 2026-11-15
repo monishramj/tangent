@@ -7,7 +7,7 @@ it("ad-hoc macOS signing does not enable entitlements or hardened runtime", () =
   const mac = conf.bundle?.macOS ?? {};
   if (mac.signingIdentity === "-") {
     expect(mac.entitlements).toBeUndefined();
-    expect(mac.hardenedRuntime).not.toBe(true);
-    expect(mac.hardenedRuntime).toBeUndefined();
+    // Tauri defaults hardenedRuntime to true; it must be explicitly false (flags=0x2 adhoc, not 0x10002 adhoc,runtime).
+    expect(mac.hardenedRuntime).toBe(false);
   }
 });

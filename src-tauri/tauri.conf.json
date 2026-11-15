@@ -61,7 +61,8 @@
     ],
     "createUpdaterArtifacts": true,
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "hardenedRuntime": false
     },
     "resources": {
       "resources/runtime/": "runtime/"

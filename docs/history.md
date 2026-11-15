@@ -3,6 +3,7 @@
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
 - 2026-11-16 Step 12: 52 real cloud Haiku checks; retained original prompt (2/41 correct beats falsely flagged, 6/6 wrong caught), rejected one tweak (2/41, 5/6); enabled fact-check in production sessions and added exact public-recording eval coverage; small-sample and synthetic-only limits in docs/areas/gen.md.
+- 2026-11-16 Step 25: Mac smoke of the v1 tip; PR #37 left hardened runtime on (Tauri default true) so PDFium failed; `hardenedRuntime: false` added; audio unverified.
 
 - 2026-11-16 Step 18: confirmed photo transcription into unverified IR passages and labelled source text; imported-only bounded native photo read, HEIC export fallback, labelled text follow-along during playback.
 
