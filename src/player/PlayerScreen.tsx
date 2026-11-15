@@ -30,6 +30,7 @@ import Captions, { captionCues } from "./Captions";
 import Checks, { type CheckStatus } from "./Checks";
 import CheckpointCard, { results, type CheckpointResult } from "./CheckpointCard";
 import Quiz from "./Quiz";
+import SkipCard, { isSkip, skipScene } from "./skipCard";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -124,6 +125,14 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     }, () => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Checkpoints name pipeline scene numbers; skip cards shift queue positions, so remap (and drop checkpoints about skipped scenes).
+  const rawCps = useRef<Checkpoint[]>([]);
+  const skippedAt = useRef<number[]>([]);
+  const applyCps = () => {
+    const skipped = skippedAt.current;
+    const items = rawCps.current.filter(c => !skipped.includes(c.afterScene)).map(c => ({ ...c, afterScene: c.afterScene + skipped.filter(i => i < c.afterScene).length }));
+    cpsRef.current = items; setCheckpoints(items);
+  };
   const [queue] = useState(() => new SceneQueue<StreamedScene>({
     // Web Audio, not <audio>: per-element audio-session churn deadlocks WKWebView. <audio> only where there's no AudioContext (jsdom).
     createAudio: path => typeof AudioContext === "undefined" ? new Audio(audioSrc(path)) : bufferClock(audioSrc(path)),
@@ -157,7 +166,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     void Promise.resolve().then(async () => { // deferred so StrictMode's discarded effect can't abort the live stream
       if (!live) return;
       it = stream[Symbol.asyncIterator]();
-      setScenes([]); setDone(false); setError(initialError ?? null); // a re-run (Fast Refresh, new stream) starts from an empty queue
+      setScenes([]); rawCps.current = []; skippedAt.current = []; setDone(false); setError(initialError ?? null); // a re-run (Fast Refresh, new stream) starts from an empty queue
       if (autoPlay) queue.play();
       try {
         while (live) {
@@ -166,11 +175,18 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           if (next.done) break;
           const ev = next.value;
           if (ev.type === "scene") { queue.enqueue(ev); setScenes(s => [...s, ev]); played = true; }
-          else if (ev.type === "checkpoints") { const items = [...ev.items].sort((a, b) => a.afterScene - b.afterScene); cpsRef.current = items; setCheckpoints(items); }
-          else { devlog(`scene failed ${ev.sceneId}: ${ev.error.message}`); if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); } // later failures are skipped, not overlaid
+          else if (ev.type === "checkpoints") { rawCps.current = [...ev.items].sort((a, b) => a.afterScene - b.afterScene); applyCps(); }
+          else if (ev.scope === "script") { devlog(`script failed ${ev.sceneId}: ${ev.error.message}`); if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); }
+          else {
+            // Failed its retry too: a 2 s card takes the scene's place in the queue, so order and the audio clock stay consistent.
+            devlog(`scene skipped ${ev.sceneId}: ${ev.error.message}`);
+            skippedAt.current.push(Number(ev.sceneId.replace("scene-", "")) - 1);
+            const card = skipScene(ev.sceneId);
+            queue.enqueue(card); setScenes(s => [...s, card]); applyCps();
+          }
         }
       } catch (e) { if (live) setError(String(e)); }
-      finally { if (live) { queue.finish(); setDone(true); } }
+      finally { if (live) { queue.finish(); setDone(true); if (!played) setError(s => s ?? "Couldn't build this video."); } }
     });
     return () => { live = false; queue.dispose(); void it?.return?.().catch(() => {}); };
   }, [stream, queue, autoPlay]);
@@ -259,7 +275,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     saveThreads(next); setActiveThread(thread.id); setThinking(true);
     try {
       // What the student sees and hears right now: the live scene graph, its description, the line being said, and a frame.
-      const live = queue.current;
+      const live = isSkip(queue.current) ? undefined : queue.current;
       const state = live ? applyEventsAt(live.scene, live.timeline, localTime.current) : null;
       const context = buildTutorContext({
         objects: live && state ? visibleObjects(live.scene, state) : [],
@@ -361,7 +377,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
           <div data-testid="video" onClick={canPlay && !activeCp ? toggle : undefined}
             className={`relative aspect-video w-full overflow-hidden bg-bg ${canPlay && !activeCp ? "cursor-pointer" : ""}`}>
-            {current && <Stage previous={scenes[scenes.findIndex(s => s.sceneId === current.sceneId) - 1]} scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
+            {isSkip(current) && <SkipCard />}
+            {current && !isSkip(current) && <Stage previous={scenes.slice(0, scenes.findIndex(s => s.sceneId === current.sceneId)).reverse().find(s => !isSkip(s))} scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
             {waiting && <Loading progress={progress} />}
             {buffering && current && !activeCp && <Loading progress={progress} compact />}
             {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">

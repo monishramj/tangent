@@ -42,6 +42,12 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
+### 2026-11-16 — Step 15: skip card for failed scenes
+- A `scope: "scene"` error becomes a synthetic 2 s scene (`skipCard.tsx`: empty beats, silent WAV data-URL) enqueued in the SceneQueue at the failed scene's place, so order, seek, interrupt/rejoin and the audio clock behave as for any scene. Card UI: plain "Skipping ahead…", fade only under `motion-safe`.
+- Checkpoint `afterScene` is remapped past cards in `PlayerScreen` (`applyCps`); checkpoints about a skipped scene are dropped. If nothing ever plays, the alert + Try again show at stream end.
+- Touched adjacent to the clock: only `PlayerScreen`'s queue glue (the silent clip goes through the existing `createAudio`/`bufferClock` path). `queue.ts`, `bufferClock`, `Player` untouched.
+- Tests in `PlayerScreen.test.tsx`; not verified in the real app.
+
 ### 2026-11-15 — Long PDF page loading
 - Log native/image errors via devlog; retry failures on viewport re-entry and one image failure per entry; abort stale queued requests.
 - Retain two PDFium documents, retry library initialization, recover poisoned locks, and protect PNG/size files touched within 60 seconds.

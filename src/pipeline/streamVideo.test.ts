@@ -526,3 +526,38 @@ it("fact-check on: a hanging check never delays scene 1; a cut beat in a later s
   expect(prompt).toContain("SceneAE grows. SceneAF grows. SceneAG grows.");
   expect(prompt).not.toContain("SceneAD grows.");
 });
+
+it("a first-failure scene is retried in the background: it plays, nothing is counted", async () => {
+  const { options, ttsAlign } = setup(2);
+  ttsAlign.mockImplementationOnce(async () => { throw new Error("tts blip"); });
+  const stream = streamVideo({ ...options, concurrency: 1 });
+  const events = collect(stream);
+  await vi.runAllTimersAsync();
+  expect(sceneEvents(await events).map(e => e.type)).toEqual(["scene", "scene"]);
+  expect(stream.failedScenes()).toBe(0);
+});
+
+it("a twice-failed scene is counted, logged with its reason, and scoped 'scene'", async () => {
+  const { options, ttsAlign } = setup(3);
+  ttsAlign.mockImplementationOnce(async () => { throw new Error("tts offline"); });
+  ttsAlign.mockImplementationOnce(async () => { throw new Error("tts offline"); });
+  const stream = streamVideo({ ...options, concurrency: 1 });
+  const events = collect(stream);
+  await vi.runAllTimersAsync();
+  expect(sceneEvents(await events)[0]).toMatchObject({ type: "error", scope: "scene", sceneId: "scene-1" });
+  expect(stream.failedScenes()).toBe(1);
+  expect(vi.mocked(devlog)).toHaveBeenCalledWith(expect.stringContaining("scene-1 skipped after retry (1 this session): tts offline"));
+});
+
+it("an ungrounded on-screen number fails closed (error event, never a scene)", async () => {
+  const { options, provider } = setup(1);
+  const base = vi.mocked(provider.complete).getMockImplementation()!;
+  vi.mocked(provider.complete).mockImplementation(async (p, o) =>
+    p.includes("motion designer") ? answerFor(groupOf(p), k => k === 1 ? { data: { text: "Costs 9999 steps" } } : {}) : base(p, o));
+  const stream = streamVideo(options);
+  const events = collect(stream);
+  await vi.runAllTimersAsync();
+  const results = sceneEvents(await events);
+  expect(results.map(e => e.type)).toEqual(["error"]);
+  expect(stream.failedScenes()).toBe(1);
+});
