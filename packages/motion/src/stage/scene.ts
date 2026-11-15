@@ -56,7 +56,7 @@ export const DEFAULT_POS: Record<string, [number, number]> = {
   KineticText: [0.5, 0.3], text: [0.5, 0.8], Math: [0.5, 0.5], Array: [0.5, 0.6], Tree: [0.5, 0.55],
 };
 
-export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState {
+function rawEventsAt(scene: Scene, tl: Timeline, t: number): SceneState {
   const objects = new Map<string, ObjState>();
   for (const o of scene.objects) {
     const [dx, dy] = DEFAULT_POS[o.type] ?? [0.5, 0.5];
@@ -119,6 +119,51 @@ export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState
     }
   }
   return st;
+}
+
+// Keep future narration targets until their final action finishes; even a sub-target protects its parent.
+export const MAX_VISIBLE = 8;
+export const RETIRE_SEC = .3;
+type Retirement = { id: string; born: number; start: number };
+const retirements = new WeakMap<Timeline, WeakMap<Scene, Retirement[]>>();
+
+export function applyEventsAt(scene: Scene, tl: Timeline, t: number): SceneState {
+  let byScene = retirements.get(tl);
+  if (!byScene) { byScene = new WeakMap(); retirements.set(tl, byScene); }
+  let plan = byScene.get(scene);
+  if (!plan) {
+    plan = [];
+    const lastUse = new Map<string, number>();
+    const beatEnd = new Map(tl.events.filter(e => e.verb === "say").map(e => [e.beat, e.end]));
+    for (const e of tl.events) if (e.target) {
+      const id = parseTarget(e.target)?.id;
+      // Older saved timelines lack word ends: preserve their targets through the whole spoken beat.
+      const protectedEnd = Math.max(e.end, e.anchorEnd ?? beatEnd.get(e.beat) ?? e.end) + HL_FADE;
+      if (id) lastUse.set(id, Math.max(lastUse.get(id) ?? 0, protectedEnd));
+    }
+    const times = [...new Set([...tl.events.flatMap(e => [e.start, e.end]), ...lastUse.values()])].sort((a, b) => a - b);
+    for (const time of times) {
+      const state = rawEventsAt(scene, tl, time);
+      const visible = [...state.objects.values()].filter(o => o.visible && o.opacity > 0 &&
+        !plan!.some(r => r.id === o.id && r.born === o.born));
+      const candidates = visible.filter(o => !o.tangenter && (lastUse.get(o.id) ?? 0) <= time)
+        .sort((a, b) => (a.born ?? 0) - (b.born ?? 0));
+      let excess = visible.length - MAX_VISIBLE;
+      for (const o of candidates) {
+        if (excess-- <= 0) break;
+        plan.push({ id: o.id, born: o.born ?? 0, start: time });
+      }
+    }
+    byScene.set(scene, plan);
+  }
+  const state = rawEventsAt(scene, tl, t);
+  for (const r of plan) {
+    const o = state.objects.get(r.id)!;
+    if (o.born !== r.born || t < r.start) continue;
+    o.opacity *= 1 - progress(t, r.start, r.start + RETIRE_SEC);
+    if (o.opacity === 0) o.visible = false;
+  }
+  return state;
 }
 
 function applyObject(o: ObjState, e: TimelineEvent, p: number, pulse: number, def: Scene["objects"][number], all: Map<string, ObjState>, t: number) {

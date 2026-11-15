@@ -361,7 +361,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           className="relative" style={{ width: "min(100cqw, calc(100cqh * 16 / 9))" }}>
           <div data-testid="video" onClick={canPlay && !activeCp ? toggle : undefined}
             className={`relative aspect-video w-full overflow-hidden bg-bg ${canPlay && !activeCp ? "cursor-pointer" : ""}`}>
-            {current && <Stage scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
+            {current && <Stage previous={scenes[scenes.findIndex(s => s.sceneId === current.sceneId) - 1]} scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
             {waiting && <Loading progress={progress} />}
             {buffering && current && !activeCp && <Loading progress={progress} compact />}
             {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">

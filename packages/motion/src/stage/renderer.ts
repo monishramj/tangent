@@ -6,6 +6,7 @@ import type { Scene, SceneObject, TreeNode } from "../dsl/schema";
 import { fromLevel } from "../dsl/trees/shared";
 import type { Annotation } from "../annotations";
 import { annotationShapes, type Pt } from "./annotate";
+import type { SceneFrame } from "./transition";
 import { DEFAULT_POS, type ObjState, type SceneState } from "./scene";
 import { layoutScene, type Placed } from "./layout";
 import { buildVisual, fitText } from "./visuals";
@@ -19,7 +20,9 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) => void | [number, number]; // optional return: drawn half-extents (px, unscaled)
 
 export class SceneRenderer {
+  private frame = new Container();
   private root = new Container();
+  private composition: SceneFrame = { x: 0, opacity: 1 };
   private bgLayer = new Container(); // textures: under everything, connectors included
   private backdrop?: Sprite; // soft tonal background (drifts a little against camera moves)
   private overlay?: Sprite; // film grain + vignette over everything
@@ -40,11 +43,12 @@ export class SceneRenderer {
   private measure = (s: string, size: number, bold: boolean) => CanvasTextMetrics.measureText(s, new TextStyle({ fontSize: size, fontWeight: bold ? "bold" : "normal", fontFamily: FONT, letterSpacing: bold ? -size * 0.03 : 0 })).width;
 
   constructor(private app: Application, private scene: Scene, private mathLayer: HTMLElement, css: (n: string) => string) {
+    app.stage.addChild(this.frame);
     this.fg = css("--fg");
     this.bg = css("--bg");
     const back = backdropTexture(), over = overlayTexture();
-    if (back) { this.backdrop = new Sprite(back); this.backdrop.anchor.set(.5); app.stage.addChild(this.backdrop); }
-    app.stage.addChild(this.root);
+    if (back) { this.backdrop = new Sprite(back); this.backdrop.anchor.set(.5); this.frame.addChild(this.backdrop); }
+    this.frame.addChild(this.root);
     this.root.addChild(this.bgLayer);
     for (const o of scene.objects) {
       const d = this.build(o);
@@ -54,8 +58,8 @@ export class SceneRenderer {
     this.reaction = this.text("", 64, "bold");
     this.reaction.anchor.set(0.5);
     this.root.addChild(this.reaction);
-    if (over) { this.overlay = new Sprite(over); app.stage.addChild(this.overlay); }
-    app.stage.addChild(this.annG); // above root so transitions don't move marks
+    if (over) { this.overlay = new Sprite(over); this.frame.addChild(this.overlay); }
+    this.frame.addChild(this.annG); // above root so transitions don't move marks
   }
 
   /** Replace the tutor's marks; they paint on the next draw(). [] clears. */
@@ -429,9 +433,11 @@ export class SceneRenderer {
     return out;
   }
 
-  draw(state: SceneState) {
+  draw(state: SceneState, frame = this.composition, render = true) {
+    this.composition = frame;
     this.lastState = state;
     const { width: w, height: h } = this.app.screen;
+    this.frame.x = frame.x * w; this.frame.alpha = frame.opacity;
     this.relayout(w, h);
     const st = { ...state, objects: this.placed(state) };
     for (const [id, d] of this.draws) {
@@ -465,12 +471,12 @@ export class SceneRenderer {
     }
     if (this.overlay) { this.overlay.width = w; this.overlay.height = h; }
     this.mathLayer.style.transformOrigin = "0 0";
-    this.mathLayer.style.transform = `matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
-    this.mathLayer.style.opacity = String(this.root.alpha);
+    this.mathLayer.style.transform = `translateX(${frame.x * w}px) matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
+    this.mathLayer.style.opacity = String(frame.opacity * this.root.alpha);
     for (const [key] of this.pts) if (!st.objects.get(key.split(".")[0])?.visible) this.pts.delete(key);
     for (const pt of this.pts.values()) { pt.x = pt.x*sx+tx; pt.y = pt.y*camera.zoom+ty; pt.r *= camera.zoom; }
     this.paintAnnotations(w, h);
-    this.app.render();
+    if (render) this.app.render();
   }
 
   private paintAnnotations(w: number, h: number) {
@@ -489,7 +495,7 @@ export class SceneRenderer {
         let t = this.annTexts[labels++];
         if (!t) {
           t = this.text(s.text, .035*h, "bold"); t.anchor.set(.5);
-          this.app.stage.addChild(t); this.annTexts.push(t);
+          this.frame.addChild(t); this.annTexts.push(t);
         }
         t.visible = true; t.text = s.text; t.style.fontSize = .035*h;
         t.position.set(s.x, s.y);
@@ -505,5 +511,6 @@ export class SceneRenderer {
     this.annG.destroy(); this.backdrop?.destroy(); this.overlay?.destroy();
     this.mathLayer.style.transform = ""; this.mathLayer.style.opacity = "";
     this.root.destroy({ children: true });
+    this.frame.destroy();
   }
 }

@@ -48,3 +48,8 @@ Visuals are scheduled *to* the audio, never the reverse.
 - Code confirmed all suspects: sticky failures, reopen/uncancelled queues, poison/cached load failures, fresh-file pruning, and per-request library reads (retained for authorization).
 - Proof: 6 Rust tests (640 renders across two generated 320-page PDFs, interleaving, forced prune, poisoned locks); focused frontend retry/cancel and caller tests.
 - Not verified: owner's failing PDF, real WKWebView image loading, Windows/Linux; one in-flight native render finishes before queued work advances.
+- 2026-11-15 Step 16: preceding final frame slides/cross-fades into incoming scene over its first 0.4 s of audio time.
+  Stage reconstructs both frames from timelines on seek/rejoin; canvas, Math and GIF overlays share the transform.
+  Audio-clock-adjacent: only compiler phrase-end metadata and Stage invocation changed; Player/SceneQueue/bufferClock, gap and rate untouched.
+  Evidence: Stage pause/seek/rejoin and first-scene tests, transition time samples, affected suite and TypeScript check.
+  Not verified: real GPU/audio playback or screenshot frames; no dev server/browser started.

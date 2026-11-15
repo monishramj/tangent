@@ -56,7 +56,7 @@ it("smoke draws every visual, resizes, seeks and cleans up without a ticker", as
   renderer.draw(applyEventsAt(scene, tl, 4));
   expect(app.render).toHaveBeenCalled();
   expect(layer.children).toHaveLength(2); // Math + gif
-  const root = app.stage.children[0] as Container;
+  const root = (app.stage.children[0] as Container).children[0] as Container;
   expect((root.children[1] as Container).tint).toBe(0xffb224);
   const box = root.children[9] as Container; // bg layer first, then the 3 connectors (inserted at index 1), then the rect shape
   const label = box.children[1] as Text;
@@ -79,7 +79,7 @@ it("rotates a bottom-pivot shape around its planted foot at any stage size", () 
     app.screen.height = height;
     for (const time of [.5, 1.5, 2.5]) {
       renderer.draw(applyEventsAt(scene, timeline, time));
-      const node = (app.stage.children[0] as Container).children[1] as Container;
+      const node = ((app.stage.children[0] as Container).children[0] as Container).children[1] as Container;
       expect(node.pivot.y).toBeCloseTo(height * .1);
       const foot = node.toGlobal({ x: 0, y: height * .1 });
       expect(foot.x).toBeCloseTo(app.screen.width * .4);
@@ -87,4 +87,23 @@ it("rotates a bottom-pivot shape around its planted foot at any stage size", () 
     }
   }
   renderer.destroy();
+});
+
+
+it("composes canvas and DOM with the same slide/fade and resets on seek", () => {
+  const scene = Scene.parse({ scene: "math", objects: [{ id: "m", type: "Math", tex: "x" }], beats: [] });
+  const app = { stage: new Container(), screen: { width: 1000, height: 600 }, render: vi.fn() };
+  const layer = document.createElement("div");
+  const r = new SceneRenderer(app as unknown as Application, scene, layer, () => "#ffffff");
+  const state = applyEventsAt(scene, { totalSec: 2, insertedSilences: [], events: [{ start: 0, end: .1, verb: "create", target: "m", args: {}, beat: 0 }] }, 1);
+  for (const frame of [{ x: .5, opacity: .5 }, { x: 0, opacity: 1 }, { x: .5, opacity: .5 }]) {
+    r.draw(state, frame, false);
+    expect(app.stage.children[0].x).toBe(frame.x * 1000);
+    expect(app.stage.children[0].alpha).toBe(frame.opacity);
+    expect(layer.style.transform).toContain(`translateX(${frame.x * 1000}px)`);
+    expect(layer.style.opacity).toBe(String(frame.opacity));
+  }
+  expect(app.render).not.toHaveBeenCalled();
+  r.destroy();
+  expect(app.stage.children).toHaveLength(0);
 });
