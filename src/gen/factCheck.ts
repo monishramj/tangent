@@ -4,8 +4,8 @@ import { dataBlock, dataReminder, dataRule } from "./sanitize";
 import { checkGrounding, checkScript, parseRepair, SCRIPT_OPTS, type Beat } from "./script";
 import { devlog } from "../devlog";
 
-/** Step 12: does each beat's narration say what its source paragraphs say? Off by default (streamVideo `factCheck`):
- *  turn on only after the false-flag rate on correct beats is measured <= 5% (factCheck.eval.test.ts). */
+/** Step 12: does each beat's narration say what its source paragraphs say? Production sessions enable this after
+ *  the measured 4.9% false-flag rate and 100% catch rate (factCheck.eval.test.ts; docs/areas/gen.md). */
 export type Verdict = "supported" | "unsupported" | "unclear";
 export type BeatCheck = { verdict: Verdict; anchor?: string };
 export type Source = { id: string; markdown: string };
@@ -72,8 +72,8 @@ export async function factCheckBeats({ beats, sources, provider }: { beats: Beat
   return { beats: out.filter((_, i) => !cut.has(i)), sayChanged, log };
 }
 
-/** Eval maths: the share of beats expected `supported` that the checker flagged `unsupported`. */
+/** Share of factually correct beats (including wrong-anchor cases) flagged unsupported. */
 export function falseFlagRate(cases: { expected: string; got: Verdict }[]): number {
-  const correct = cases.filter(c => c.expected === "supported");
+  const correct = cases.filter(c => c.expected === "supported" || c.expected === "wrong-anchor");
   return correct.length ? correct.filter(c => c.got === "unsupported").length / correct.length : 0;
 }

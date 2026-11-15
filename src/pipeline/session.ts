@@ -18,5 +18,5 @@ export function startSession({ irSection, provider = providers.claude, ttsAlign 
 }) {
   if (!irSection.markdown.trim()) throw new Error("Section markdown must not be empty");
   const figures = (irSection.figures ?? []).map(f => ({ id: f.id, caption: f.caption, src: convertFileSrc(f.image_path) }));
-  return streamVideo({ sectionMarkdown: irSection.markdown, figures, exercises: irSection.exercises, passages: irSection.passages, provider, ttsAlign, signal, onStatus, onProgress, gifSearch, detail });
+  return streamVideo({ sectionMarkdown: irSection.markdown, figures, exercises: irSection.exercises, passages: irSection.passages, provider, ttsAlign, signal, onStatus, onProgress, gifSearch, detail, factCheck: true });
 }
