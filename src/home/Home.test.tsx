@@ -156,7 +156,7 @@ it('original PDF tab loads native page images on demand', async () => {
   fireEvent.click(screen.getByRole('tab', { name: 'Original PDF' }));
   expect(await screen.findByAltText('Page 1')).toBeTruthy();
   expect(container.querySelectorAll('[data-page]')).toHaveLength(8);
-  expect(pdfPage).toHaveBeenCalledWith('/book.pdf', 1, expect.any(Number));
+  expect(pdfPage).toHaveBeenCalledWith('/book.pdf', 1, expect.any(Number), expect.any(AbortSignal));
 });
 it('move-to-folder persists the chosen folder', async () => {
   const source = sourceFor('/book.pdf');
