@@ -26,6 +26,7 @@ import SidePanel, { type Tab } from "./SidePanel";
 import Loading from "./Loading";
 import Textbook from "./Textbook";
 import TextSource from "./TextSource";
+import { isPhotoSource } from "@/gen/transcribe";
 import type { TextbookSource } from "@/follow/types";
 import { isOfficeSource } from "@/storage/library";
 import Captions, { captionCues } from "./Captions";
@@ -476,8 +477,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}
         onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume}
         checksBadge={<span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>}
-        textbook={textbook ? (isOfficeSource(textbook.pdfPath)
-          ? <TextSource passages={passages} scenes={scenes} time={time} />
+        textbook={textbook ? ((isOfficeSource(textbook.pdfPath) || isPhotoSource(textbook.pdfPath))
+          ? <TextSource passages={passages} scenes={scenes} time={time} transcribed={isPhotoSource(textbook.pdfPath)} />
           : <Textbook source={textbook} scenes={scenes} time={time} />) : undefined}
         checks={checkpoints.length ? <Checks checkpoints={checkpoints} status={status} active={activeCp?.id} onOpen={openCp} isReady={isReady} onQuiz={openQuiz} complete={done} /> : undefined} />}
 

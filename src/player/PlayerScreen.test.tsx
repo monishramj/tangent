@@ -28,7 +28,7 @@ const sceneEvent = (id = "s1"): Extract<PipelineEvent, { type: "scene" }> => ({ 
 const mcq: Checkpoint = { id: "cp1", afterScene: 0, kind: "mcq", prompt: "Which child swaps?", choices: ["The bigger", "The smaller"], answer: "The bigger", explanation: "Bigger keeps the heap valid.", source: "generated" };
 
 /** A stream the test drives by hand. */
-function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore>; passages?: PlayerProps["passages"] } = {}) {
+function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore>; passages?: PlayerProps["passages"]; textbook?: PlayerProps["textbook"] } = {}) {
   const audios: FakeAudio[] = [];
   vi.stubGlobal("Audio", class extends EventTarget {
     currentTime = 0; readyState = 4; preload = "";
@@ -49,7 +49,7 @@ function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJ
   const store = opts.store ?? memoryJsonStore();
   const complete = vi.fn().mockResolvedValue(JSON.stringify({ answer: "Because the bigger child keeps the heap valid.", annotations: [] }));
   const provider = opts.provider ?? { complete };
-  const props = { stream, passages: opts.passages, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
+  const props = { stream, passages: opts.passages, textbook: opts.textbook, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
   const view = render(<PlayerScreen {...props} />);
   return { ...props, complete, audios, push, end, view };
 }
@@ -636,4 +636,14 @@ it("Ask resolves the narrated beat's passage ids to source paragraphs", async ()
   await ask("Why does a puddle disappear?");
   await screen.findByText(/keeps the heap valid/);
   expect(s.complete.mock.calls[0][0]).toContain(source);
+});
+
+it("shows photo passages and the transcription label in the textbook panel", async () => {
+  const s = setup({ textbook: { pdfPath: "/notes.JPG", pages: [] },
+    passages: [{ id: "photo-p1", markdown: "Value: [illegible]", boxes: [] }] });
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Textbook" }));
+  expect(screen.getByLabelText("Source text").textContent).toContain("Value: [illegible]");
+  expect(screen.getByText("transcribed, check against your notes")).toBeTruthy();
+  expect(screen.queryByAltText("Page 1")).toBeNull();
 });

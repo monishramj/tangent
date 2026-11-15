@@ -1,13 +1,15 @@
+import { TRANSCRIPTION_LABEL } from "@/gen/transcribe";
 import { useEffect, useReducer, useRef } from "react";
 import { currentPassageIds } from "@/tutor/glue";
 import { followReducer, initialFollow, showBackButton } from "@/follow/follow";
 import type { Timeline } from "@motion/dsl/compile";
 
-/** Source text for a PPTX/DOCX video. The beat's passage ids are the highlight. */
-export default function TextSource({ passages, scenes, time }: {
+/** Source text for a document or transcribed photo video. The beat's passage ids are the highlight. */
+export default function TextSource({ passages, scenes, time, transcribed = false }: {
   passages: { id: string; markdown: string }[];
   scenes: { timeline: Timeline; passageIds?: string[][] }[];
   time: number;
+  transcribed?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, dispatch] = useReducer(followReducer, initialFollow);
@@ -26,6 +28,7 @@ export default function TextSource({ passages, scenes, time }: {
       onWheel={stop} onTouchMove={stop} onKeyDown={e => {
         if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(e.key)) stop();
       }}>
+      {transcribed && <p className="text-muted">{TRANSCRIPTION_LABEL}</p>}
       {!passages.length && <p className="text-muted">No source text for this video.</p>}
       {passages.map(p => <p key={p.id} data-passage={p.id} data-testid={active.has(p.id) ? "passage-highlight" : undefined}
         className={active.has(p.id) ? "rounded-md bg-fg/12 px-2 py-1 outline outline-1 outline-fg/40" : "px-2 py-1"}>{p.markdown}</p>)}

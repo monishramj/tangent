@@ -1,5 +1,6 @@
 //! `llm_complete`: runs a headless coding-agent CLI for the webview (which cannot spawn processes).
 use std::io::{Read, Write};
+use tauri::Manager;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -169,7 +170,17 @@ fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u6
 }
 
 /// Bounded photo-only read; never enable Claude's Read tool for untrusted notes.
-fn photo_image(path: &Path) -> Result<String, String> {
+fn photo_image(base: &Path, path: &Path) -> Result<String, String> {
+    if !path.is_absolute() || path.components().any(|part| part == std::path::Component::ParentDir) {
+        return Err("Photo path must be absolute without traversal".into());
+    }
+    let canonical = path.canonicalize().map_err(|e| format!("Photo path: {e}"))?;
+    let library = crate::store::read(base, "library")?;
+    let allowed = library.as_ref().and_then(|v| v["sources"].as_array()).is_some_and(|sources|
+        sources.iter().filter_map(|s| s["pdfPath"].as_str()).any(|p|
+            Path::new(p).canonicalize().is_ok_and(|p| p == canonical)));
+    if !allowed { return Err("Photo is not an imported source in the library".into()); }
+    let path = canonical.as_path();
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     if !["jpg", "jpeg", "png", "webp", "heic"].contains(&extension.as_str()) {
         return Err("Choose a JPG, PNG, HEIC, or WEBP photo".into());
@@ -200,12 +211,13 @@ fn photo_image(path: &Path) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn llm_complete(provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>, photo_path: Option<String>) -> Result<String, String> {
+pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>, photo_path: Option<String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut images = images.unwrap_or_default();
         if let Some(path) = photo_path {
             if provider != "claude" || !images.is_empty() { return Err("Photo transcription requires Claude and one photo".into()); }
-            images.push(photo_image(Path::new(&path))?);
+            let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            images.push(photo_image(&base, Path::new(&path))?);
         }
         complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref())
     })
@@ -222,15 +234,22 @@ mod tests {
         let dir = scratch_dir().unwrap();
         let path = dir.join("note.jpg");
         std::fs::write(&path, [0xff, 0xd8, 0xff]).unwrap();
-        assert_eq!(photo_image(&path).unwrap(), "data:image/jpeg;base64,/9j/");
-        let value: serde_json::Value = serde_json::from_str(&claude_stream_input("transcribe", &[photo_image(&path).unwrap()])).unwrap();
+        assert!(photo_image(&dir, &path).unwrap_err().contains("library"));
+        crate::store::write(&dir, "library", &serde_json::json!({"sources": [{"pdfPath": path}]})).unwrap();
+        assert!(photo_image(&dir, Path::new("note.jpg")).is_err());
+        assert!(photo_image(&dir, &dir.join("../note.jpg")).is_err());
+        let unknown = dir.join("unknown.jpg");
+        std::fs::write(&unknown, [0xff, 0xd8, 0xff]).unwrap();
+        assert!(photo_image(&dir, &unknown).unwrap_err().contains("library"));
+        assert_eq!(photo_image(&dir, &path).unwrap(), "data:image/jpeg;base64,/9j/");
+        let value: serde_json::Value = serde_json::from_str(&claude_stream_input("transcribe", &[photo_image(&dir, &path).unwrap()])).unwrap();
         assert_eq!(value["message"]["content"][0]["source"]["media_type"], "image/jpeg");
         assert_eq!(value["message"]["content"][0]["source"]["data"], "/9j/");
         std::fs::write(&path, b"not a photo").unwrap();
-        assert!(photo_image(&path).is_err());
-        assert!(photo_image(&dir.join("secret.txt")).is_err());
+        assert!(photo_image(&dir, &path).is_err());
+        assert!(photo_image(&dir, &dir.join("secret.txt")).is_err());
         std::fs::write(&path, vec![0; 5 * 1024 * 1024 + 1]).unwrap();
-        assert!(photo_image(&path).is_err());
+        assert!(photo_image(&dir, &path).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
