@@ -22,3 +22,9 @@ it("highlights the passage the current beat rewrites and follows it", () => {
   expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
   expect(screen.getByTestId("passage-highlight").textContent).toBe("Sift the root down.");
 });
+
+it("labels transcribed photo text while retaining passage highlights", () => {
+  render(<TextSource passages={passages} scenes={scenes} time={0.5} transcribed />);
+  expect(screen.getByText("transcribed, check against your notes")).toBeTruthy();
+  expect(screen.getByTestId("passage-highlight").textContent).toBe("A heap is a tree.");
+});

@@ -54,6 +54,10 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+- 2026-11-16 Step 18: `gen/transcribe.ts` exposes a fakeable photo reader; prompt requests verbatim text, LaTeX, no summarising/guessing, `[illegible]` for uncertainty. Numeric provenance remains `unverified-source`, never proof of computed grounding.
+  SECURITY BOUNDARY: optional `llm_complete.photoPath` reads one imported library photo (canonical match, absolute path/no traversal, regular file, signature/extension allowlisted, ≤5 MiB) and embeds bytes; Claude tools/settings/MCP/model allowlists are unchanged and remain in sync with `claudeCli.ts`. No Read tool or asset scope expansion.
+  Evidence: fake transcription/cache/importer tests + 52 Rust tests (one ignored; existing PDFium path supplied); no cloud sanity call. JPEG/WEBP media types are selected natively; Node provider retains its existing PNG-only contract.
+
 ### 2026-11-16 — Step 13: grounded checkpoints
 - Passed spoken beats and their source passages into checkpoints (including streamed continuation and fact-check cuts); removed source truncation and required generated cite anchors.
 - Shared numeric gate + one Haiku grounding batch; unsupported, unknown-anchor, missing/malformed verdicts fail closed per question; textbook exercises retain scene and total-budget priority.

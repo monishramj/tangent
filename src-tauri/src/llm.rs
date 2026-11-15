@@ -1,5 +1,6 @@
 //! `llm_complete`: runs a headless coding-agent CLI for the webview (which cannot spawn processes).
 use std::io::{Read, Write};
+use tauri::Manager;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -52,11 +53,14 @@ pub fn stdin_for(provider: &str, prompt: &str, system: Option<&str>, images: &[S
     }
 }
 
-/// One stream-json user message: every image (base64 PNG, no data: prefix) first, then the text prompt.
+/// Stream-json: PNG base64 or native photo JPEG/WEBP data URLs, then the prompt.
 pub fn claude_stream_input(prompt: &str, images: &[String]) -> String {
-    let mut content: Vec<serde_json::Value> = images.iter().map(|data| serde_json::json!({
-        "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": data }
-    })).collect();
+    let mut content: Vec<serde_json::Value> = images.iter().map(|data| {
+        let (mime, data) = ["image/jpeg", "image/webp"].into_iter().find_map(|mime|
+            data.strip_prefix(&format!("data:{mime};base64,")).map(|data| (mime, data)))
+            .unwrap_or(("image/png", data.as_str()));
+        serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": mime, "data": data } })
+    }).collect();
     content.push(serde_json::json!({ "type": "text", "text": prompt }));
     let msg = serde_json::json!({ "type": "user", "message": { "role": "user", "content": content } });
     format!("{msg}\n")
@@ -165,10 +169,58 @@ fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u6
     else { Ok(stdout) }
 }
 
+/// Bounded photo-only read; never enable Claude's Read tool for untrusted notes.
+fn photo_image(base: &Path, path: &Path) -> Result<String, String> {
+    if !path.is_absolute() || path.components().any(|part| part == std::path::Component::ParentDir) {
+        return Err("Photo path must be absolute without traversal".into());
+    }
+    let canonical = path.canonicalize().map_err(|e| format!("Photo path: {e}"))?;
+    let library = crate::store::read(base, "library")?;
+    let allowed = library.as_ref().and_then(|v| v["sources"].as_array()).is_some_and(|sources|
+        sources.iter().filter_map(|s| s["pdfPath"].as_str()).any(|p|
+            Path::new(p).canonicalize().is_ok_and(|p| p == canonical)));
+    if !allowed { return Err("Photo is not an imported source in the library".into()); }
+    let path = canonical.as_path();
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !["jpg", "jpeg", "png", "webp", "heic"].contains(&extension.as_str()) {
+        return Err("Choose a JPG, PNG, HEIC, or WEBP photo".into());
+    }
+    if !std::fs::metadata(path).map_err(|e| format!("Cannot open photo: {e}"))?.is_file() {
+        return Err("Photo must be a file".into());
+    }
+    let file = std::fs::File::open(path).map_err(|e| format!("Cannot open photo: {e}"))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() { return Err("Photo must be a file".into()); }
+    let mut bytes = Vec::new();
+    file.take(5 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() > 5 * 1024 * 1024 { return Err("Photo is too large; choose one under 5 MiB".into()); }
+    // shortcut: HEIC needs JPG/PNG export; add conversion when a supported decoder is available.
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
+        else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" }
+        else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { "image/webp" }
+        else { return Err("Cannot decode this photo. Export HEIC as JPG or PNG and try again".into()); };
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = ((c[0] as u32) << 16) | ((c.get(1).copied().unwrap_or(0) as u32) << 8) | c.get(2).copied().unwrap_or(0) as u32;
+        encoded.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+        encoded.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        encoded.push(if c.len() > 1 { ALPHABET[((n >> 6) & 63) as usize] as char } else { '=' });
+        encoded.push(if c.len() > 2 { ALPHABET[(n & 63) as usize] as char } else { '=' });
+    }
+    Ok(if mime == "image/png" { encoded } else { format!("data:{mime};base64,{encoded}") })
+}
+
 #[tauri::command]
-pub async fn llm_complete(provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>) -> Result<String, String> {
-    let images = images.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref()))
+pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>, photo_path: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut images = images.unwrap_or_default();
+        if let Some(path) = photo_path {
+            if provider != "claude" || !images.is_empty() { return Err("Photo transcription requires Claude and one photo".into()); }
+            let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            images.push(photo_image(&base, Path::new(&path))?);
+        }
+        complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref())
+    })
         .await
         .map_err(|e| e.to_string())?
 }
@@ -176,6 +228,30 @@ pub async fn llm_complete(provider: String, prompt: String, system: Option<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn photo_reads_are_bounded_and_reject_other_files() {
+        let dir = scratch_dir().unwrap();
+        let path = dir.join("note.jpg");
+        std::fs::write(&path, [0xff, 0xd8, 0xff]).unwrap();
+        assert!(photo_image(&dir, &path).unwrap_err().contains("library"));
+        crate::store::write(&dir, "library", &serde_json::json!({"sources": [{"pdfPath": path}]})).unwrap();
+        assert!(photo_image(&dir, Path::new("note.jpg")).is_err());
+        assert!(photo_image(&dir, &dir.join("../note.jpg")).is_err());
+        let unknown = dir.join("unknown.jpg");
+        std::fs::write(&unknown, [0xff, 0xd8, 0xff]).unwrap();
+        assert!(photo_image(&dir, &unknown).unwrap_err().contains("library"));
+        assert_eq!(photo_image(&dir, &path).unwrap(), "data:image/jpeg;base64,/9j/");
+        let value: serde_json::Value = serde_json::from_str(&claude_stream_input("transcribe", &[photo_image(&dir, &path).unwrap()])).unwrap();
+        assert_eq!(value["message"]["content"][0]["source"]["media_type"], "image/jpeg");
+        assert_eq!(value["message"]["content"][0]["source"]["data"], "/9j/");
+        std::fs::write(&path, b"not a photo").unwrap();
+        assert!(photo_image(&dir, &path).is_err());
+        assert!(photo_image(&dir, &dir.join("secret.txt")).is_err());
+        std::fs::write(&path, vec![0; 5 * 1024 * 1024 + 1]).unwrap();
+        assert!(photo_image(&dir, &path).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn claude_args_locked_down() {

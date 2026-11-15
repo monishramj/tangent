@@ -1,3 +1,4 @@
+import { isPhotoSource, TRANSCRIPTION_LABEL } from "../gen/transcribe";
 import { useEffect, useRef, useState } from 'react';
 import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
 import Select from '@/components/ui/Select';
@@ -40,7 +41,7 @@ function pages(section: SectionRef) {
 
 export default function SourceView(props: SourceViewProps) {
   const { source, sections, videos } = props;
-  const textSource = isOfficeSource(source.pdfPath);
+  const textSource = isOfficeSource(source.pdfPath) || isPhotoSource(source.pdfPath);
   const [tab, setTab] = useState<'sections' | 'pdf'>('sections');
   const [selecting, setSelecting] = useState(props.seedSelection != null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(props.seedSelection ?? []));
@@ -61,6 +62,7 @@ export default function SourceView(props: SourceViewProps) {
     <button className="tl-back" onClick={props.onBack}><Icon icon={ArrowLeft01Icon} size={16} />{props.folderName ?? 'Home'}</button>
     <div className="tl-heading tl-source-heading"><span className="tl-file-icon">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}<PreparationOverlay item={props.preparation} /></span><div><p className="tl-eyebrow">READING MATERIAL</p><h1>{source.name}</h1><p>{source.pageCount ? `${source.pageCount} pages · ` : ''}{sections.length} sections{props.preparation && ` · ${preparationLabel(props.preparation)}`}</p></div></div>
     {(error || props.error) && <p className="tl-error" role="alert">{error || props.error}</p>}
+    {isPhotoSource(source.pdfPath) && <p className="tl-empty">{TRANSCRIPTION_LABEL}</p>}
     <div className="tl-source-grid"><section className="tl-source-main">
       <div className="tl-source-toolbar"><div className="tl-tabs" role="tablist" aria-label="Source view">
         {(['sections', 'pdf'] as const).map(value => <button id={`source-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`source-panel-${value}`} tabIndex={tab === value ? 0 : -1}
@@ -82,7 +84,7 @@ export default function SourceView(props: SourceViewProps) {
           </div>}
         </>}
       </div> : <div role="tabpanel" id="source-panel-pdf" aria-labelledby="source-tab-pdf" className="tl-pdf-panel">
-        {textSource ? <SourceText passages={props.passages ?? []} /> : <PdfPages key={source.pdfPath} source={source} renderPage={props.renderPage ?? pdfPage} />}
+        {textSource ? <>{isPhotoSource(source.pdfPath) && <p>{TRANSCRIPTION_LABEL}</p>}<SourceText passages={props.passages ?? []} /></> : <PdfPages key={source.pdfPath} source={source} renderPage={props.renderPage ?? pdfPage} />}
       </div>}
     </section><aside className="tl-source-videos"><h2>Videos<span>{videos.length}</span></h2><VideoList videos={videos} onOpen={props.onOpenVideo} onDelete={props.onDeleteVideo} label="Videos from this source" /><p>Every video you make from this PDF lives here.</p></aside></div>
   </LibraryShell>;

@@ -153,3 +153,6 @@
 .tl-loading progress:indeterminate, .tl-loading progress:indeterminate::-webkit-progress-bar { appearance:none;border:0;background:linear-gradient(90deg,var(--line) 0 35%,var(--fg-muted) 50%,var(--line) 65% 100%) 0 0/300% 100%;animation:tl-sweep 1.6s linear infinite; }
 @keyframes tl-sweep { from { background-position:100% 0; } to { background-position:0 0; } }
 @media (prefers-reduced-motion: reduce) { .tl-loading progress:indeterminate, .tl-loading progress:indeterminate::-webkit-progress-bar { animation:none;background:var(--fg-muted); } }
+
+.tl-photo-confirm { margin:auto;max-width:min(440px,calc(100vw - 32px));background:var(--surface);color:var(--fg); }
+.tl-photo-confirm::backdrop { background:#000a; }

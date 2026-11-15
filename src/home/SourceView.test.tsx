@@ -100,3 +100,13 @@ it('shows the source text for a Word doc instead of PDF pages', () => {
   expect(renderPage).not.toHaveBeenCalled();
   expect(pdfInfo).not.toHaveBeenCalled();
 });
+
+it('labels the photo source and its text panel as transcription', () => {
+  setup({ source: { id: 'photo', name: 'notes.jpg', pdfPath: '/notes.jpg' },
+    passages: [{ id: 'photo-p1', markdown: 'Value: [illegible]', boxes: [] }] });
+  expect(screen.getByText('transcribed, check against your notes')).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab', { name: 'Source' }));
+  expect(screen.getAllByText('transcribed, check against your notes')).toHaveLength(2);
+  expect(screen.getByLabelText('Source text').textContent).toContain('[illegible]');
+  expect(pdfInfo).not.toHaveBeenCalled();
+});

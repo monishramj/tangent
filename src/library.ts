@@ -1,5 +1,6 @@
 // Parse a source once (cached IR, figures in app data), with honest progress.
 import { enrichFormulas, figuresDir, ingestPdf, repairSections, type IR } from "./home/api";
+import { transcribePhoto, isPhotoSource } from "./gen/transcribe";
 import { listen } from "@tauri-apps/api/event";
 import { isOfficeSource } from "./storage/library";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
@@ -23,6 +24,12 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
     const repaired = await repairSections(cached, pdfPath).catch(() => cached);
     if (repaired !== cached) await irCache(store).set(source.id, repaired);
     return repaired;
+  }
+  if (isPhotoSource(pdfPath)) {
+    onProgress?.({ label: "Transcribing photo" });
+    const ir = await transcribePhoto(pdfPath);
+    await irCache(store).set(source.id, ir);
+    return ir;
   }
   onProgress?.({ label: isOfficeSource(pdfPath) ? "Reading document" : "Reading PDF" });
   const unlisten = await listen<{ path: string; progress: { completed: number; total: number; paused: boolean } }>("ingest-progress", ({ payload }) => {
