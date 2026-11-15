@@ -5,6 +5,9 @@ import type { LLMProvider } from "../llm/provider";
 import { checkBeats, factCheckBeats, falseFlagRate } from "./factCheck";
 import type { Beat } from "./script";
 import fixtures from "./factCheck.fixtures.json";
+import { startSession } from "../pipeline/session";
+import { streamVideo } from "../pipeline/streamVideo";
+vi.mock("../pipeline/streamVideo", () => ({ streamVideo: vi.fn(() => ({})) }));
 
 const sources = [{ id: "p1", markdown: "Heaps are trees. A heap has 7 nodes." }, { id: "p2", markdown: "Inserting takes log n time." }];
 const beat = (say: string, passages = ["p1"]): Beat => ({ say, visualIntent: "x", passages });
@@ -72,4 +75,10 @@ it("fixtures: 6+ cases, every kind present, rate maths", () => {
   for (const f of fixtures) expect(f.sources.some(s => f.beat.passages.includes(s.id))).toBe(true);
   expect(falseFlagRate([{ expected: "supported", got: "unsupported" }, { expected: "supported", got: "supported" }, { expected: "unsupported", got: "unsupported" }])).toBe(0.5);
   expect(falseFlagRate([])).toBe(0);
+  expect(falseFlagRate([{ expected: "wrong-anchor", got: "unsupported" }])).toBe(1);
+});
+
+it("production sessions enable the measured fact-check by default", () => {
+  startSession({ irSection: { markdown: "Heaps are trees." } });
+  expect(streamVideo).toHaveBeenCalledWith(expect.objectContaining({ factCheck: true }));
 });

@@ -41,6 +41,27 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Budget constraint: nothing beyond Claude Pro should cost money by default.
 - **API keys (deferred):** none are needed yet, so no storage is built. When the first provider needs one (GIPHY/Klipy, Anthropic or other API-key providers), store it behind `get_secret`/`set_secret` Tauri commands (now an owner-only file `<appData>/secrets/<name>`, 0600; the Keychain was dropped 2026-11-10 because unsigned dev builds prompted for the login password on every read; revisit Keychain/encryption once builds are signed). `get_secret` only returns allowlisted names (`WEBVIEW_READABLE` in `store.rs`, just `giphy`: GIPHY keys are designed for client-side use); any other key is write-only from the webview and read only in Rust. Pass keys to the sidecar at spawn. Never put keys in the repo, `.env` files, or plain app settings. `.env*` is gitignored only as a safety net. The Claude Pro path (`claude -p`) needs no key.
 
+### Step 12 fact-check measurement (2026-11-16)
+
+The default production session now enables fact-checking. The decision uses **all 41 factually correct beats**: 14 bundled supported fixtures, the correct narration in the wrong-anchor fixture, and 26 final recorded public OpenStax beats. Wrong-anchor narration counts as correct even when its citation needs repair; the previous metric omitted that case. Deliberately wrong fixtures are the six separate catch-rate cases; `unclear` counts as a miss, never a catch.
+
+| Prompt | Bundled false flags (including wrong-anchor) | Public false flags | Overall false flags | Wrong fixtures caught | Wrong anchor corrected |
+| --- | --- | --- | --- | --- | --- |
+| Original, retained | 2/15 (13.3%) | 0/26 (0%) | **2/41 (4.9%)** | **6/6 (100%)** | 1/1 |
+| One clarification, rejected | 1/15 (6.7%) | 1/26 (3.8%) | 2/41 (4.9%) | 5/6 (83.3%) | 0/1 |
+
+The original prompt meets the requested overall <=5% false-flag / >=80% catch thresholds, although its synthetic-only false-flag rate exceeds 5%. Excluding wrong-anchor narration as the old metric did gives 2/40 (5.0%), which also meets the overall threshold. The single tweak said faithful summaries may omit details and qualified rules of thumb are approximations, while retaining checks against changed facts/quantities/qualifiers. It fixed the two initial false positives but introduced two different ones and missed one wrong claim, so it was not kept. Both variants made 21 one-beat fixture calls plus five public section-batch calls: **52 cloud Haiku calls total**, no local models or new script-generation calls. Both classified every public beat; no public verdict was unclear. This is a small one-sample measurement, not a statistical guarantee of the production rate.
+
+Failure examples (fixture indices and public beat indices are zero-based):
+
+- Original `supported-paraphrase`: source says a binary heap is a complete binary tree with parents no larger than children; the correct shorter narration “A heap is a tree where every parent is smaller than or equal to its kids” was flagged unsupported.
+- Original `ok-caveat`: source says the central limit theorem needs a large enough sample, “often taken as at least 30”; narration calls this a “common rule of thumb.” Flagged unsupported despite that qualification.
+- Tweaked `wrong-anchor`: “Inserting into a heap takes log n time” was flagged unsupported despite source p2 saying O(log n), rather than correcting p1 to p2.
+- Tweaked `definitions/3`: the final recorded mean/class-proportion example (86, 75, 92 -> 84.3; 40 students, 22 men, 18 women) plus its descriptive/inferential recap was flagged unsupported.
+- Tweaked `claim-not-in-source`: “Quicksort always runs in linear time, so it beats every other sort” received `unclear` rather than `unsupported`. The original caught it. No explanations are requested by this checker, so these are observed verdict mismatches, not inferred model reasoning.
+
+Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHECK_PUBLIC=1` for the public run. Both use `TANGENT_HEAVY_SLOTS=1 taskpolicy -b bash scripts/heavy.sh node_modules/.bin/vitest run src/gen/factCheck.eval --maxWorkers=2 --silent=false`. The public mode reads only the committed PR #25 answers and applies its two recorded targeted repairs by their stable recording keys, avoiding today's changed script prompts and private recording stores. It asserts five sections / 26 beats, with an offline test for both repairs. Production sessions enable the existing gate; direct `streamVideo` callers retain the explicit flag. Scene 1 still logs only, later checks still have the existing 20-second wait, and unusable answers still fail open.
+
 ### Correctness & grounding
 - **Computed visuals:** algorithm traces and numeric results come from real code, not the LLM (`op` actions on components). LLMs botch hand-traced states.
 - Every script claim carries a source anchor (`cite`); a verification pass checks the script against the IR section before scene generation.
@@ -53,6 +74,11 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - The scene retry sends the previous JSON along with the validator errors, and TTS audio is reused across DSL retries.
 
 ## Log
+
+- 2026-11-16 Step 12 measured with 52 real sequential cloud Haiku calls: original 2/41 false flags (4.9%), 6/6 catches (100%); one prompt tweak also 2/41, but only 5/6 catches, so retained original.
+  Production `startSession` now sets `factCheck: true`; low-level `streamVideo` retains its explicit opt-in default. Added public-recording eval mode and counted correct wrong-anchor beats in false flags.
+  Evidence: 21 bundled fixtures + all 26 final public OpenStax beats (PR #25), both prompts; detailed results and failure examples below. Offline checks: 17 affected/importer files, 266 tests passed; final eval/helper checks 12 passed (3 live/generation skips); TypeScript passed.
+  Limits: one sample per prompt, same-family checker, five section-sized public batches; no real playback/latency, repair-quality or first-scene enforcement measurement.
 
 - 2026-11-16 Step 18: `gen/transcribe.ts` exposes a fakeable photo reader; prompt requests verbatim text, LaTeX, no summarising/guessing, `[illegible]` for uncertainty. Numeric provenance remains `unverified-source`, never proof of computed grounding.
   SECURITY BOUNDARY: optional `llm_complete.photoPath` reads one imported library photo (canonical match, absolute path/no traversal, regular file, signature/extension allowlisted, ≤5 MiB) and embeds bytes; Claude tools/settings/MCP/model allowlists are unchanged and remain in sync with `claudeCli.ts`. No Read tool or asset scope expansion.
