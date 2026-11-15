@@ -109,6 +109,7 @@ fn library_path(resource: Option<&Path>) -> Result<PathBuf, String> {
         else if cfg!(target_os = "windows") { "pdfium.dll" } else { "libpdfium.so" };
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("TANGENT_PDFIUM") { candidates.push(PathBuf::from(path)); }
+    if let Some(dir) = resource { candidates.push(dir.join("runtime").join(name)); }
     if let Ok(sidecar) = crate::sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from),
         Path::new(env!("CARGO_MANIFEST_DIR")), cfg!(debug_assertions) || cfg!(test)) {
         candidates.push(sidecar.join(".venv/Lib/site-packages/pypdfium2_raw").join(name));
@@ -120,9 +121,8 @@ fn library_path(resource: Option<&Path>) -> Result<PathBuf, String> {
             }
         }
     }
-    if let Some(dir) = resource { candidates.push(dir.join("pdfium").join(name)); }
     candidates.into_iter().find(|p| p.is_file()).ok_or_else(||
-        format!("PDFium library not found: set TANGENT_PDFIUM to {name}, install the sidecar venv, or bundle pdfium/{name}"))
+        format!("PDFium library not found: set TANGENT_PDFIUM to {name}, install the sidecar venv, or bundle runtime/{name}"))
 }
 
 fn validate_pdf(base: &Path, path: &Path) -> Result<PathBuf, String> {

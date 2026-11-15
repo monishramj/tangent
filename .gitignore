@@ -27,3 +27,6 @@ spikes/**/*.wav
 public/demo/*.wav
 
 .claude/settings.local.json
+# Downloaded installer resources (only the placeholder is tracked).
+src-tauri/resources/runtime/*
+!src-tauri/resources/runtime/README.txt

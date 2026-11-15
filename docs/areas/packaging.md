@@ -13,11 +13,41 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Packaging: one downloadable app
 - Goal: a single installer. Nothing the user must install or hunt for (no brew, no separate Python, no ollama).
-- Bundle as Tauri `externalBin` sidecars: the Python sidecar (frozen with PyInstaller or an embedded uv Python), `llama-server` (llama.cpp, small), ffmpeg if needed.
+- Bundle uv, PDFium, and the sidecar project as Tauri resources in `runtime/`. No Python, checkout, package manager, or system PDFium is required on the user’s machine. Python and ML packages are installed into app data on first launch.
 - Large model weights (TTS, VLM, alignment) are NOT in the installer. Download once on first run into the app data dir, with a progress UI and checksum. Small models (PocketTTS English ~225 MB including the Alba preset) may be bundled if installer size allows.
 - Licence limits what we bundle: Marker weights are restricted (no bundle, opt-in only); Docling is MIT and can ship.
-- Personal builds use runtime `TANGENT_SIDECAR_DIR`, then the build-time value, then the checkout sidecar path (dev stays checkout-relative). The release script requires an installed venv; Monish’s stable project is `/Users/monishramj/Documents/Code/hackathons/26_27/accessED_hacks/tangent/sidecar`. PDFium already searches that same venv. Keep the project installed: this is a documented personal-use bridge, not a standalone installer. Next: freeze/embed the Python sidecar and bundle PDFium before broader distribution.
-- PDFium (page rendering, BSD-3/Apache-2.0): ship the prebuilt library from bblanchon/pdfium-binaries (pin one release; verify its checksum) as a Tauri `resources` entry at `pdfium/libpdfium.dylib` (macOS universal or arm64 + x64), `pdfium/pdfium.dll` (Windows x64), `pdfium/libpdfium.so` (Linux x64); `pages.rs` already looks there after `TANGENT_PDFIUM` and the dev venv. Dev needs nothing extra: it uses pypdfium2's copy in `sidecar/.venv`.
+- Packaged builds never fall back to a developer checkout or PATH uv. Development still resolves `uv` from PATH and runs `uv run --project sidecar python -m tangent_sidecar`; `TANGENT_SIDECAR_DIR` remains a dev override.
+- PDFium is resolved from `TANGENT_PDFIUM` (explicit override), then bundled `runtime/libpdfium.dylib`, `runtime/pdfium.dll`, or `runtime/libpdfium.so`. Dev/tests can still use pypdfium2’s copy in a checkout venv. There is no system-library search.
+
+### First-launch bootstrap (step 20)
+- `bootstrap.rs` opens a separate accessible setup window before exposing the main window. It says **about 2–3 GB**, provides Set up / Cancel / Resume, and shows indeterminate progress by real phase rather than invented byte percentages. Closing setup quits safely. Claude Code account setup remains step 23.
+- Bundled uv first runs `python install 3.12`, then `sync --frozen --no-dev --python 3.12 --managed-python --project <resources>/runtime/sidecar`. Environment, managed Python, download cache, log, and later Hugging Face weights stay under `<app data>/runtime/{env,python,cache,setup.log,models}`. Model weights still download lazily when their tools first run; no models run during bootstrap.
+- A matching `complete` marker **and** interpreter are required before sidecar calls. The marker fingerprints the project, lock, and bootstrap Python version; it is written by atomic rename only after successful sync. Stale markers are removed before retry. Partial envs and uv cache remain reusable after interruption, cancellation, failure, or relaunch. No user content is deleted.
+- Each phase retries up to three times; uv also retries HTTP failures three times. Final errors show a Retry/Resume action and point to `setup.log`. Cancel terminates the installer process tree and never writes completion. One setup runs per app instance.
+- Installer downloads/installs/builds have concurrency caps (2/2/1). Unix installer runs at nice 10 in a process group with an app-PID watchdog; Windows uses a kill-on-close Job Object with below-normal priority and no console. Runtime Python keeps the latest shared thread/job caps, separate ingest work-class priorities, parent watchdog, process-group cleanup, and no mid-job respawn. Windows runtime lifecycle hardening remains step 21.
+- Linux `torch` and `torchaudio` are sourced **only** from the explicit [PyTorch CPU index](https://docs.astral.sh/uv/concepts/indexes/); `uv.lock` includes CPU wheel hashes and no CUDA/NVIDIA dependencies. macOS/Windows retain PyPI pins torch 2.15.0 and torchaudio 2.11.1. Existing platform/package compatibility is still a release-test unknown (including Intel Mac wheels).
+
+### Bundled assets and CI handoff
+- `scripts/prepare-runtime.py` runs automatically in Tauri’s `beforeBuildCommand`, before the frontend build. CI needs Python 3.11+ and Rust at build time; end users do not. It copies only the sidecar sources, project, and lock, never `.venv`, models, test PDFs, or caches. The old personal release script no longer requires an installed venv and uses `scripts/heavy.sh`.
+- uv is pinned to **0.12.19**, PDFium to **chromium/8152**. `scripts/runtime-assets.json` commits the exact upstream release URLs and SHA256 for each archive, taken from the upstream GitHub release asset digests. A mismatched digest or missing binary aborts packaging. Upstream uv and PDFium licence files are included in the generated resources. Generated binaries are ignored by git.
+- Resource matrix: `aarch64-apple-darwin` → uv tar.gz + pdfium-mac-arm64.tgz; `x86_64-apple-darwin` → uv tar.gz + pdfium-mac-x64.tgz; `x86_64-unknown-linux-gnu` → uv tar.gz + pdfium-linux-x64.tgz; `x86_64-pc-windows-msvc` → uv zip + pdfium-win-x64.tgz. Other targets fail closed. The resource matrix does not promise ML wheel availability on every architecture.
+- CI uses native runners for the target (Windows/Linux builds only in CI). Tauri passes `TAURI_ENV_TARGET_TRIPLE` to its build hook; a direct script invocation can set that variable explicitly, otherwise it uses `rustc -vV`’s host triple. Example: `TAURI_ENV_TARGET_TRIPLE=x86_64-unknown-linux-gnu python3 scripts/prepare-runtime.py`. Then `scripts/heavy.sh bunx tauri build --target x86_64-unknown-linux-gnu`. Step 22 owns the release workflow matrix/signing; no workflow is added here.
+- To update assets, choose upstream tags, replace all matrix URLs and SHA256 values with reviewed release digests, update licence URLs/version text, and build/test each target before publishing. Do not fetch “latest” during builds.
+
+### UI / IPC contract
+`runtime-setup` is an app event carrying the following object; `bootstrap_status` returns the identical snapshot so the setup screen can recover missed events by polling. `bootstrap_start` starts/resumes idempotently while already running; `bootstrap_cancel` requests cancellation. Development has no packaged setup and continues its existing launch path.
+
+```ts
+type RuntimeSetup = {
+  status: 'needed' | 'installing' | 'retrying' | 'cancelled' | 'failed' | 'complete';
+  phase: 'python' | 'packages';
+  attempt: number;       // 1–3 while running; 0 for initial/final snapshots
+  downloadGb: [2, 3];    // estimate, not measured transferred bytes
+  message: string;      // user-facing phase, error, or resume guidance
+};
+```
+
+Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-tauri/Cargo.toml` exercises fresh/partial/complete/stale/network/cancel/resume states with fake uv and isolated temporary filesystem fixtures, including a real fake executable at paths with spaces; `node --test scripts/test_bootstrap.cjs` checks screen/IPC wiring; `python3 -m unittest discover -s scripts -p test_prepare_runtime.py` checks hashes, safe extraction, and CPU lock selection. Host Rust tests use the SHA256-verified PDFium library via `TANGENT_PDFIUM` when no dev venv exists. This does not verify a real installer, WebView setup-window rendering, actual ML install/download size, signing, or Windows/Linux execution.
 
 ### Personal updater/signing research (2026-11-12)
 - [Official Tauri v2 updater guide](https://v2.tauri.app/plugin/updater/): mandatory updater signatures, external private minisign key, public config key, `createUpdaterArtifacts`, macOS `.app.tar.gz` + `.sig`, static version/platform manifest, and explicit relaunch after installation. Key generated once at `~/.tauri/tangent.key` (0600, outside git); no secrets in config. Back up this key; losing it breaks updates for existing installs.
@@ -41,3 +71,6 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
   Evidence: simulated priority/thermal/Windows-watchdog tests, Python fast suite, Rust library tests, affected UI tests and typecheck.
   Not verified: native Windows/Linux scheduling, real-model chunk quality/latency, physical thermal transitions; unknown thermal readings allow work to continue.
 - 2026-11-16 Open-source cleanup. MIT `LICENSE` (holder "Monish Ramesh J"; MIT itself still an owner decision), `THIRD_PARTY_NOTICES.md`, short README, `docs/open-source.md` Anthropic checklist. `git rm` of `sidecar/tests/fixtures/stat350_ch5_ir.json`, three course-page previews, and `docs/ui-review/06-original-pdf.png`. Tests use a synthetic IR; the slow PDF test skips when the local file is absent. Evidence: pytest `test_real_fixture.py` and `test_ingest.py`. Not verified: Anthropic terms, MIT confirmation, history rewrite, Windows/Linux installers.
+- 2026-11-16 Step 20: bundled pinned uv/PDFium resources and automatic marker-gated Python/ML setup with cancel/resume/retry UI; dev uv path retained, Linux CPU wheels locked.
+  Evidence: fake-uv/bootstrap state tests, full host Rust tests with pinned PDFium, script/UI contract tests, limits tests, offline lock check; no local ML installs/model runs.
+  Not verified: real bundle or WebView rendering, actual ML installation/size, Intel Mac compatibility, Windows/Linux builds/runtime (CI handoff to steps 21–22).

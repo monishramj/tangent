@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "python3 scripts/prepare-runtime.py && bun run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -62,6 +62,9 @@
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "./Entitlements.plist"
+    },
+    "resources": {
+      "resources/runtime/": "runtime/"
     }
   },
   "plugins": {
