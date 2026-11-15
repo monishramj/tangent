@@ -98,20 +98,66 @@ it("scrubbing never calls play per input event, then resumes once on release", a
   expect(s.audios[0].play).toHaveBeenCalledTimes(1);
 });
 
-it("an error before any scene shows an alert and Try again calls onRetry", async () => {
+it("a failure before any scene plays its skip card; if nothing ever plays, the alert and Try again appear", async () => {
   const s = setup();
   await settle();
-  await s.push({ type: "error", sceneId: "scene-1", error: new Error("boom") } as PipelineEvent);
-  expect(screen.getByRole("alert").textContent).toContain("boom");
+  await s.push({ type: "error", sceneId: "scene-1", error: new Error("boom"), scope: "scene" } as PipelineEvent);
+  expect(screen.getByTestId("skip-card")).toBeTruthy();
+  await s.end();
+  expect(screen.getByRole("alert").textContent).toContain("Couldn't build");
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(s.onRetry).toHaveBeenCalledTimes(1);
 });
 
-it("an error after a scene is skipped, not overlaid", async () => {
+it("a script failure (scope script) before any scene shows the alert with its reason", async () => {
+  const s = setup();
+  await settle();
+  await s.push({ type: "error", sceneId: "scene-1", error: new Error("boom"), scope: "script" } as PipelineEvent);
+  expect(screen.getByRole("alert").textContent).toContain("boom");
+});
+
+const failed = (id: string) => ({ type: "error", sceneId: id, error: new Error("twice"), scope: "scene" }) as PipelineEvent;
+const seekTo = (t: number) => fireEvent.change(screen.getByLabelText("Seek"), { target: { value: String(t) } });
+const D = timeline.totalSec, G = DEFAULT_GAP_SEC;
+
+it("a twice-failed scene becomes one 2 s card between its neighbours: order and duration stay consistent", async () => {
   const s = setup();
   await startWithScene(s);
-  await s.push({ type: "error", sceneId: "scene-2", error: new Error("late") } as PipelineEvent);
-  expect(screen.queryByRole("alert")).toBeNull();
+  await s.push(failed("scene-2"));
+  await s.push(sceneEvent("s3"));
+  expect(s.audios).toHaveLength(3);
+  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).max)).toBeCloseTo(D + G + 2 + G + D, 1);
+  expect(screen.queryByTestId("skip-card")).toBeNull();
+  seekTo(D + G + 0.5);
+  expect(screen.getByTestId("skip-card")).toBeTruthy();
+  seekTo(D + G + 2 + G + 0.5);
+  expect(screen.queryByTestId("skip-card")).toBeNull(); // the next scene plays after it
+});
+
+it("seeking onto the card and asking works; resuming rejoins the card's silent clock, never narration", async () => {
+  const s = setup();
+  await startWithScene(s);
+  await s.push(failed("scene-2"));
+  await s.push(sceneEvent("s3"));
+  seekTo(D + G + 0.5);
+  expect(s.audios[0].play).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  await ask("What is this?");
+  expect(s.complete).toHaveBeenCalled();
+  expect(screen.getByTestId("skip-card")).toBeTruthy();
+});
+
+it("checkpoints follow their scene past a card; one about the skipped scene is dropped", async () => {
+  const s = setup();
+  await settle();
+  const cp = (id: string, afterScene: number): Checkpoint => ({ ...mcq, id, afterScene });
+  await s.push({ type: "checkpoints", items: [cp("a", 1), cp("b", 2)] });
+  await s.push(sceneEvent("s1"));
+  await s.push(failed("scene-2"));
+  await s.push(sceneEvent("s3"));
+  expect(screen.getByTestId("checks-badge").textContent).toBe("0/1");
+  seekTo(D + G + 2 + G + D); // end of scene 3 = queue position 2
+  expect(Number((screen.getByLabelText("Seek") as HTMLInputElement).value)).toBeGreaterThan(D + G + 2 + G);
 });
 
 it("Ask pauses and opens the side panel; the question is answered and saved as a thread", async () => {

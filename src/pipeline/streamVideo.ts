@@ -16,7 +16,8 @@ import { devlog } from "../devlog";
 
 export type PipelineEvent =
   | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][] }
-  | { type: "error"; sceneId: string; error: Error }
+  /** scope "scene": this scene failed its retry too, so the player shows a skip card in its place. "script": part 2 of the script failed (nothing to skip over). */
+  | { type: "error"; sceneId: string; error: Error; scope?: "scene" | "script" }
   | { type: "checkpoints"; items: Checkpoint[] };
 
 /** Real generation progress for the loading UI: which step scene `scene` is on, and how many scenes are ready. */
@@ -83,6 +84,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   let issued = 0;
   let active = 0;
   let groups: { beats: Beat[]; plan: ScenePlan }[] = [];
+  let failedScenes = 0;
   let ready_ = 0, says: string[] = [];
   const progress = (step: Progress["step"], scene: number) => onProgress?.({ step, scene, scenesReady: ready_, scenesTotal: groups.length, beats: says });
 
@@ -173,7 +175,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         error = cause instanceof Error ? cause : new Error(String(cause));
       }
     }
-    return { type: "error", sceneId, error };
+    failedScenes++;
+    devlog(`generation: ${sceneId} skipped after retry (${failedScenes} this session): ${error.message}`);
+    return { type: "error", sceneId, error, scope: "scene" };
   }
 
   function fill() {
@@ -230,7 +234,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         devlog(`generation: script-part-2-ready +${clock.now() - started}ms`);
         fill();
       })().catch(cause => {
-        continuationError = { type: "error", sceneId: `scene-${groups.length + 1}`, error: cause instanceof Error ? cause : new Error(String(cause)) };
+        continuationError = { type: "error", sceneId: `scene-${groups.length + 1}`, error: cause instanceof Error ? cause : new Error(String(cause)), scope: "script" };
         devlog(`generation: script-part-2-failed +${clock.now() - started}ms`);
       }).finally(() => { scriptDone = true; });
       // Wait for the full scene list for checkpoints, without delaying any playable scene.
@@ -280,6 +284,8 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       return generator.return();
     },
     [Symbol.asyncIterator]() { return this; },
+    /** Scenes that failed their retry this session (each becomes a skip card). */
+    failedScenes() { return failedScenes; },
     bufferedAhead() { return ready.size; },
     status(): Status {
       return state === "buffering" && ready.has(cursor) ? "ready" : state;
