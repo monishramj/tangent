@@ -30,3 +30,7 @@ public/demo/*.wav
 # Downloaded installer resources (only the placeholder is tracked).
 src-tauri/resources/runtime/*
 !src-tauri/resources/runtime/README.txt
+
+# private eval manifests, extracted sections and replay answers
+scripts/eval-local*.json
+scripts/eval-local/

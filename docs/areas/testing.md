@@ -26,6 +26,12 @@ Windows remains advisory; platform fixes are deferred, with no new skips. [CI ru
 
 ## Log
 
+### 2026-11-16 — Step 14: public eval sections and private manifests
+- Added five CC BY 4.0 OpenStax Statistics sections; provenance, expected facts/numbers and owner-only STAT 350/CS 251 TODO templates in `docs/eval-set.md`.
+- Optional ignored local manifest/IR paths and absent replay answers skip explicitly; public replay slot is empty pending coordinator recording.
+- Evidence: offline `scripts/eval-set` + `scripts/eval-generation`, 2 files / 4 tests passed; five recording misses skipped, zero model calls.
+- Current calculus source is CC BY-NC-SA, so used only verified CC BY statistics; no generation-accuracy or native/sidecar checks. `nice` requested but sandbox denied priority changes.
+
 ### 2026-11-15 — Quarantined flaky Home test
 - Open issue: `src/home/Home.test.tsx` "multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO" failed on CI web macos-15 ([run 43696901697](https://github.com/monishramj/tangent/actions/runs/43696901697)), passes locally 27/27. Skipped with `it.skip`; find root cause then re-enable (fix or delete within one week).
 - Not verified: root cause.

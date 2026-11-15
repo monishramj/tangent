@@ -1,5 +1,93 @@
 [
-  { "name": "bioethics: argument 5", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-3" },
-  { "name": "bioethics: slippery slope", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-13" },
-  { "name": "bioethics: assessing whole arguments", "ir": "appdata:store/ir-src1yikhgj.json", "section": "section-15" }
+  {
+    "name": "openstax: 1.1 Definitions of Statistics, Probability, and Key Terms",
+    "ir": "tests/fixtures/eval/openstax-statistics.json",
+    "section": "definitions",
+    "expected": {
+      "facts": [
+        "A statistic describes a sample, whereas a parameter describes a population.",
+        "The mean exam score is 84.3 to one decimal place."
+      ],
+      "numbers": [
+        86,
+        75,
+        92,
+        84.3,
+        40,
+        22,
+        18
+      ]
+    }
+  },
+  {
+    "name": "openstax: 3.1 Terminology",
+    "ir": "tests/fixtures/eval/openstax-statistics.json",
+    "section": "terminology",
+    "expected": {
+      "facts": [
+        "A sample space contains all possible outcomes.",
+        "An event is a subset of the sample space."
+      ],
+      "numbers": [
+        0,
+        1,
+        0.5,
+        6
+      ]
+    }
+  },
+  {
+    "name": "openstax: 3.2 Independent and Mutually Exclusive Events",
+    "ir": "tests/fixtures/eval/openstax-statistics.json",
+    "section": "independence",
+    "expected": {
+      "facts": [
+        "Replacement leaves the second blue probability at 4/7.",
+        "After removing a blue marble, the second blue probability is 1/2."
+      ],
+      "numbers": [
+        4,
+        3,
+        7,
+        6,
+        0.5
+      ]
+    }
+  },
+  {
+    "name": "openstax: 4.3 Binomial Distribution (Optional)",
+    "ir": "tests/fixtures/eval/openstax-statistics.json",
+    "section": "binomial",
+    "expected": {
+      "facts": [
+        "Binomial trials are independent with constant success probability.",
+        "Withdrawal is success when the random variable counts withdrawals."
+      ],
+      "numbers": [
+        1,
+        2,
+        30,
+        70
+      ]
+    }
+  },
+  {
+    "name": "openstax: 6.1 The Standard Normal Distribution",
+    "ir": "tests/fixtures/eval/openstax-statistics.json",
+    "section": "standard-normal",
+    "expected": {
+      "facts": [
+        "The standard normal has mean 0 and standard deviation 1.",
+        "A score of 11 with mean 5 and standard deviation 2 has z-score 3."
+      ],
+      "numbers": [
+        0,
+        1,
+        5,
+        2,
+        11,
+        3
+      ]
+    }
+  }
 ]

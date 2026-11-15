@@ -9,22 +9,21 @@
 //
 // Per section it reports: beats, attempts, script generation time (recorded wall time of the model calls),
 // beats with an unsupported number (deterministic, grounding.ts) and, with --judge, beats the judge calls
-// unsupported. Recordings hold textbook text, so they live outside the repo (TANGENT_EVAL_DIR, default
-// <appData>/eval); golden.json only names sections. Replay is exact: prompts are keyed by sha256.
-import { it } from "vitest";
+// unsupported. Public replay answers live in tests/fixtures/eval/recordings.json; private answers stay
+// outside the repo (TANGENT_EVAL_DIR, default <appData>/eval). See docs/eval-set.md. Keys are sha256.
+import { expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { ClaudeCodeCLI } from "../src/llm/claudeCli";
 import type { CompleteOpts, LLMProvider } from "../src/llm/provider";
-import { checkGrounding, type Beat, type DetailLevel } from "../src/gen/script";
+import { checkGrounding, type Beat } from "../src/gen/script";
 import { stripWatermarks } from "../src/gen/sanitize";
 import { chunkBeats } from "../src/gen/plan";
 import { generateGroupScene } from "../src/gen/scene";
+import { MissingRecording, readManifest, readSection } from "./eval-set";
 
-type Golden = { name: string; ir: string; section: string; detail?: DetailLevel };
-type Section = { id: string; markdown?: string; passages?: { id: string; markdown: string }[]; children?: Section[] };
 type Recording = Record<string, { text: string; ms: number }>;
 
 const args = (process.env.TANGENT_EVAL ?? "").split(/\s+/).filter(Boolean);
@@ -47,7 +46,7 @@ const provider: LLMProvider = {
     const key = createHash("sha256").update(`${opts.model ?? "haiku"}\n${prompt}`).digest("hex");
     let hit = recordings[key];
     if (!hit) {
-      if (!record) throw new Error(`no recording for a ${opts.model ?? "haiku"} prompt (${key.slice(0, 12)}); rerun with --record`);
+      if (!record) throw new MissingRecording(`no recording for a ${opts.model ?? "haiku"} prompt (${key.slice(0, 12)}); rerun with --record`);
       const t = performance.now();
       const text = await cli.complete(prompt, { ...opts, timeoutMs: opts.timeoutMs ?? 300_000 });
       hit = recordings[key] = { text, ms: Math.round(performance.now() - t) };
@@ -58,10 +57,6 @@ const provider: LLMProvider = {
     if (repair && flag("--verbose")) console.log(`[repair] ${repair[1].slice(0, 400)}`);
     return hit.text;
   },
-};
-
-const find = (s: Section[], id: string): Section | undefined => {
-  for (const x of s) { if (x.id === id) return x; const c = find(x.children ?? [], id); if (c) return c; }
 };
 
 /** LLM-as-judge: is each beat entailed by the source? Run with --judge; recorded like everything else. */
@@ -85,16 +80,20 @@ Return only the JSON array.`, { model: "sonnet", timeoutMs: 300_000 });
 }
 
 it.skipIf(!process.env.TANGENT_EVAL)("golden set", async () => {
-mkdirSync(evalDir, { recursive: true });
-recordings = existsSync(recPath) ? JSON.parse(readFileSync(recPath, "utf8")) : {};
-const golden: Golden[] = JSON.parse(readFileSync(resolve("scripts/eval-golden.json"), "utf8"));
+if (record) mkdirSync(evalDir, { recursive: true });
+recordings = {
+  ...JSON.parse(readFileSync(resolve("tests/fixtures/eval/recordings.json"), "utf8")),
+  ...(existsSync(recPath) ? JSON.parse(readFileSync(recPath, "utf8")) : {}),
+};
+const golden = [
+  ...readManifest(resolve("scripts/eval-golden.json")),
+  ...readManifest(resolve(process.env.TANGENT_EVAL_LOCAL ?? "scripts/eval-local.json"), true),
+];
 const { generateScript } = await import(impl) as typeof import("../src/gen/script");
 const rows: Record<string, string | number>[] = [];
 for (const g of golden) {
-  const irPath = g.ir.startsWith("appdata:") ? join(appData, g.ir.slice(8)) : resolve(g.ir);
-  if (!existsSync(irPath)) { console.warn(`skip ${g.name}: ${irPath} missing`); continue; }
-  const section = find(JSON.parse(readFileSync(irPath, "utf8")).sections, g.section);
-  if (!section?.markdown) { console.warn(`skip ${g.name}: no section ${g.section}`); continue; }
+  const section = readSection(g, appData);
+  if (!section?.markdown) continue;
   spentMs = 0;
   try {
     const r = await generateScript({ sectionMarkdown: section.markdown, provider, detail: g.detail ?? "standard", passages: section.passages });
@@ -129,6 +128,10 @@ for (const g of golden) {
     rows.push({ section: g.name, beats: beats.length, scenes, sceneNumberRejects, sceneSec: sceneMs, attempts: r.attempts, dropped: r.dropped?.length ?? 0, styleWaived: r.styleWaived?.length ?? 0, lint: r.violations.filter(v => v.rule !== "unsupported-number").length,
       unsupportedNumberBeats: numbers, judgeUnsupported: judged, scriptSec: +(scriptMs / 1000).toFixed(1) });
   } catch (e) {
+    if (e instanceof MissingRecording) {
+      console.warn(`skip ${g.name}: ${e.message}`);
+      continue;
+    }
     rows.push({ section: g.name, error: e instanceof Error ? e.message.slice(0, 120) : String(e) });
   }
 }
@@ -139,4 +142,5 @@ const sum = (k: string) => ok.reduce((n, r) => n + (Number(r[k]) || 0), 0);
 console.log(JSON.stringify({ label, sections: ok.length, beats: sum("beats"), styleWaived: sum("styleWaived"), unsupportedNumberBeats: sum("unsupportedNumberBeats"),
   judgeUnsupported: flag("--judge") ? sum("judgeUnsupported") : null, judgeRate: flag("--judge") && sum("beats") ? +(sum("judgeUnsupported") / sum("beats")).toFixed(3) : null,
   meanScriptSec: ok.length ? +(sum("scriptSec") / ok.length).toFixed(1) : null }));
+expect(rows.filter(r => r.error), "recorded eval errors").toEqual([]);
 }, 3_600_000);
