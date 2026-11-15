@@ -5,6 +5,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 2026-11-16 — Step 12 fact-check of every beat (`src/gen/factCheck.ts`, `streamVideo({ factCheck })`), default OFF; eval harness `src/gen/factCheck.eval.test.ts`; false-flag rate not yet measured.
 2026-11-16 — PR #22 review fixes: unsafe extern, setup window kept on main-window failure, bootstrap capability scoped by label only.
 2026-11-16 — PR #21 follow-ups: bootstrap-only capability + per-command app permissions, main window created only after setup, Windows job-before-spawn (unverified), checksummed uv licences, CPython pinned 3.12.14.
+- 2026-11-16 Step 9: round-1 brace section picker built into SourceView (white accent, no checkboxes); generation still receives top-level section ids.
 2026-11-15 — Section picker mockups round 2: three brace-flair variants of thin tree lines (curl tip, pinch, curl elbows) on `src/dev/section-picker.html?v=1|2|3`; screenshots `c1-`..`c3-` in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 2026-11-15 — Quarantined flaky Home.test.tsx multi-drop test (CI macos-15 run 43696901697); root cause open, see docs/areas/testing.md.
 - 2026-11-15: v1 step 4 added `docs/testing-and-ci.md` owner guide; commands verified locally (tsc, 5 focused tests, deliberate break fails 2), CI half of drill and pytest not run.

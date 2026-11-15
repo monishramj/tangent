@@ -74,8 +74,6 @@
 .tl-sections { padding-top:12px; }
 .tl-section-row { display:flex;align-items:center;gap:14px;padding:22px 12px;border-bottom:1px solid var(--line);font-size:14px;border-radius:5px; }
 .tl-section-row>span { min-width:0;overflow-wrap:anywhere; } .tl-section-row small { margin-left:auto;color:var(--fg-subtle);font-size:11px;white-space:nowrap; }
-.tl-selecting { user-select:none; } .tl-selecting .tl-section-row { cursor:pointer; } .tl-selecting .tl-section-row:hover { background:var(--surface); } .tl-section-row.tl-picked { background:var(--surface-2); }
-.tl-section-row input { accent-color:var(--fg);width:18px;height:18px;cursor:pointer;flex-shrink:0; }
 .tl-selection-head { display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:16px 10px 0;color:var(--fg-muted); }
 .tl-selection-head small { display:block;color:var(--fg-subtle);font-size:11px;margin-top:3px; }
 .tl-generation { position:sticky;bottom:16px;z-index:2;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:18px;margin-top:22px;box-shadow:0 8px 24px #0008; }

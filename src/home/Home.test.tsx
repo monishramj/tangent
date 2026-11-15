@@ -62,8 +62,8 @@ it('selection mode deduplicates selected descendants and passes detail through o
   const { container, onStart, jsonStore } = setup();
   await upload(container);
   fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Heapify' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Heaps' }));
+  fireEvent.click(screen.getByRole('treeitem', { name: /Heaps/ }));
+  expect(screen.getByRole('treeitem', { name: /Heapify/ }).getAttribute('aria-selected')).toBe('true');
   fireEvent.change(screen.getByLabelText('Detail level'), { target: { value: 'complete' } });
   fireEvent.click(screen.getByRole('button', { name: 'Make video · 1 selected' }));
   expect(onStart).toHaveBeenCalledWith(['s1'], ir, { pdfPath: '/book.pdf', title: 'Heaps', detail: 'complete' });
@@ -73,21 +73,21 @@ it('Select all and cancel clear selection without starting generation', async ()
   const { container, onStart } = setup(); await upload(container);
   fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
   fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
-  expect(screen.getAllByRole('checkbox').every(c => (c as HTMLInputElement).checked)).toBe(true);
+  expect(screen.getAllByRole('treeitem').every(el => el.getAttribute('aria-selected') === 'true')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
-  expect(screen.getAllByRole('checkbox').some(c => (c as HTMLInputElement).checked)).toBe(false);
+  expect(screen.getAllByRole('treeitem').every(el => el.getAttribute('aria-selected') === 'false')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('checkbox')).toBeNull(); expect(onStart).not.toHaveBeenCalled();
+  expect(screen.queryByRole('treeitem')).toBeNull(); expect(onStart).not.toHaveBeenCalled();
 });
 it('drag selects a contiguous range and pointerup ends it', async () => {
   const { container } = setup(); await upload(container);
   fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
-  const rows = container.querySelectorAll('.tl-section-row');
-  fireEvent.pointerDown(rows[0], { button: 0, buttons: 1 });
-  fireEvent.pointerEnter(rows[1], { buttons: 1 });
-  expect(screen.getAllByRole('checkbox').every(c => (c as HTMLInputElement).checked)).toBe(true);
-  fireEvent.pointerUp(window); fireEvent.pointerEnter(rows[0], { buttons: 1 });
-  expect(screen.getAllByRole('checkbox').every(c => (c as HTMLInputElement).checked)).toBe(true);
+  const rows = container.querySelectorAll('.pk-row');
+  fireEvent.pointerDown(rows[0], { button: 0, buttons: 1, pointerType: 'mouse' });
+  fireEvent.pointerEnter(rows[1], { buttons: 1, pointerType: 'mouse' });
+  expect(screen.getAllByRole('treeitem').every(el => el.getAttribute('aria-selected') === 'true')).toBe(true);
+  fireEvent.pointerUp(window); fireEvent.pointerEnter(rows[0], { buttons: 1, pointerType: 'mouse' });
+  expect(screen.getAllByRole('treeitem').every(el => el.getAttribute('aria-selected') === 'true')).toBe(true);
 });
 it('lists saved bundles only and opens the full saved bundle without generating', async () => {
   localStorage.setItem('tangent.recent', JSON.stringify([{ title: 'Ghost' }]));
