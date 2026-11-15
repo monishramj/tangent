@@ -107,6 +107,25 @@ it("persists and replays per-beat passage boxes; old bundles replay without them
   expect(oldEvents.map(e => e.type === "scene" && ("passages" in e || "passageIds" in e))).toEqual([false, false]);
 });
 
+it("stores each beat's source id and still opens a bundle saved without them", async () => {
+  const store = fakeVideoStore();
+  const multi = { ...source, id: "a", also: [{ id: "b", pdfPath: "/deck.pptx", sectionId: "s2", sectionTitle: "Slides" }] };
+  const scene = ev(1);
+  if (scene.type !== "scene") throw new Error("expected a scene");
+  await drain(recordStream(of([{ ...scene, sourceIds: ["a", "b"] }]), { id: "v", title: "t", source: multi }, store));
+  await new Promise(r => setTimeout(r, 0));
+  const saved = await store.load("v");
+  expect(saved.source.also?.[0].id).toBe("b");
+  expect(saved.scenes[0].sourceIds).toEqual(["a", "b"]);
+  const replayed: PipelineEvent[] = [];
+  for await (const e of replayStream(saved)) replayed.push(e);
+  expect(replayed[0]).toMatchObject({ type: "scene", sourceIds: ["a", "b"] });
+  const old = { ...saved, source: { pdfPath: source.pdfPath, sectionId: source.sectionId, sectionTitle: source.sectionTitle }, scenes: saved.scenes.map(({ sourceIds: _s, ...scene }) => scene) };
+  const oldEvents: PipelineEvent[] = [];
+  for await (const e of replayStream(old)) oldEvents.push(e);
+  expect(oldEvents.map(e => e.type === "scene" && "sourceIds" in e)).toEqual([false]);
+});
+
 const gifBundle = () => ({
   id: "gif", title: "Reaction", createdAt: 0, complete: true, source,
   scenes: [{ sceneId: "s", scene: { scene: "s", beats: [], objects: [

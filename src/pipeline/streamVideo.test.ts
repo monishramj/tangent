@@ -429,6 +429,25 @@ it("attaches each beat's passage boxes to its scene; unknown ids are dropped; no
   for (const s of sceneEvents(await out)) expect(s.type === "scene" && ("passages" in s || "passageIds" in s)).toBe(false);
 });
 
+it("stamps each beat with the source its passage cites", async () => {
+  const { options, beats } = setup(2);
+  const passages = [{ id: "a/p1", markdown: "Arrays grow.", boxes: [] }, { id: "b/p1", markdown: "Slides grow.", boxes: [] }];
+  const tagged = beats.map((b, i) => ({ ...b, passages: [i % 2 ? "b/p1" : "a/p1"] }));
+  options.provider.complete = vi.fn(async (prompt: string) => {
+    if (prompt.includes("Rewrite the textbook section")) {
+      expect(prompt).toContain("several sources");
+      expect(prompt).toContain("[a/p1]");
+      return prompt.includes("PART 1:") ? JSON.stringify({ outline: "Continue.", beats: tagged.slice(0, 3) }) : JSON.stringify(tagged.slice(3));
+    }
+    if (prompt.startsWith("Write checkpoint questions")) return "[]";
+    return answerFor(groupOf(prompt));
+  });
+  const events = collect(streamVideo({ ...options, passages, sources: [{ id: "a", markdown: "Arrays grow." }, { id: "b", markdown: "Slides grow." }] }));
+  await vi.runAllTimersAsync();
+  const scenes = sceneEvents(await events).filter(e => e.type === "scene");
+  expect(scenes.map(s => s.type === "scene" && s.sourceIds)).toEqual([["a", "b", "a"], ["b", "a", "b", "a"]]);
+});
+
 it("starts and yields scene 1 before the second script call resolves, then appends the rest in order", async () => {
   vi.mocked(devlog).mockClear();
   const { options, provider, beats, ttsAlign } = setup(2);
