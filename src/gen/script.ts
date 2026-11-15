@@ -114,7 +114,7 @@ Speech rules, all mandatory:
 
 ${detailRules(detail, targetBeats(beatsFrom, detail))}
 
-visualIntent is a short plain description of what should be on screen while the beat is spoken (motion, diagram, highlight). Energy comes from visuals, never from packing more ideas into a sentence. cite is optional: copy a source anchor like "p. 287" only if the section supplies one; never invent one.
+visualIntent is a short plain description of what should be on screen while the beat is spoken (motion, diagram, highlight). Energy comes from visuals, never from packing more ideas into a sentence. cite is optional: copy a source anchor like "p. 287" only if the section supplies one; never invent one. If the source has no page numbers, omit cite.
 Accuracy, mandatory: every fact, number, date, name and definition in say must come from the source. Rewrite the source's wording for the ear, but keep its meaning exactly: no new statistics, no new examples presented as fact, no stronger or broader claims than the source makes. Analogies and jokes are fine when they are clearly framing, not facts. If the source gives no number for something, say it without a number. Do not add claims the section does not make.${tagged ? `
 The source is split into blocks, each starting with its id like [p3]. passages lists the ids of the blocks the beat rewrites, usually 1 or 2, in order. Ids go only in passages, never in say.` : ""}
 

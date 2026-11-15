@@ -5,11 +5,12 @@ import Icon from '@/components/Icon';
 import ShinyText from '@/components/ShinyText';
 import LoadingCircle from '@/components/LoadingCircle';
 import Page from '@/player/PdfPage';
-import type { RenderPage } from '@/follow/types';
+import type { Passage, RenderPage } from '@/follow/types';
 import { DETAIL_LEVELS, isDetailLevel, type DetailLevel } from '../gen/script';
 import type { LoadProgress } from '../library';
 import { preparationLabel, type IngestItem } from './ingestQueue';
 import type { VideoBundle } from '../storage/videos';
+import { isOfficeSource } from '../storage/library';
 import { pdfInfo, pdfPage, topSelected, type SectionRef } from './api';
 import { PreparationOverlay, LibraryShell, VideoList, type SourceSummary } from './LibraryView';
 import SectionPicker from './SectionPicker';
@@ -22,6 +23,7 @@ export type SourceViewProps = {
   seedSelection?: string[];
   renderPage?: RenderPage;
   onDeleteVideo?: (id: string) => void | Promise<void>;
+  passages?: Passage[];
   initialDetail?: DetailLevel; onDetailChange?: (detail: DetailLevel) => void;
   preparation?: IngestItem<unknown>; loading?: string; progress?: LoadProgress; error?: string; cleanupPending?: boolean; warning?: string; onRetryCleanup?: () => void;
 };
@@ -38,6 +40,7 @@ function pages(section: SectionRef) {
 
 export default function SourceView(props: SourceViewProps) {
   const { source, sections, videos } = props;
+  const textSource = isOfficeSource(source.pdfPath);
   const [tab, setTab] = useState<'sections' | 'pdf'>('sections');
   const [selecting, setSelecting] = useState(props.seedSelection != null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(props.seedSelection ?? []));
@@ -61,7 +64,7 @@ export default function SourceView(props: SourceViewProps) {
     <div className="tl-source-grid"><section className="tl-source-main">
       <div className="tl-source-toolbar"><div className="tl-tabs" role="tablist" aria-label="Source view">
         {(['sections', 'pdf'] as const).map(value => <button id={`source-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`source-panel-${value}`} tabIndex={tab === value ? 0 : -1}
-          onClick={() => setTab(value)} onKeyDown={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); const next = e.key === 'Home' ? 'sections' : e.key === 'End' ? 'pdf' : value === 'pdf' ? 'sections' : 'pdf'; setTab(next); document.getElementById(`source-tab-${next}`)?.focus(); } }}>{value === 'sections' ? 'Sections' : 'Original PDF'}</button>)}
+          onClick={() => setTab(value)} onKeyDown={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) { e.preventDefault(); const next = e.key === 'Home' ? 'sections' : e.key === 'End' ? 'pdf' : value === 'pdf' ? 'sections' : 'pdf'; setTab(next); document.getElementById(`source-tab-${next}`)?.focus(); } }}>{value === 'sections' ? 'Sections' : textSource ? 'Source' : 'Original PDF'}</button>)}
       </div>{!selecting && <button ref={makeButton} className="tl-primary" disabled={!!props.loading || !sections.length} onClick={() => { setSelecting(true); setTab('sections'); }}>Make a video <Icon icon={Add01Icon} size={16} /></button>}</div>
       {tab === 'sections' ? <div role="tabpanel" id="source-panel-sections" aria-labelledby="source-tab-sections">
         {props.loading ? <div className="tl-loading" role="status"><ShinyText text={props.loading} color="#999" shineColor="#fff" />{props.progress && <><progress aria-label="Reading PDF" value={props.progress.fraction} max={1} /><small>{props.progress.label}</small></>}</div> : <>
@@ -79,10 +82,17 @@ export default function SourceView(props: SourceViewProps) {
           </div>}
         </>}
       </div> : <div role="tabpanel" id="source-panel-pdf" aria-labelledby="source-tab-pdf" className="tl-pdf-panel">
-        <PdfPages key={source.pdfPath} source={source} renderPage={props.renderPage ?? pdfPage} />
+        {textSource ? <SourceText passages={props.passages ?? []} /> : <PdfPages key={source.pdfPath} source={source} renderPage={props.renderPage ?? pdfPage} />}
       </div>}
     </section><aside className="tl-source-videos"><h2>Videos<span>{videos.length}</span></h2><VideoList videos={videos} onOpen={props.onOpenVideo} onDelete={props.onDeleteVideo} label="Videos from this source" /><p>Every video you make from this PDF lives here.</p></aside></div>
   </LibraryShell>;
+}
+
+function SourceText({ passages }: { passages: Passage[] }) {
+  if (!passages.length) return <p className="tl-empty">No text in this file yet.</p>;
+  return <div aria-label="Source text" className="space-y-3 overflow-auto p-4 text-sm leading-6 whitespace-pre-wrap">
+    {passages.map(p => <p key={p.id} data-passage={p.id}>{p.markdown}</p>)}
+  </div>;
 }
 
 function PdfPages({ source, renderPage }: { source: SourceSummary; renderPage: RenderPage }) {

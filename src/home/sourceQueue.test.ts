@@ -97,3 +97,15 @@ it('keeps a source usable with a quiet warning when the preview fails, and expli
   // Titles were already cached complete by the first attempt, so retry doesn't re-call the LLM.
   expect(provider.complete).toHaveBeenCalledTimes(1);
 });
+it('skips the PDF preview for slides and Word docs', async () => {
+  const provider = { complete: vi.fn().mockResolvedValue('{"s":"Heaps"}') };
+  const save = vi.fn();
+  const queue = sourceQueue(memoryJsonStore(), provider, save);
+  const deck = await queue.enqueue('deck.pptx').result;
+  const notes = await queue.enqueue('notes.DOCX').result;
+  expect(deck.sections[0].title).toBe('Heaps');
+  expect(notes.sections[0].title).toBe('Heaps');
+  expect(pdfPreview).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+  expect(queue.snapshot().every(item => item.status === 'done' && !item.warning)).toBe(true);
+});

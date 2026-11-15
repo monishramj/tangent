@@ -1,6 +1,7 @@
 import { cachedIr, loadIr, type LoadProgress } from '../library';
 import { listSections, pdfPreview, type IR, type SectionRef } from './api';
 import { sectionTitles } from './sectionTitles';
+import { isOfficeSource } from '../storage/library';
 import { sourceFor, type JsonStore } from '../storage/store';
 import type { LLMProvider } from '../llm/provider';
 import type { LibrarySource } from '../storage/library';
@@ -69,7 +70,7 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
     const value = { ir, sections: cleaned.sections };
     stage('preview', value);
     const source = sources.get(path);
-    if (!source?.thumbnailUrl || !source.pageCount) {
+    if (!isOfficeSource(path) && (!source?.thumbnailUrl || !source.pageCount)) {
       const preview = await pdfPreview(path).catch(() => undefined);
       if (!preview?.thumbnailUrl || !preview.pages) warn('No preview');
       else { await savePreview(path, preview); sources.set(path, { ...sourceFor(path), ...source, thumbnailUrl: preview.thumbnailUrl, pageCount: preview.pages }); }
@@ -88,7 +89,7 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
       if (!ir || ir.outline_version !== 1) return;
       const sections = await listSections(ir);
       const cleaned = await sectionTitles(source.id, sections, ir, store);
-      const warning = cleaned.incomplete ? 'Some titles not tidied' : !source.thumbnailUrl || !source.pageCount ? 'No preview' : undefined;
+      const warning = cleaned.incomplete ? 'Some titles not tidied' : !isOfficeSource(source.pdfPath) && (!source.thumbnailUrl || !source.pageCount) ? 'No preview' : undefined;
       queue.restore(source.pdfPath, { ir, sections: cleaned.sections }, warning);
     },
   };

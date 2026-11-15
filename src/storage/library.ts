@@ -1,6 +1,8 @@
 import { newId, sourceFor, type JsonStore, type Source } from './store';
 import type { VideoBundle } from './videos';
 
+export const isOfficeSource = (path: string) => /\.(pptx|docx)$/i.test(path);
+export const isSourceFile = (path: string) => /\.(pdf|pptx|docx)$/i.test(path);
 export type LibrarySource = Source & { folderId?: string | null; thumbnailUrl?: string; pageCount?: number };
 export type LibraryFolder = { id: string; name: string; emoji: string; openedAt: number };
 export type Library = { folders: LibraryFolder[]; sources: LibrarySource[] };

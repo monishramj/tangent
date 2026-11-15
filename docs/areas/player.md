@@ -42,6 +42,8 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
+- 2026-11-16 PPTX/DOCX textbook panel is source text with the current passage highlighted (passage ids, no page render). The source tab shows the same text. Verified: TextSource and SourceView tests. Not verified: playback against a real deck.
+
 ### 2026-11-16 — Step 15: skip card for failed scenes
 - A `scope: "scene"` error becomes a synthetic 2 s scene (`skipCard.tsx`: empty beats, silent WAV data-URL) enqueued in the SceneQueue at the failed scene's place, so order, seek, interrupt/rejoin and the audio clock behave as for any scene. Card UI: plain "Skipping ahead…", fade only under `motion-safe`.
 - Checkpoint `afterScene` is remapped past cards in `PlayerScreen` (`applyCps`); checkpoints about a skipped scene are dropped. If nothing ever plays, the alert + Try again show at stream end.

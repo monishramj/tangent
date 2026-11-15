@@ -7,6 +7,7 @@ import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sec
 import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import { recordStream, replayStream, tauriVideoStore, type VideoBundle, type VideoStore } from "./storage/videos";
+import { isOfficeSource } from "./storage/library";
 import { irCache, sourceFor, newId, tauriJsonStore, type JsonStore } from "./storage/store";
 import { withFormulas } from "./library";
 import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
@@ -49,14 +50,15 @@ function Watch({ video, provider, store, onBack }: { video: VideoBundle; provide
   const [source, setSource] = useState<{ markdown: string; passages: Passage[] }>({ markdown: video.title, passages: [] });
   useEffect(() => {
     let live = true;
+    const path = video.source.pdfPath;
     setPages([]);
     setSource({ markdown: video.title, passages: [] });
-    void irCache(store).get(sourceFor(video.source.pdfPath).id).then(async ir => {
+    void irCache(store).get(sourceFor(path).id).then(async ir => {
       if (!ir || !Array.isArray(ir.sections)) return;
       const ids = video.source.sectionId.split("+");
       const passages = sectionsPassages(ir, ids);
       if (live) {
-        setPages(sectionPages(ir, video.source.sectionId));
+        setPages(isOfficeSource(path) ? [] : sectionPages(ir, video.source.sectionId));
         setSource({ markdown: passages.map(p => p.markdown).join("\n\n") || video.title, passages });
       }
       const markdown = stripWatermarks(await sectionsText(ir, ids));
@@ -102,6 +104,6 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   const error = state && "error" in state ? state.error : null;
   return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
     kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} passages={state && "passages" in state ? state.passages : []} provider={provider} store={store}
-    textbook={{ pdfPath: args.meta.pdfPath, pages: sectionPages(args.ir, args.sectionIds.join("+")) }}
+    textbook={{ pdfPath: args.meta.pdfPath, pages: isOfficeSource(args.meta.pdfPath) ? [] : sectionPages(args.ir, args.sectionIds.join("+")) }}
     progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section: ${error}` : undefined} />;
 }

@@ -90,3 +90,13 @@ it('sizes pages immediately from the scroller, caps width, and settles only shar
   await act(async () => { vi.advanceTimersByTime(250); });
   expect(renderPage).toHaveBeenCalledTimes(2);
 });
+
+it('shows the source text for a Word doc instead of PDF pages', () => {
+  setup({ source: { id: 'notes', name: 'notes.docx', pdfPath: '/notes.docx' },
+    passages: [{ id: 'p1', markdown: 'A heap is a tree.', boxes: [] }] });
+  expect(screen.queryByRole('tab', { name: 'Original PDF' })).toBeNull();
+  fireEvent.click(screen.getByRole('tab', { name: 'Source' }));
+  expect(screen.getByLabelText('Source text').textContent).toContain('A heap is a tree.');
+  expect(renderPage).not.toHaveBeenCalled();
+  expect(pdfInfo).not.toHaveBeenCalled();
+});

@@ -1,6 +1,7 @@
-// Parse a PDF once (cached IR, figures in app data), with honest progress.
+// Parse a source once (cached IR, figures in app data), with honest progress.
 import { enrichFormulas, figuresDir, ingestPdf, repairSections, type IR } from "./home/api";
 import { listen } from "@tauri-apps/api/event";
+import { isOfficeSource } from "./storage/library";
 import { irCache, sourceFor, tauriJsonStore, type JsonStore } from "./storage/store";
 
 /** fraction is undefined until the sidecar reports its actual page count. */
@@ -23,7 +24,7 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
     if (repaired !== cached) await irCache(store).set(source.id, repaired);
     return repaired;
   }
-  onProgress?.({ label: "Reading PDF" });
+  onProgress?.({ label: isOfficeSource(pdfPath) ? "Reading document" : "Reading PDF" });
   const unlisten = await listen<{ path: string; progress: { completed: number; total: number; paused: boolean } }>("ingest-progress", ({ payload }) => {
     if (payload.path !== pdfPath) return;
     const { completed, total, paused } = payload.progress;
