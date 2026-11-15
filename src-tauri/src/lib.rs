@@ -114,6 +114,13 @@ struct State_ {
 }
 
 impl State_ {
+    /// Drops (and so kills) every idle sidecar. try_lock: never hang quit behind a running job; the child's watchdog covers that case.
+    fn kill_sidecars(&self) {
+        for connection in [&self.work, &self.ingest, &self.ping] {
+            if let Ok(mut s) = connection.try_lock() { *s = Sidecar::default(); }
+        }
+    }
+
     fn connection(&self, method: &str) -> Arc<Mutex<Sidecar>> {
         // Python handles requests serially, so health checks need a separate connection.
         Arc::clone(match method { "ping" => &self.ping, "ingest_pdf" => &self.ingest, _ => &self.work })
@@ -236,6 +243,34 @@ async fn sidecar_call(app: tauri::AppHandle, state: State<'_, State_>, method: S
     }).await.map_err(|e| e.to_string())?
 }
 
+/// SIGTERM/SIGINT (pkill, Ctrl-C) skip the normal exit path, which would orphan the sidecar.
+/// The handler only writes to a pipe (async-signal-safe); a thread then runs the same cleanup as quit.
+#[cfg(unix)]
+fn exit_on_signal(app: tauri::AppHandle) {
+    static WRITE_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+    extern "C" fn on_signal(_: i32) {
+        let fd = WRITE_FD.load(std::sync::atomic::Ordering::Relaxed);
+        unsafe { libc::write(fd, [0u8].as_ptr().cast(), 1); }
+    }
+    let mut fds = [0i32; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 { return; }
+    WRITE_FD.store(fds[1], std::sync::atomic::Ordering::Relaxed);
+    unsafe {
+        libc::signal(libc::SIGTERM, on_signal as extern "C" fn(i32) as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_signal as extern "C" fn(i32) as libc::sighandler_t);
+    }
+    std::thread::spawn(move || {
+        let mut byte = [0u8];
+        while unsafe { libc::read(fds[0], byte.as_mut_ptr().cast(), 1) } < 0 {} // retry on EINTR
+        app.state::<bootstrap::Setup>().cancel();
+        app.state::<State_>().kill_sidecars();
+        app.exit(0);
+        // The event loop may be wedged; the sidecar is already gone, so do not linger.
+        std::thread::sleep(Duration::from_secs(3));
+        std::process::exit(0);
+    });
+}
+
 #[tauri::command]
 fn dev_log(msg: String) { eprintln!("[webview] {msg}"); } // dev diagnostics: webview events land in the terminal log
 
@@ -314,6 +349,8 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             warn_graphics(app.handle());
             bootstrap::setup(app.handle())?;
+            #[cfg(unix)]
+            exit_on_signal(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -329,11 +366,7 @@ pub fn run() {
             // Exit covers window close and quit; ExitRequested fires first, so kill there too.
             if matches!(e, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 app.state::<bootstrap::Setup>().cancel();
-                let state = app.state::<State_>();
-                for connection in [&state.work, &state.ingest, &state.ping] {
-                    // try_lock: never hang quit behind a running job; the child's watchdog covers that case.
-                    if let Ok(mut s) = connection.try_lock() { *s = Sidecar::default(); }
-                }
+                app.state::<State_>().kill_sidecars();
             }
         });
 }
@@ -351,6 +384,28 @@ mod tests {
             done"#])
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         Sidecar { proc: Some(Process::new(child)), next_id: 0 }
+    }
+
+    #[test]
+    fn kill_sidecars_drops_idle_connections_only() {
+        let state = State_::default();
+        for c in [&state.work, &state.ingest, &state.ping] { *c.lock().unwrap() = fake_sidecar(); }
+        let busy = state.ingest.lock().unwrap(); // a running job keeps its lock
+        state.kill_sidecars();
+        assert!(state.work.lock().unwrap().proc.is_none());
+        assert!(state.ping.lock().unwrap().proc.is_none());
+        assert!(busy.proc.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sigterm_pipe_wakes_reader() {
+        // The handler's only job is one pipe write; prove the write/read contract it relies on.
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        unsafe { libc::write(fds[1], [0u8].as_ptr().cast(), 1); }
+        let mut b = [1u8];
+        assert_eq!(unsafe { libc::read(fds[0], b.as_mut_ptr().cast(), 1) }, 1);
     }
 
     #[test]

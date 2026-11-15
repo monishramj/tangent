@@ -264,7 +264,11 @@ fn hand_off(open: impl FnOnce() -> Result<(), String>, close: impl FnOnce()) -> 
 
 fn open_main(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if app.get_webview_window("main").is_none() {
-        WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?.build()?;
+        // Label pinned to the one the `default` capability targets; a mismatch would leave the IPC-less page blank.
+        let config = app.config().app.windows[0].clone();
+        let window = WebviewWindowBuilder::from_config(app, &config)?.build()?;
+        // The setup window closes right after this; without an explicit focus the new window can stay unpainted on macOS.
+        let _ = window.set_focus();
     }
     Ok(())
 }
@@ -305,6 +309,10 @@ mod tests {
         assert!(needs_setup(false, false));
         let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(config["app"]["windows"][0]["create"], false, "main must be created by setup()");
+        // No label in the config means "main"; if one is ever added it must still match the default capability.
+        let label = config["app"]["windows"][0].get("label").and_then(|l| l.as_str()).unwrap_or("main");
+        let capability: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!([label]));
     }
 
     #[test]
