@@ -23,7 +23,7 @@ export type FollowScene = { scene: { beats: unknown[] }; timeline: Timeline; pas
 export type FollowAt = { beat: number; boxes: PassageBox[] };
 
 /** Passed from App to PlayerScreen. `pages` are the video's section pages from the cached IR (sorted, unique,
- *  1-based; [] when the IR is not cached). The tab shows these pages (plus any page a box is on). */
+ *  1-based; [] when the IR is not cached or the source is not a PDF). The tab shows these pages (plus any page a box is on). */
 export type TextbookSource = { pdfPath: string; pages: number[] };
 
 /** One rendered page from the Rust `pdf_page` command. `width`/`height` are the page size in PDF points. */

@@ -34,6 +34,7 @@ Token agreement is a conservative guard, not proof of mathematical equivalence; 
 
 ## Log
 
+- 2026-11-16 PPTX/DOCX enter `ingest_pdf` by extension (OOXML zip; other files still rejected). Docling's office reader, no PDF/formula model. IR keeps passages and slide titles as sections; page anchors, boxes and formula crops are dropped. Verified: `sidecar/tests/test_office.py` on tiny python-pptx/docx files. Not verified: a real lecture deck.
 - 2026-11-16 (step 7): Real five-page STAT 350 check: 30/30 detected pending regions decoded/matched (100%); lazy RPC adds 73.48 s, initial ingest 20.82 s.
   Four threads, heavy slot, nice 10 driver/19 sidecar; 95.35 s total, 21/21 nominal thermal samples, 15-minute/serious-heat abort guard.
   Ten rendered-source comparisons expose numeric/notation/LaTeX errors despite matching; separate fidelity job proposed in `docs/formula-check-2026-11.md`, no fix here.

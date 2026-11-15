@@ -319,7 +319,7 @@ it('requests native multi-selection and imports every returned PDF', async () =>
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.click(screen.getByRole('button', { name: /Choose PDFs/ }));
   await screen.findByText('b.pdf');
-  expect(open).toHaveBeenCalledWith({ multiple: true, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+  expect(open).toHaveBeenCalledWith({ multiple: true, filters: [{ name: 'PDF, PowerPoint, or Word', extensions: ['pdf', 'pptx', 'docx'] }] });
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
 });
 
@@ -382,6 +382,18 @@ it('library shortcuts open the existing folder form, file picker and Settings', 
   expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
   fireEvent.keyDown(window, { key: '[', ctrlKey: true });
   expect(screen.getByRole('heading', { name: 'library' })).toBeTruthy();
+});
+it('accepts slides and Word docs and still rejects other files', async () => {
+  setup();
+  await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
+  fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [
+    { name: 'deck.pptx', path: '/deck.pptx' }, { name: 'notes.DOCX', path: '/notes.DOCX' }, { name: 'pic.png', path: '/pic.png' },
+  ] } });
+  await screen.findByText('notes.DOCX');
+  expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/deck.pptx', '/notes.DOCX']));
+  expect(screen.getByRole('button', { name: /^deck.pptx/ }).textContent).toContain('Slides');
+  expect(screen.getByRole('button', { name: /^notes.DOCX/ }).textContent).toContain('Document');
 });
 it('hidden Home ignores library and app shortcuts', async () => {
   const onNavigate = vi.fn();

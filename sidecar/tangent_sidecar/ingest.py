@@ -1,4 +1,4 @@
-"""Docling PDF adapter. The IR contains only JSON values and local figure paths."""
+"""Docling adapter. PDF, PPTX and DOCX become one IR (JSON values and local figure paths)."""
 
 import base64
 import io
@@ -60,6 +60,59 @@ def _load_converter(formulas=False):
         ),
     )
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
+
+
+OFFICE = {".pptx", ".docx"}
+
+
+@lru_cache(maxsize=1)
+def _load_office_converter():
+    """PPTX/DOCX use Docling's OOXML reader (no layout or formula model)."""
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import DocumentConverter
+
+    return DocumentConverter(allowed_formats=[InputFormat.PPTX, InputFormat.DOCX])
+
+
+def _convert_office(path):
+    from docling.datamodel.base_models import ConversionStatus
+
+    result = _load_office_converter().convert(path)
+    if result.status != ConversionStatus.SUCCESS:
+        raise ValueError(f"conversion incomplete: {result.status}")
+    return result.document
+
+
+def _zip_file(path):
+    with path.open("rb") as stream:
+        return stream.read(4) == b"PK\x03\x04"
+
+
+def _without_page_geometry(ir):
+    """Office files have no PDF pages. Keep passage text; drop slide boxes, page anchors and formula crops."""
+    formulas = ir.pop("formulas", None) or {}
+
+    def fill(text):
+        return FORMULA_TOKEN.sub(
+            lambda m: f"$${formulas[m[1]]['orig']}$$" if m[1] in formulas and formulas[m[1]].get("orig") else "",
+            text)
+
+    if formulas:
+        ir["sections"] = _map_strings(ir["sections"], fill)
+
+    def walk(nodes):
+        for node in nodes:
+            node["anchors"] = []
+            for passage in node.get("passages") or []:
+                if isinstance(passage, dict):
+                    passage["boxes"] = []
+            for exercise in node.get("exercises") or []:
+                if isinstance(exercise, dict):
+                    exercise["anchors"] = []
+            walk(node.get("children") or [])
+
+    walk(ir.get("sections") or [])
+    return ir
 
 
 def _convert_pdf(path, pages=None, formulas=False):
@@ -126,11 +179,20 @@ def ingest_pdf(params, progress=lambda value: None):
         raise ValueError("path must be a non-empty local PDF path")
     path = Path(value).expanduser().resolve(strict=True)
     if not path.is_file():
-        raise ValueError("path must be a local PDF file")
-    with path.open("rb") as stream:
-        if not stream.read(1024).lstrip().startswith(b"%PDF-"):
-            raise ValueError("path must contain a PDF")
+        raise ValueError("path must be a local file")
+    office = path.suffix.lower() in OFFICE
+    if office:
+        if not _zip_file(path):
+            raise ValueError("path must be a PowerPoint or Word file")
+    elif path.suffix.lower() != ".pdf":
+        raise ValueError("path must be a PDF, PowerPoint, or Word file")
+    else:
+        with path.open("rb") as stream:
+            if not stream.read(1024).lstrip().startswith(b"%PDF-"):
+                raise ValueError("path must contain a PDF")
     pages = params.get("pages")
+    if office and pages is not None:
+        raise ValueError("pages applies to PDFs only")
     if pages is not None:
         if (not isinstance(pages, list) or len(pages) != 2 or any(type(p) is not int for p in pages)
                 or not 1 <= pages[0] <= pages[1]):
@@ -141,22 +203,25 @@ def ingest_pdf(params, progress=lambda value: None):
         raise ValueError("assets_dir must be an absolute path")
     # Model diagnostics must never become JSON-lines responses.
     with redirect_stdout(sys.stderr):
-        total_pages = pdf_info({"path": str(path)})["pages"]
-        first, last = pages or (1, total_pages)
-        if last > total_pages:
-            raise ValueError("pages exceed PDF page count")
-        total = last - first + 1
-        documents = []
-        def report(completed, paused=False):
-            progress({"completed": completed, "total": total, "paused": paused})
-        report(0)
-        for start in range(first, last + 1, 20):
-            wait_until_cool(paused=lambda: report(start - first, True))
-            end = min(start + 19, last)
-            documents.append(_convert_pdf(path, (start, end)))
-            report(end - first + 1)
-        wait_until_cool(paused=lambda: report(total, True))
-        document = _join_documents(documents, first)
+        if office:
+            document = _convert_office(path)
+        else:
+            total_pages = pdf_info({"path": str(path)})["pages"]
+            first, last = pages or (1, total_pages)
+            if last > total_pages:
+                raise ValueError("pages exceed PDF page count")
+            total = last - first + 1
+            documents = []
+            def report(completed, paused=False):
+                progress({"completed": completed, "total": total, "paused": paused})
+            report(0)
+            for start in range(first, last + 1, 20):
+                wait_until_cool(paused=lambda: report(start - first, True))
+                end = min(start + 19, last)
+                documents.append(_convert_pdf(path, (start, end)))
+                report(end - first + 1)
+            wait_until_cool(paused=lambda: report(total, True))
+            document = _join_documents(documents, first)
         if assets_dir is not None:
             assets = Path(assets_dir)
             assets.mkdir(parents=True, exist_ok=True)
@@ -164,7 +229,8 @@ def ingest_pdf(params, progress=lambda value: None):
             root = _assets_root()
             root.mkdir(parents=True, exist_ok=True)
             assets = Path(tempfile.mkdtemp(prefix="pdf-", dir=root))
-        return document_to_ir(document, assets, path)
+        ir = document_to_ir(document, assets, None if office else path)
+        return _without_page_geometry(ir) if office else ir
 
 
 def _line_key(line):

@@ -5,9 +5,9 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
 import Settings from './Settings';
 import SourceView from './SourceView';
-import { multiTitle, type IR } from './api';
+import { multiTitle, sectionsPassages, type IR } from './api';
 import { tauriJsonStore, type JsonStore } from '../storage/store';
-import { addFolder, addSource, deleteFolder, emptyLibrary, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
+import { addFolder, addSource, deleteFolder, emptyLibrary, isOfficeSource, isSourceFile, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
 import { tauriVideoStore, type VideoBundle, type VideoStore } from '../storage/videos';
 import { providers } from '../llm/registry';
 import type { LLMProvider } from '../llm/provider';
@@ -76,12 +76,12 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const importPaths = async (paths: string[]) => {
     if (!ready) return;
     const accepted: string[] = [];
-    const invalid = paths.some(path => !/\.pdf$/i.test(path));
+    const invalid = paths.some(path => !isSourceFile(path));
     for (const path of paths) {
-      if (!/\.pdf$/i.test(path) || reserved.current.has(path) || libraryRef.current.sources.some(s => s.pdfPath === path)) continue;
+      if (!isSourceFile(path) || reserved.current.has(path) || libraryRef.current.sources.some(s => s.pdfPath === path)) continue;
       reserved.current.add(path); accepted.push(path);
     }
-    setError(invalid ? "That isn't a PDF. Choose .pdf files." : '');
+    setError(invalid ? "That isn't a PDF, PowerPoint, or Word file. Choose a .pdf, .pptx, or .docx." : '');
     if (!accepted.length) return;
     const target = folderId ?? null;
     try {
@@ -123,13 +123,14 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} warning={job?.warning} onRetryCleanup={job?.status === 'failed' || job?.warning ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
+    passages={content && isOfficeSource(source.pdfPath) ? sectionsPassages(content.ir, content.sections.map(s => s.id)) : undefined}
     onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
   return <LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
     onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
     onOpenSource={id => { setError(''); navigate({ s: 'source', sourceId: id, folderId: folder?.id }); }} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
-    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'PDF', extensions: ['pdf'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
+    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'PDF, PowerPoint, or Word', extensions: ['pdf', 'pptx', 'docx'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
     onDropFiles={files => { void importPaths(files.map(file => (file as File & { path?: string }).path ?? file.name)); }}
     uploads={uploads} onRetryUpload={path => { queue.enqueue(path, true); }}
     onCreateFolder={(name, emoji) => update(current => addFolder(current, name, emoji))}
