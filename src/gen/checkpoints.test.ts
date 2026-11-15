@@ -213,3 +213,14 @@ it("returns no checkpoints and makes no model call for no scenes", async () => {
   expect(await generateCheckpoints({ sectionMarkdown: "s", exercises: [], scenes: [], provider })).toEqual([]);
   expect(provider.complete).not.toHaveBeenCalled();
 });
+
+
+it("reserves the total question budget for textbook exercises before generated checks", async () => {
+  const provider = reply([
+    ...Array.from({ length: 20 }, (_, i) => cp({ afterScene: Math.floor(i / 2) })),
+    cp({ afterScene: 10, source: "textbook", prompt: "Last scene exercise?" }),
+  ]);
+  const result = await generateCheckpoints({ sectionMarkdown: "Parents beat children.", exercises: [{ id: "e", markdown: "Last scene exercise?" }], scenes: Array(11).fill("Root is max."), provider });
+  expect(result).toHaveLength(16);
+  expect(result[result.length - 1]).toMatchObject({ source: "textbook", prompt: "Last scene exercise?" });
+});

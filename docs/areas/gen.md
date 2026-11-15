@@ -55,8 +55,8 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ### 2026-11-16 — Step 13: grounded checkpoints
 - Passed spoken beats and their source passages into checkpoints (including streamed continuation and fact-check cuts); removed source truncation and required generated cite anchors.
-- Shared numeric gate + one Haiku grounding batch; unsupported, unknown-anchor, missing/malformed verdicts fail closed per question; textbook exercises retain scene priority.
-- Evidence: all 7 affected/importer test files passed (121 tests, fake LLM); TypeScript check passed; orphan cleanup ran.
+- Shared numeric gate + one Haiku grounding batch; unsupported, unknown-anchor, missing/malformed verdicts fail closed per question; textbook exercises retain scene and total-budget priority.
+- Evidence: all 7 affected/importer test files passed (122 tests, fake LLM); TypeScript check passed; orphan cleanup ran.
 - Decisions/limits: opt-in factCheck defers checks until narration is final; legacy IR uses local paragraph ids; shared gate retains its small-count/rounding/arithmetic rules; same-family LLM checks are fallible.
 - Not verified: optional cloud OpenStax eval, local models, native playback/UI (unchanged).
 

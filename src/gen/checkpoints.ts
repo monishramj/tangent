@@ -131,12 +131,12 @@ function capQuestions(items: Checkpoint[], scenes: number): Checkpoint[] {
   const textbookScenes = new Set(items.filter(c => c.source === "textbook").map(c => c.afterScene));
   const counts = new Map<number, number>();
   return items.filter(c => c.source === "textbook" || !textbookScenes.has(c.afterScene))
-    .sort((a, b) => a.afterScene - b.afterScene)
+    .sort((a, b) => Number(b.source === "textbook") - Number(a.source === "textbook") || a.afterScene - b.afterScene)
     .filter(c => {
       const n = counts.get(c.afterScene) ?? 0;
       counts.set(c.afterScene, n + 1);
       return n < (c.afterScene === scenes - 1 ? MAX_PER_SCENE + 4 : MAX_PER_SCENE);
-    }).slice(0, MAX_TOTAL).map((c, i) => ({ ...c, id: `cp${i + 1}` }));
+    }).slice(0, MAX_TOTAL).sort((a, b) => a.afterScene - b.afterScene).map((c, i) => ({ ...c, id: `cp${i + 1}` }));
 }
 
 /** Missing/unknown citations, unsupported numbers and missing/invalid judge verdicts all fail closed. */
