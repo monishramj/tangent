@@ -1,6 +1,11 @@
 #!/bin/sh
-# Every commit must update CLAUDE.md (Status / Current state / Decisions). Bypass: git commit --no-verify
-if ! git diff --cached --name-only | grep -qx 'CLAUDE.md'; then
-  echo "pre-commit: stage an updated CLAUDE.md (Status, Current state, Decisions) with this commit." >&2
+# Code changes must stage docs/history.md or docs/areas/*.md. CLAUDE.md <= 10000 bytes. Bypass: git commit --no-verify
+files=$(git diff --cached --name-only)
+if echo "$files" | grep -qE '^(src|src-tauri|sidecar|packages)/' && ! echo "$files" | grep -qE '^docs/(history\.md|areas/[^/]+\.md)$'; then
+  echo "pre-commit: code changed; stage docs/history.md or a docs/areas/*.md Log entry." >&2
+  exit 1
+fi
+if [ "$(git show :CLAUDE.md 2>/dev/null | wc -c)" -gt 10000 ]; then
+  echo "pre-commit: CLAUDE.md exceeds 10000 bytes; move detail to docs/areas/ or docs/history.md." >&2
   exit 1
 fi
