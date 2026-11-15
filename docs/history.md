@@ -2,6 +2,8 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-16 Step 18: confirmed photo transcription into unverified IR passages and labelled source text; bounded native photo read, HEIC export fallback, playback text routing pending file-scope approval.
+
 2026-11-16 — PR #31: Claude check timeout kills the process group and stops reading at the deadline (64KiB cap).
 - 2026-11-16 PPTX and DOCX ingest on the same FIFO as PDFs; follow-along shows source text instead of page renders.
 - 2026-11-16 Step 13: checkpoints now use spoken narration and cited paragraphs, with numeric + fail-closed Haiku grounding checks and textbook-first scene priority; fake-LLM/importer tests added, optional cloud eval skipped.

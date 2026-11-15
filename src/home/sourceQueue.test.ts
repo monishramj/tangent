@@ -109,3 +109,17 @@ it('skips the PDF preview for slides and Word docs', async () => {
   expect(save).not.toHaveBeenCalled();
   expect(queue.snapshot().every(item => item.status === 'done' && !item.warning)).toBe(true);
 });
+
+it('photos skip title rewriting and PDF previews, including after cache restore', async () => {
+  const source = sourceFor('notes.jpg');
+  const store = memoryJsonStore({ [`ir-${source.id}`]: ir });
+  const provider = { complete: vi.fn() }, save = vi.fn();
+  const queue = sourceQueue(store, provider, save);
+  await queue.enqueue('first.png').result;
+  await queue.restore(source);
+  expect(queue.enqueue('notes.jpg').status).toBe('done');
+  expect(loadIr).toHaveBeenCalledTimes(1);
+  expect(provider.complete).not.toHaveBeenCalled();
+  expect(pdfPreview).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});

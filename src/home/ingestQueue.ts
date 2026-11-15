@@ -1,3 +1,4 @@
+import { isPhotoSource } from "../gen/transcribe";
 import { cachedIr, loadIr, type LoadProgress } from '../library';
 import { listSections, pdfPreview, type IR, type SectionRef } from './api';
 import { sectionTitles } from './sectionTitles';
@@ -65,12 +66,13 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
     // untidied titles are usable (sections/IR exist), so they warn instead of throwing.
     const ir = await loadIr(path, report, store);
     const sections = await listSections(ir);
+    if (isPhotoSource(path)) return { ir, sections };
     stage('tidying', { ir, sections });
     const cleaned = await sectionTitles(sourceFor(path).id, sections, ir, store, provider, true);
     const value = { ir, sections: cleaned.sections };
     stage('preview', value);
     const source = sources.get(path);
-    if (!isOfficeSource(path) && (!source?.thumbnailUrl || !source.pageCount)) {
+    if (!isOfficeSource(path) && !isPhotoSource(path) && (!source?.thumbnailUrl || !source.pageCount)) {
       const preview = await pdfPreview(path).catch(() => undefined);
       if (!preview?.thumbnailUrl || !preview.pages) warn('No preview');
       else { await savePreview(path, preview); sources.set(path, { ...sourceFor(path), ...source, thumbnailUrl: preview.thumbnailUrl, pageCount: preview.pages }); }
@@ -88,8 +90,9 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
       const ir = await cachedIr(source.pdfPath, store);
       if (!ir || ir.outline_version !== 1) return;
       const sections = await listSections(ir);
+      if (isPhotoSource(source.pdfPath)) { queue.restore(source.pdfPath, { ir, sections }); return; }
       const cleaned = await sectionTitles(source.id, sections, ir, store);
-      const warning = cleaned.incomplete ? 'Some titles not tidied' : !isOfficeSource(source.pdfPath) && (!source.thumbnailUrl || !source.pageCount) ? 'No preview' : undefined;
+      const warning = cleaned.incomplete ? 'Some titles not tidied' : !isOfficeSource(source.pdfPath) && !isPhotoSource(source.pdfPath) && (!source.thumbnailUrl || !source.pageCount) ? 'No preview' : undefined;
       queue.restore(source.pdfPath, { ir, sections: cleaned.sections }, warning);
     },
   };

@@ -23,6 +23,7 @@ const video = { id: 'v1', title: 'Saved heaps', createdAt: 5, complete: false, s
 const provider = { complete: vi.fn() };
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear();
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   vi.mocked(loadIr).mockResolvedValue(ir);
   vi.mocked(listSections).mockResolvedValue(flat);
   vi.mocked(pdfPreview).mockResolvedValue({ pages: 8, thumbnailUrl: 'data:image/png;base64,abc' });
@@ -319,7 +320,7 @@ it('requests native multi-selection and imports every returned PDF', async () =>
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.click(screen.getByRole('button', { name: /Choose PDFs/ }));
   await screen.findByText('b.pdf');
-  expect(open).toHaveBeenCalledWith({ multiple: true, filters: [{ name: 'PDF, PowerPoint, or Word', extensions: ['pdf', 'pptx', 'docx'] }] });
+  expect(open).toHaveBeenCalledWith({ multiple: true, filters: [{ name: 'Documents and photos', extensions: ['pdf', 'pptx', 'docx', 'jpg', 'jpeg', 'png', 'heic', 'webp'] }] });
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf', '/b.pdf']));
 });
 
@@ -387,7 +388,7 @@ it('accepts slides and Word docs and still rejects other files', async () => {
   setup();
   await waitFor(() => expect(screen.queryByText('Opening your library…')).toBeNull());
   fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [
-    { name: 'deck.pptx', path: '/deck.pptx' }, { name: 'notes.DOCX', path: '/notes.DOCX' }, { name: 'pic.png', path: '/pic.png' },
+    { name: 'deck.pptx', path: '/deck.pptx' }, { name: 'notes.DOCX', path: '/notes.DOCX' }, { name: 'pic.gif', path: '/pic.gif' },
   ] } });
   await screen.findByText('notes.DOCX');
   expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
@@ -403,4 +404,22 @@ it('hidden Home ignores library and app shortcuts', async () => {
   fireEvent.keyDown(window, { key: 'n', ctrlKey: true, shiftKey: true });
   expect(onNavigate).not.toHaveBeenCalled();
   expect(screen.queryByRole('region', { name: 'Create folder' })).toBeNull();
+});
+
+it('counts unique photos before starting and cancels without saving or reading them', async () => {
+  const { container, jsonStore } = setup();
+  await screen.findByText('No recent videos yet.');
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  for (const ext of ['.jpg', '.jpeg', '.png', '.heic', '.webp']) expect(input.accept).toContain(ext);
+  fireEvent.change(input, { target: { files: [{ name: 'a.jpg', path: '/a.jpg' }, { name: 'b.png', path: '/b.png' }, { name: 'a.jpg', path: '/a.jpg' }] } });
+  expect(screen.getByRole('dialog').textContent).toContain('Read 2 photos?');
+  expect(loadIr).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(jsonStore.data.has('library')).toBe(false);
+  fireEvent.change(input, { target: { files: [{ name: 'a.WEBP', path: '/a.WEBP' }, { name: 'b.HEIC', path: '/b.HEIC' }] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Read photos' }));
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(c => c[0])).toEqual(['/a.WEBP', '/b.HEIC']));
+  expect(pdfPreview).not.toHaveBeenCalled();
+  expect(provider.complete).not.toHaveBeenCalled();
 });

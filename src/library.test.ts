@@ -1,8 +1,10 @@
+import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, expect, it, vi } from 'vitest';
 import { hasCachedIr, loadIr, pendingIn, withFormulas } from './library';
 import { enrichFormulas, repairSections, ingestPdf, figuresDir } from './home/api';
 import { memoryJsonStore, sourceFor } from './storage/store';
 vi.mock('./home/api', () => ({ repairSections: vi.fn(), enrichFormulas: vi.fn(), ingestPdf: vi.fn(), figuresDir: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const events = vi.hoisted(() => ({ receive: undefined as undefined | ((event: { payload: unknown }) => void), stop: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (_name, receive) => { events.receive = receive; return events.stop; }) }));
 beforeEach(() => vi.clearAllMocks());
@@ -83,4 +85,16 @@ it('removes the progress listener on ingest failure without caching a partial IR
   await expect(loadIr('/failed.pdf', undefined, store)).rejects.toThrow('conversion failed');
   expect(events.stop).toHaveBeenCalledOnce();
   expect(store.data.size).toBe(0);
+});
+
+it('transcribes a photo once through Claude and caches faithful unverified passages', async () => {
+  vi.mocked(invoke).mockResolvedValue('["Value: [illegible]", "$x = 12.5$"]');
+  const store = memoryJsonStore(), report = vi.fn();
+  const ir = await loadIr('/notes.jpg', report, store);
+  expect(invoke).toHaveBeenCalledWith('llm_complete', expect.objectContaining({ provider: 'claude', photoPath: '/notes.jpg' }));
+  expect(ir.sections[0].provenance).toBe('unverified-source');
+  expect(ir.sections[0].markdown).toContain('[illegible]');
+  expect(await loadIr('/notes.jpg', report, store)).toEqual(ir);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(ingestPdf).not.toHaveBeenCalled();
 });

@@ -1,3 +1,5 @@
+import { isPhotoSource } from "../gen/transcribe";
+import PhotoConfirm from "./PhotoConfirm";
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import useKeybinds from '@/hooks/useKeybinds';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -37,6 +39,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const [queue] = useState(() => sourceQueue(jsonStore, provider, (path, preview) => savePreview.current(path, preview)));
   const uploads = useSyncExternalStore(queue.subscribe, queue.snapshot);
   const reserved = useRef(new Set<string>());
+  const [photoImport, setPhotoImport] = useState<string[] | null>(null);
   const [over, setOver] = useState(false);
   const sourceId = route.s === 'source' ? route.sourceId : undefined;
   const source = library.sources.find(s => s.id === sourceId);
@@ -73,15 +76,17 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   useEffect(() => {
     if (ready) library.sources.forEach(source => queue.enqueue(source.pdfPath));
   }, [ready, library.sources, queue]);
-  const importPaths = async (paths: string[]) => {
+  const importPaths = async (paths: string[], confirmed = false) => {
     if (!ready) return;
+    const fresh = [...new Set(paths)].filter(path => !reserved.current.has(path) && !libraryRef.current.sources.some(s => s.pdfPath === path));
+    if (!confirmed && fresh.some(isPhotoSource)) { setPhotoImport(fresh); return; }
     const accepted: string[] = [];
-    const invalid = paths.some(path => !isSourceFile(path));
+    const invalid = paths.some(path => !(isSourceFile(path) || isPhotoSource(path)));
     for (const path of paths) {
-      if (!isSourceFile(path) || reserved.current.has(path) || libraryRef.current.sources.some(s => s.pdfPath === path)) continue;
+      if (!(isSourceFile(path) || isPhotoSource(path)) || reserved.current.has(path) || libraryRef.current.sources.some(s => s.pdfPath === path)) continue;
       reserved.current.add(path); accepted.push(path);
     }
-    setError(invalid ? "That isn't a PDF, PowerPoint, or Word file. Choose a .pdf, .pptx, or .docx." : '');
+    setError(invalid ? "That isn't a PDF, PowerPoint, Word file, or supported photo. Choose .pdf, .pptx, .docx, .jpg, .png, .heic, or .webp." : '');
     if (!accepted.length) return;
     const target = folderId ?? null;
     try {
@@ -123,19 +128,19 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} warning={job?.warning} onRetryCleanup={job?.status === 'failed' || job?.warning ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
-    passages={content && isOfficeSource(source.pdfPath) ? sectionsPassages(content.ir, content.sections.map(s => s.id)) : undefined}
+    passages={content && (isOfficeSource(source.pdfPath) || isPhotoSource(source.pdfPath)) ? sectionsPassages(content.ir, content.sections.map(s => s.id)) : undefined}
     onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
-  return <LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
+  return <>{photoImport && <PhotoConfirm count={photoImport.filter(isPhotoSource).length} onCancel={() => setPhotoImport(null)} onConfirm={() => { const paths = photoImport; setPhotoImport(null); void importPaths(paths, true); }} />}<LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
     onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
     onOpenSource={id => { setError(''); navigate({ s: 'source', sourceId: id, folderId: folder?.id }); }} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
-    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'PDF, PowerPoint, or Word', extensions: ['pdf', 'pptx', 'docx'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
+    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'Documents and photos', extensions: ['pdf', 'pptx', 'docx', 'jpg', 'jpeg', 'png', 'heic', 'webp'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
     onDropFiles={files => { void importPaths(files.map(file => (file as File & { path?: string }).path ?? file.name)); }}
     uploads={uploads} onRetryUpload={path => { queue.enqueue(path, true); }}
     onCreateFolder={(name, emoji) => update(current => addFolder(current, name, emoji))}
     onRenameFolder={(id, name) => update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, name } : f) }))}
     onDeleteFolder={async id => { await update(current => deleteFolder(current, id)); home(); }}
     onMoveSource={(id, target) => update(current => moveSource(current, id, target))}
-    over={over} loading={!ready && !error ? 'Opening your library…' : ''} error={error} onRetry={error ? () => { setError(''); if (!ready) setLoadAttempt(n => n + 1); } : undefined} />;
+    over={over} loading={!ready && !error ? 'Opening your library…' : ''} error={error} onRetry={error ? () => { setError(''); if (!ready) setLoadAttempt(n => n + 1); } : undefined} /></>;
 }
