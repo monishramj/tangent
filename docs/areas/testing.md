@@ -26,6 +26,10 @@ Step 21 addresses the ledger below. Windows CI on that PR is the confirmation; t
 
 ## Log
 
+### 2026-11-16 — PR #33: Windows secret ACE count
+- `SetEntriesInAcl` stores an inheritable directory grant as two ACEs. The Windows test now requires every ACE to be an allow for the current user, and the secret file to have exactly one.
+- Evidence: the check is `cfg(windows)`. CI on the follow-up push is the confirmation.
+
 ### 2026-11-16 — PR #33: Windows compile of cache_miss
 - `cfg!(unix) && libc::ELOOP` still type-checks on Windows, and `libc` is Unix-only, so rust (windows-latest) failed with E0433. `cache_miss` is now two `#[cfg]` functions. `O_NOFOLLOW` was already inside `#[cfg(unix)]`.
 - Evidence: local `cargo test --lib` filter. Windows CI on the follow-up push is the confirmation.

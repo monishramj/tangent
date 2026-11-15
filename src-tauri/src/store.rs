@@ -164,23 +164,57 @@ fn owner_only(path: &Path, inherit: bool) -> Result<(), String> {
     }
 }
 
+/// Count of ACEs, or an error if any ACE is not an allow for the current user.
+/// An inheritable directory grant is stored as two ACEs (this folder, plus inherit-only).
 #[cfg(windows)]
-fn ace_count(path: &Path) -> Result<u16, String> {
+fn user_ace_count(path: &Path) -> Result<u16, String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
     use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
-    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::Security::{
+        EqualSid, GetAce, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut needed = 0u32;
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        let mut buf = vec![0u8; needed as usize];
+        if needed == 0 || GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let user = (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid;
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         let mut dacl = std::ptr::null_mut();
         let mut sd = std::ptr::null_mut();
         let got = GetNamedSecurityInfoW(wide.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
             std::ptr::null_mut(), std::ptr::null_mut(), &mut dacl, std::ptr::null_mut(), &mut sd);
         if got != 0 || dacl.is_null() {
+            CloseHandle(token);
             if !sd.is_null() { LocalFree(sd); }
             return Err(format!("secret ACL read: {got}"));
         }
         let count = (*dacl).AceCount;
+        for i in 0..count {
+            let mut ace = std::ptr::null_mut();
+            if GetAce(dacl, i as u32, &mut ace) == 0 {
+                CloseHandle(token);
+                LocalFree(sd);
+                return Err("secret ACE read".into());
+            }
+            let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
+            let sid = (ace as *const u8).add(std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart));
+            if allowed.Header.AceType != 0 || EqualSid(user, sid.cast()) == 0 {
+                CloseHandle(token);
+                LocalFree(sd);
+                return Err("secret ACE is not an allow for the current user".into());
+            }
+        }
+        CloseHandle(token);
         LocalFree(sd);
         Ok(count)
     }
@@ -267,8 +301,9 @@ mod tests {
     fn windows_secret_dacl_is_current_user_only() {
         let base = tmp("winacl");
         secret_set(&base, "giphy", "abc").unwrap();
-        assert_eq!(ace_count(&base.join("secrets")).unwrap(), 1);
-        assert_eq!(ace_count(&base.join("secrets/giphy")).unwrap(), 1);
+        let dir = user_ace_count(&base.join("secrets")).unwrap();
+        assert!((1..=2).contains(&dir), "{dir}");
+        assert_eq!(user_ace_count(&base.join("secrets/giphy")).unwrap(), 1);
         let _ = fs::remove_dir_all(&base);
     }
 

@@ -6,6 +6,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-16 Step 18: confirmed photo transcription into unverified IR passages and labelled source text; imported-only bounded native photo read, HEIC export fallback, labelled text follow-along during playback.
 
+2026-11-16 — PR #33 CI: the secrets directory may store an inheritable grant as two current-user ACEs; the secret file stays one.
 2026-11-16 — PR #33 CI: `cache_miss` is split with `#[cfg]` so Windows does not compile `libc::ELOOP`. `libc` stays a Unix-only dependency.
 2026-11-16 — PR #33 review: cache hits refuse symlinks, secret files are born private and deleted if the ACL fails, and sidecar drop always kills the process group.
 2026-11-16 — PR #31: Claude check timeout kills the process group and stops reading at the deadline (64KiB cap).
