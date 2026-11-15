@@ -54,9 +54,14 @@ export function checkScript(beats: Beat[]): Violation[] {
     if (/^\W*it\b/i.test(say)) add("starts-with-it", 'Do not start a beat with "it"; name the thing.');
     if (/[[\]]/.test(say)) add("brackets", "No square brackets in say; speak a list as words, like \"3, 9 and 7\".");
     if (/\p{Extended_Pictographic}/u.test(say)) add("emoji", "No emoji in say; it is spoken aloud.");
+    const stiff = say.match(STIFF_WORD);
+    if (stiff) add("stiff-word", `Use everyday words instead of ${[...new Set(stiff.map(w => w.toLowerCase()))].map(w => `"${w}"`).join(", ")}.`);
   });
   return out;
 }
+
+/** Whole word, case-insensitive. Verb inflections only: "thusly" and "utilization" are not hits. */
+const STIFF_WORD = /\b(?:utiliz(?:e|es|ed|ing)|subsequently|furthermore|thus|aforementioned|commenc(?:e|es|ed|ing)|endeavor(?:s|ed|ing)?)\b/gi;
 
 /** Grounding gate (principle 7): every checkable number a beat says must appear in the source. */
 export function checkGrounding(beats: Beat[], source: string): Violation[] {
@@ -105,6 +110,7 @@ Speech rules, all mandatory:
 5. Write numbers and symbols the way you would say them: "n log n", "x squared". LaTeX in say is fine for simple expressions like O(n \\log n); it is converted to speech later.
 6. Lightly repeat the key idea at the start and end of its explanation.
 7. say is plain spoken English only. No markdown: no asterisks, backticks, # headings or bullet points. No square brackets, so say a list as words ("3, 9 and 7", not "[3, 9, 7]"). No emoji. Digits are fine, and so is simple math.
+8. Talk like a smart friend explaining it to a first-year student. Use common words: use not utilize, so not therefore, show not demonstrate. Only use a technical term if the section uses it, and explain it in plain words the first time.
 
 ${detailRules(detail, targetBeats(beatsFrom, detail))}
 
@@ -208,7 +214,7 @@ export async function generateScript({ sectionMarkdown, provider, detail = "stan
   }
   const candidates = [...new Set(violations.map(v => v.beat))];
   const minorOnly = violations.every(v => {
-    if (v.rule === "long-sentence") return true;
+    if (v.rule === "long-sentence" || v.rule === "stiff-word") return true;
     if (v.rule !== "parenthetical") return false;
     const asides = [...beats[v.beat].say.matchAll(/(^|[\s,;])\([^)]*\)/g)];
     return asides.length === 1 && !/(^|[\s,;])\(/.test(asides[0][0].trim().slice(1));

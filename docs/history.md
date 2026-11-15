@@ -26,6 +26,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 - 2026-11-16 Open-source cleanup: MIT licence file (confirmation still pending), third-party notices, README, course IR and textbook screenshots removed from the tree only (history rewrite is an owner decision).
 - 2026-11-16 Step 20: bundled checksum-pinned uv/PDFium, cancel-safe first-launch Python/ML bootstrap and setup screen, Linux CPU Torch lock; fake-uv/host tests pass, real bundles and Windows/Linux unverified.
 
+- 2026-11-16 Script prompt rule 8 (everyday words) and a stiff-word lint; style slips still repair, then pass if they cover at most 10% of beats.
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 
