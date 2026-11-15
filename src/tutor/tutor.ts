@@ -21,6 +21,7 @@ export type TutorContext = {
   ids: string[];
   section: string;
   nowSaying: string;
+  currentPassages: string[];
 };
 
 const lastWords = (text: string, n: number) => {
@@ -34,6 +35,7 @@ export function buildTutorContext(i: {
   section: string;
   priorQuestions: string[];
   sceneDescription?: string; // describeScene(scene, state): what is on screen right now
+  currentPassages?: string[];
   nowSaying?: string; // nowSayingAt(lines, t): the sentence playing when the student paused
 }): TutorContext {
   const ids = i.objects.map(o => o.id);
@@ -57,7 +59,7 @@ export function buildTutorContext(i: {
     dataBlock("screen", screen),
     dataBlock("prior_questions", i.priorQuestions.length ? i.priorQuestions.slice(-10).map(q => q.slice(0, 300)).join("\n") : "none"),
   ].join("\n\n");
-  return { prompt, ids, section: stripWatermarks(i.section), nowSaying };
+  return { prompt, ids, section: stripWatermarks(i.section), nowSaying, currentPassages: (i.currentPassages ?? []).map(stripWatermarks) };
 }
 
 export type Turn = { role: "user" | "tutor"; text: string };
@@ -65,7 +67,7 @@ export type Turn = { role: "user" | "tutor"; text: string };
 /** The full prompt for one question: context + relevant passages + thread + the question, then the reminder. */
 export function tutorPrompt(context: TutorContext, question: string, history: Turn[] = [], hasImage = false): string {
   const lastUser = [...history].reverse().find(t => t.role === "user")?.text ?? "";
-  const passages = retrievePassages(context.section, `${question} ${question} ${context.nowSaying} ${lastUser}`, { k: 4, maxChars: PASSAGE_CHARS });
+  const passages = retrievePassages(context.section, `${question} ${question} ${context.nowSaying} ${lastUser}`, { k: 4, maxChars: PASSAGE_CHARS, preferred: context.currentPassages });
   const thread = history.slice(-HISTORY_TURNS).map(t => `${t.role === "user" ? "Student" : "Tutor"}: ${t.text.slice(0, ANSWER_MAX)}`).join("\n");
   return [
     context.prompt,

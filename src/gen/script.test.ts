@@ -45,7 +45,7 @@ describe("generateScript", () => {
   it("accepts clean fenced output first try and teaches the rules", async () => {
     const provider = mockProvider("```json\n" + good + "\n```");
     const r = await generateScript({ sectionMarkdown: "# Heaps", provider });
-    expect(r).toEqual({ beats: JSON.parse(good), attempts: 1, violations: [] });
+    expect(r).toEqual({ beats: JSON.parse(good), attempts: 1, violations: [], styleWaived: [] });
     const prompt = provider.complete.mock.calls[0][0];
     expect(provider.complete.mock.calls[0][1]).toMatchObject({ model: "sonnet" }); // Haiku scripts missed the speech rules
     for (const t of ["JSON only", "parentheticals", "former", "respectively", "22 words", "Define a term", "n log n", "visualIntent", "<source>\n# Heaps\n</source>", "No markdown", "No emoji"])
@@ -215,5 +215,66 @@ describe("generateScript grounding", () => {
     const provider = mockProvider(JSON.stringify(four("It misleads (a lot).")), JSON.stringify({ 1: beat("A straw man misleads."), 0: beat("Changed!") }));
     const r = await generateScript({ sectionMarkdown: source, provider });
     expect(r.beats!.map(b => b.say)).toEqual(["A straw man misrepresents a view.", "A straw man misleads.", "So answer the real view.", "That is the key move."]);
+  });
+});
+
+
+describe("post-repair style allowance", () => {
+  const long = "word ".repeat(23).trim() + ".";
+  const run = async (count: number, says: string[], repair = "{}") => {
+    const beats = Array.from({ length: count }, (_, i) => b(says[i] ?? "A heap is a tree."));
+    const provider = mockProvider(JSON.stringify(beats), repair);
+    return { result: await generateScript({ sectionMarkdown: "A heap is a tree.", provider }), provider };
+  };
+
+  it.each([[9, 1, false], [10, 1, true], [10, 2, false], [19, 2, false], [20, 2, true]])(
+    "%i beats with %i style slips: allowed=%s", async (count, slips, allowed) => {
+      const { result: r, provider } = await run(count, Array(slips).fill(long));
+      expect(provider.complete).toHaveBeenCalledTimes(2);
+      expect(r.styleWaived).toEqual(allowed ? Array.from({ length: slips }, (_, i) => i) : []);
+      expect(r.violations.length === 0).toBe(allowed);
+    });
+
+  it.each([
+    ["long sentence", long, true],
+    ["one parenthetical", "Heapify (also called sift down) fixes one spot.", true],
+    ["parenthetical with a function call", "The cost (using O(n)) stays linear.", true],
+    ["both minor rules on one beat", long + " Heapify (briefly) fixes it.", true],
+    ["two parentheticals", "Heapify (first) repairs (then) stops.", false],
+    ["nested parenthetical", "Heapify (a nested (aside)) repairs.", false],
+    ["former/latter", "The former is a heap.", false],
+    ["respectively", "Trees and heaps grow, respectively.", false],
+    ["starts with it", "It is a heap.", false],
+    ["brackets", "A heap holds [values].", false],
+    ["emoji", "Heaps grow 🔥.", false],
+    ["minor plus severe", "It grows (briefly).", false],
+  ])("%s", async (_name, say, allowed) => {
+    const { result: r } = await run(10, [say as string]);
+    expect(r.styleWaived).toEqual(allowed ? [0] : []);
+    expect(r.violations.length === 0).toBe(allowed);
+  });
+
+  it("never waives remaining accuracy errors alongside minor style", async () => {
+    const { result: r } = await run(10, [long, ...Array(4).fill("A survey found 81% agreed.")]);
+    expect(r.styleWaived).toEqual([]);
+    expect(r.violations.some(v => v.rule === "unsupported-number")).toBe(true);
+  });
+
+  it("counts and indexes the shipped beats after unsupported beats are cut", async () => {
+    const { result: r } = await run(11, ["A survey found 81% agreed.", long]);
+    expect(r.beats).toHaveLength(10);
+    expect(r.styleWaived).toEqual([0]);
+    expect(r.violations).toEqual([]);
+    const { result: short } = await run(10, ["A survey found 81% agreed.", long]);
+    expect(short.beats).toHaveLength(9);
+    expect(short.styleWaived).toEqual([]);
+    expect(short.violations[0].rule).toBe("long-sentence");
+  });
+
+  it("reports no waivers after a successful repair or malformed output", async () => {
+    expect((await run(10, [long], JSON.stringify({ 0: b("A heap is a tree.") }))).result.styleWaived).toEqual([]);
+    const r = await generateScript({ sectionMarkdown: "s", provider: mockProvider("no json", "no json") });
+    expect(r.styleWaived).toEqual([]);
+    expect(r.violations[0].rule).toBe("format");
   });
 });

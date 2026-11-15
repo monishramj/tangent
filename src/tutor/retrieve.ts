@@ -26,10 +26,11 @@ export function paragraphs(section: string): string[] {
   return out;
 }
 
-/** Top-k passages by idf-weighted term overlap with `query`, in section order, within `maxChars`.
+/** Preferred current-beat passages first, then keyword hits in section order, within `k` and `maxChars`.
  *  With no overlap at all, the opening passages (usually the definitions) are returned. */
-export function retrievePassages(section: string, query: string, { k = 4, maxChars = 6000 } = {}): string[] {
-  const paras = paragraphs(section);
+export function retrievePassages(section: string, query: string, { k = 4, maxChars = 6000, preferred = [] }: { k?: number; maxChars?: number; preferred?: string[] } = {}): string[] {
+  const first = [...new Set(preferred.map(p => p.trim()).filter(Boolean))];
+  const paras = [...first, ...paragraphs(section).filter(p => !first.includes(p))];
   if (!paras.length) return [];
   const sets = paras.map(p => new Set(terms(p)));
   const q = [...new Set(terms(query))];
@@ -40,7 +41,7 @@ export function retrievePassages(section: string, query: string, { k = 4, maxCha
     : scored;
   const picked: number[] = [];
   let used = 0;
-  for (const { i } of ranked) {
+  for (const { i } of [...first.map((_, i) => ({ i })), ...ranked.filter(s => s.i >= first.length)]) {
     if (picked.length >= k || used >= maxChars) break;
     picked.push(i);
     used += Math.min(paras[i].length, maxChars - used);

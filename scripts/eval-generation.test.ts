@@ -126,7 +126,7 @@ for (const g of golden) {
       }
       scenes = `${ok}/${total}`; sceneNumberRejects = rejects; sceneMs = +(spentMs / 1000 / total).toFixed(1);
     }
-    rows.push({ section: g.name, beats: beats.length, scenes, sceneNumberRejects, sceneSec: sceneMs, attempts: r.attempts, dropped: r.dropped?.length ?? 0, lint: r.violations.filter(v => v.rule !== "unsupported-number").length,
+    rows.push({ section: g.name, beats: beats.length, scenes, sceneNumberRejects, sceneSec: sceneMs, attempts: r.attempts, dropped: r.dropped?.length ?? 0, styleWaived: r.styleWaived?.length ?? 0, lint: r.violations.filter(v => v.rule !== "unsupported-number").length,
       unsupportedNumberBeats: numbers, judgeUnsupported: judged, scriptSec: +(scriptMs / 1000).toFixed(1) });
   } catch (e) {
     rows.push({ section: g.name, error: e instanceof Error ? e.message.slice(0, 120) : String(e) });
@@ -136,7 +136,7 @@ console.log(`\n${label} (${impl.split("/").pop()})`);
 console.table(rows);
 const ok = rows.filter(r => typeof r.beats === "number") as Record<string, number>[];
 const sum = (k: string) => ok.reduce((n, r) => n + (Number(r[k]) || 0), 0);
-console.log(JSON.stringify({ label, sections: ok.length, beats: sum("beats"), unsupportedNumberBeats: sum("unsupportedNumberBeats"),
+console.log(JSON.stringify({ label, sections: ok.length, beats: sum("beats"), styleWaived: sum("styleWaived"), unsupportedNumberBeats: sum("unsupportedNumberBeats"),
   judgeUnsupported: flag("--judge") ? sum("judgeUnsupported") : null, judgeRate: flag("--judge") && sum("beats") ? +(sum("judgeUnsupported") / sum("beats")).toFixed(3) : null,
   meanScriptSec: ok.length ? +(sum("scriptSec") / ok.length).toFixed(1) : null }));
 }, 3_600_000);

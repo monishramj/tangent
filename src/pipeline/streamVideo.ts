@@ -13,7 +13,7 @@ import type { LLMProvider } from "../llm/provider";
 import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
 
 export type PipelineEvent =
-  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes }
+  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][] }
   | { type: "error"; sceneId: string; error: Error }
   | { type: "checkpoints"; items: Checkpoint[] };
 
@@ -144,7 +144,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         ready_++; progress("ready", index);
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
           // Aligned with scene.beats (like `spoken`); absent when the IR has no passages.
-          ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)) } : {}) };
+          ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)), passageIds: beats.map(b => b.passages ?? []) } : {}) };
       } catch (cause) {
         checkAbort();
         error = cause instanceof Error ? cause : new Error(String(cause));

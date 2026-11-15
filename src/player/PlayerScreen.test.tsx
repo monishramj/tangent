@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import PlayerScreen, { IDLE_MS, clock } from "./PlayerScreen";
+import PlayerScreen, { IDLE_MS, clock, type PlayerProps } from "./PlayerScreen";
 import type { PipelineEvent } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
@@ -28,7 +28,7 @@ const sceneEvent = (id = "s1"): Extract<PipelineEvent, { type: "scene" }> => ({ 
 const mcq: Checkpoint = { id: "cp1", afterScene: 0, kind: "mcq", prompt: "Which child swaps?", choices: ["The bigger", "The smaller"], answer: "The bigger", explanation: "Bigger keeps the heap valid.", source: "generated" };
 
 /** A stream the test drives by hand. */
-function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore> } = {}) {
+function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore>; passages?: PlayerProps["passages"] } = {}) {
   const audios: FakeAudio[] = [];
   vi.stubGlobal("Audio", class extends EventTarget {
     currentTime = 0; readyState = 4; preload = "";
@@ -49,7 +49,7 @@ function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJ
   const store = opts.store ?? memoryJsonStore();
   const complete = vi.fn().mockResolvedValue(JSON.stringify({ answer: "Because the bigger child keeps the heap valid.", annotations: [] }));
   const provider = opts.provider ?? { complete };
-  const props = { stream, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
+  const props = { stream, passages: opts.passages, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
   const view = render(<PlayerScreen {...props} />);
   return { ...props, complete, audios, push, end, view };
 }
@@ -578,4 +578,16 @@ it("arrow defaults seek ten seconds and J/L seek five, with no seeking during a 
   fireEvent.keyDown(window, { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: 'Quiz' })).toBeNull();
   expect(screen.getByRole('dialog', { name: 'Side panel' })).toBeTruthy();
+});
+
+
+it("Ask resolves the narrated beat's passage ids to source paragraphs", async () => {
+  const source = "Evaporation converts liquid into vapor.";
+  const s = setup({ passages: [{ id: "p2", markdown: source, boxes: [] }] });
+  await settle();
+  await s.push({ ...sceneEvent(), passageIds: scene.beats.map(() => ["p2", "unknown"]) });
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  await ask("Why does a puddle disappear?");
+  await screen.findByText(/keeps the heap valid/);
+  expect(s.complete.mock.calls[0][0]).toContain(source);
 });
