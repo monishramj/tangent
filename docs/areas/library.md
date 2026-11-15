@@ -14,4 +14,4 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
-(none yet; prepend dated entries here)
+- 2026-11-15 Section picker mockups (plan step 8): `src/dev/section-picker.html` (A braces, B lines; deep ~535-row and shallow 43-row fixtures; `?v=a|b&fx=shallow&sel=partial`). Shared tree model, click/drag/keyboard, partial state. Proof: `tsc --noEmit` clean; 10 screenshots in `docs/ui-review/section-picker/`. Not verified: real touch, screen reader, Safari/WKWebView rendering. Owner picks A or B, then step 9 builds it into SourceView.

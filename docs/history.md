@@ -2,6 +2,8 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
+
 ## Original intro (what this is)
 
 # CLAUDE.md: Tangent
