@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { hasCachedIr, loadIr, withFormulas } from './library';
+import { hasCachedIr, loadIr, pendingIn, withFormulas } from './library';
 import { enrichFormulas, repairSections } from './home/api';
 import { memoryJsonStore, sourceFor } from './storage/store';
 vi.mock('./home/api', () => ({ repairSections: vi.fn(), enrichFormulas: vi.fn() }));
@@ -44,4 +44,12 @@ it('decodes formulas from the cached IR, saves the result, and falls back to the
   store.data.set(key, pending);
   vi.mocked(enrichFormulas).mockRejectedValue(new Error('sidecar down'));
   expect((await withFormulas('/m.pdf', { sections: [] }, ['s1'], store)).sections[0].markdown).toBe('a $$x "2"$$ b');
+});
+
+it('counts undecoded formulas in the chosen sections and their subsections only', () => {
+  const node = (id: string, markdown: string, children: unknown[] = []) => ({ id, title: id, level: 1, anchors: [], children, markdown });
+  const ir = { sections: [node('a', '⟨formula 1⟩ ⟨formula 1⟩', [node('a1', '⟨formula 2⟩ ⟨formula 9⟩')]), node('b', '⟨formula 3⟩')],
+    formulas: { 1: { page: 1, bbox: [], orig: '' }, 2: { page: 1, bbox: [], orig: '' }, 3: { page: 2, bbox: [], orig: '' } } };
+  expect(pendingIn(ir as never, ['a'])).toBe(2); // 9 is already decoded, 1 counted once
+  expect(pendingIn(ir as never, ['b', 'a1'])).toBe(2);
 });

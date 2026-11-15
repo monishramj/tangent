@@ -67,7 +67,8 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
     const sectionId = sectionIds.join("+");
     void (async () => {
       try {
-        const ir = await withFormulas(meta.pdfPath, args.ir, sectionIds, store);
+        const ir = await withFormulas(meta.pdfPath, args.ir, sectionIds, store,
+          n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
         if (controller.signal.aborted) return;
         const markdown = stripWatermarks(await sectionsText(ir, sectionIds));
         if (controller.signal.aborted) return;

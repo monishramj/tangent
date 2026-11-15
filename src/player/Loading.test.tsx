@@ -8,22 +8,45 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const prog = (o: Partial<Progress> = {}): Progress => ({ step: "script", scene: 0, scenesReady: 0, scenesTotal: 0, beats: [], ...o });
 
+const EXP = [250, 120, 15, 45];
 it("loadingFraction is monotonic within a step, across steps, and below 1 until ready", () => {
   const secs = [0, 1, 5, 20, 60, 600, 1e6];
   let prev = -1;
-  for (const step of [0, 1, 2]) {
+  for (const step of [0, 1, 2, 3]) {
     for (const s of secs) {
-      const f = loadingFraction(step, s);
+      const f = loadingFraction(step, s, EXP);
       expect(f).toBeGreaterThanOrEqual(prev);
       expect(f).toBeLessThan(1);
       prev = f;
     }
   }
-  expect(loadingFraction(3, 0)).toBe(1);
+  expect(loadingFraction(4, 0, EXP)).toBe(1);
 });
 
 it("a step never ends above where the next one starts", () => {
-  for (const step of [0, 1, 2]) expect(loadingFraction(step, 1e9)).toBeLessThanOrEqual(loadingFraction(step + 1, 0));
+  for (const step of [0, 1, 2, 3]) expect(loadingFraction(step, 1e9, EXP)).toBeLessThanOrEqual(loadingFraction(step + 1, 0, EXP));
+});
+
+it("bar width follows expected time: a long formula step takes most of the bar", () => {
+  expect(loadingFraction(1, 0, EXP)).toBeCloseTo(250 / 430);
+  expect(loadingFraction(0, 125, EXP)).toBeCloseTo(125 / 430);
+});
+
+it("shows the formula step with its count, then keeps it checked once the script starts", () => {
+  const view = render(<Loading progress={prog({ step: "formulas", formulas: 78 })} />);
+  expect(screen.getByText("Reading formulas…")).toBeTruthy();
+  expect(screen.getByText(/· 78/)).toBeTruthy();
+  expect(screen.getByText(/left$/)).toBeTruthy();
+  view.rerender(<Loading progress={prog()} />);
+  expect(screen.getByText("Writing the script…")).toBeTruthy();
+  expect(screen.getByText(/· 78/)).toBeTruthy();
+});
+
+it("past the estimate the bar holds and the label says how long it has been", () => {
+  render(<Loading progress={prog()} />);
+  act(() => { vi.advanceTimersByTime(10 * 60_000); });
+  expect(screen.getByText(/taking longer than usual · 10 min/)).toBeTruthy();
+  expect(value()).toBeLessThan(100);
 });
 
 const value = () => Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));

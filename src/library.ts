@@ -47,14 +47,27 @@ export async function loadIr(pdfPath: string, onProgress?: (p: LoadProgress) => 
 
 const FORMULA_TOKEN = /⟨formula (\d+)⟩/g;
 
+/** Undecoded formulas inside the given sections (and their subsections): what enrichFormulas will decode. */
+export function pendingIn(ir: IR, ids: string[]): number {
+  const want = new Set(ids), found = new Set<string>();
+  const walk = (nodes: IR["sections"], inside: boolean) => nodes.forEach(n => {
+    const here = inside || want.has(n.id);
+    if (here) for (const m of JSON.stringify({ ...n, children: [] }).matchAll(FORMULA_TOKEN)) if (ir.formulas?.[m[1]]) found.add(m[1]);
+    walk(n.children, here);
+  });
+  walk(ir.sections, false);
+  return found.size;
+}
+
 /** Formulas are decoded only for the sections a video is made from (the formula model is ingest's heat source).
  * Starts from the cached IR (it holds earlier videos' decodes), saves the result back, and on failure falls back
  * to the PDF text layer so a token never reaches the script. */
-export async function withFormulas(pdfPath: string, ir: IR, ids: string[], store: JsonStore = tauriJsonStore): Promise<IR> {
+export async function withFormulas(pdfPath: string, ir: IR, ids: string[], store: JsonStore = tauriJsonStore, onDecode?: (count: number) => void): Promise<IR> {
   const id = sourceFor(pdfPath).id;
   const latest = (await irCache(store).get(id).catch(() => null)) ?? ir;
   const pending = latest.formulas ?? {};
   if (!Object.keys(pending).length) return latest;
+  onDecode?.(pendingIn(latest, ids));
   try {
     const done = await enrichFormulas(latest, pdfPath, ids);
     await irCache(store).set(id, done).catch(() => {});
