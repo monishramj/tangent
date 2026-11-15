@@ -18,9 +18,9 @@ const courses = [
   { name: 'Reading', emoji: '📚', title: 'A few things for later', files: [], color: '#403a37' },
 ];
 const thumbnails: Record<string, string> = {
-  'Joint probability distributions': '/src/dev/home-design-previews/joint-probability.png',
-  'Introduction to statistics': '/src/dev/home-design-previews/statistics.png',
-  'Representing instructions': '/src/dev/home-design-previews/instructions.png',
+  'Joint probability distributions': '/src/dev/home-design-previews/placeholder.png',
+  'Introduction to statistics': '/src/dev/home-design-previews/placeholder.png',
+  'Representing instructions': '/src/dev/home-design-previews/placeholder.png',
 };
 const videoSamples = [
   { title: 'Binary heaps, explained', course: 0, source: 'Algorithms, chapter 4', duration: '8:24' },

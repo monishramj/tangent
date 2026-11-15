@@ -18,6 +18,8 @@ src-tauri/gen
 # copyrighted source material and parser outputs: never commit
 *.pdf
 spikes/pdf/inputs
+sidecar/tests/fixtures/*_ir.json
+**/*stat350*
 spikes/pdf/**/out
 spikes/**/.venv
 spikes/**/out/*.wav

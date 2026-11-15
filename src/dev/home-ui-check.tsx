@@ -4,7 +4,7 @@ import LibraryView, { type FolderSummary, type SourceSummary } from '../home/Lib
 import SourceView from '../home/SourceView';
 import type { VideoBundle } from '../storage/videos';
 import '../index.css';
-import samplePage from './home-design-previews/instructions.png';
+import samplePage from './home-design-previews/placeholder.png';
 const renderPage = async () => ({ url: samplePage, width: 541, height: 700 });
 const sections = [
   { id: 'parent', title: 'Foundations', level: 1, anchors: [{ page: 1 }] },

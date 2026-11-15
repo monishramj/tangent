@@ -195,6 +195,8 @@ def test_partial_conversion_is_an_error(monkeypatch):
 @pytest.mark.slow
 def test_real_pdf(tmp_path, monkeypatch):
     source = Path(__file__).resolve().parents[2] / "spikes/pdf/inputs/stat350_ch5_joint_pmfs.pdf"
+    if not source.is_file():
+        pytest.skip("local course PDF is not in the repo")
     # Keep all extracted artifacts in the test directory, not beside the source.
     monkeypatch.setattr(ingest, "_assets_root", lambda: tmp_path)
     started = time.perf_counter()
