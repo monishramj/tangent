@@ -2,6 +2,7 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+2026-11-15 — Quarantined flaky Home.test.tsx multi-drop test (CI macos-15 run 43696901697); root cause open, see docs/areas/testing.md.
 2026-11-15 — v1 step 10: bounded post-repair minor-style waivers plus current-beat tutor passages, optional persisted scene passage IDs, focused tests and TypeScript passed; live models/audio/native builds not verified.
 - 2026-11-15: T3 documented Windows CI failures (3 Rust, 7 Python + 5 fixture errors), deferred to platform fixes; Linux green per coordinator, macOS replacement-runner proof pending.
 - 2026-11-15: T3 CI cache follow-up disables setup-uv's duplicate cache; explicit uv cache retained; workflow assertions passed, rerun/macOS proof pending; Windows failures advisory.
