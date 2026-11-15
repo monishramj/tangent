@@ -207,8 +207,8 @@ fn user_ace_count(path: &Path) -> Result<u16, String> {
                 return Err("secret ACE read".into());
             }
             let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
-            let sid = (ace as *const u8).add(std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart));
-            if allowed.Header.AceType != 0 || EqualSid(user, sid.cast()) == 0 {
+            let sid = (ace as *mut u8).add(std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart)).cast();
+            if allowed.Header.AceType != 0 || EqualSid(user, sid) == 0 {
                 CloseHandle(token);
                 LocalFree(sd);
                 return Err("secret ACE is not an allow for the current user".into());
