@@ -39,3 +39,21 @@ it("falls back to the opening passages when nothing overlaps, and handles empty 
   expect(retrievePassages(section, "zebra", { k: 1 })[0]).toContain("A heap is");
   expect(retrievePassages("", "anything")).toEqual([]);
 });
+
+
+it("supplies the current passage first when a paraphrase has no keyword overlap", () => {
+  const current = "Evaporation converts liquid into vapor.";
+  const text = "Granite contains quartz.\n\n" + current;
+  expect(retrievePassages(text, "Why does a puddle disappear?", { k: 1 })).toEqual(["Granite contains quartz."]);
+  expect(retrievePassages(text, "Why does a puddle disappear?", { k: 1, preferred: [current] })).toEqual([current]);
+});
+
+it("deduplicates preferred passages and fills the remaining count and character budget by keywords", () => {
+  const preferred = "Evaporation converts liquid into vapor.";
+  const other = "Granite contains quartz.";
+  expect(retrievePassages(other + "\n\n" + preferred, "quartz", { k: 2, preferred: [preferred, preferred] })).toEqual([preferred, other]);
+  const capped = retrievePassages(other, "quartz", { preferred: [preferred], maxChars: preferred.length + 8 });
+  expect(capped[0]).toBe(preferred);
+  expect(capped.join("").length).toBe(preferred.length + 8);
+  expect(capped[1]).toBe("Granite…");
+});

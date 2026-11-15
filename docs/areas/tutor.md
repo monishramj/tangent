@@ -16,4 +16,6 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
-(none yet; prepend dated entries here)
+**2026-11-15 — v1 step 10:** Prefer the narrated beat’s source paragraphs before keyword retrieval, within the existing passage budget. Carry optional passage IDs through scene events and saved bundles; load cached section text for replay, with keyword fallback for older bundles.
+Proof: retrieval paraphrase/budget tests, active-beat/gap selection, live-player and saved-video prompt tests passed; TypeScript passed.
+Not verified: live tutor/model answers or native playback; cached IR is required to resolve IDs.

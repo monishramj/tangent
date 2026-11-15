@@ -415,8 +415,10 @@ it("attaches each beat's passage boxes to its scene; unknown ids are dropped; no
     [[box(1), box(2), box(3)], [], [], []],
   ]);
 
+  expect(scenes.map(s => s.passageIds)).toEqual([[["p1"], ["p2"], []], [["p1", "p2"], [], [], []]]);
+
   const plain = setup(2);
   const out = collect(streamVideo(plain.options));
   await vi.runAllTimersAsync();
-  for (const s of sceneEvents(await out)) expect(s.type === "scene" && "passages" in s).toBe(false);
+  for (const s of sceneEvents(await out)) expect(s.type === "scene" && ("passages" in s || "passageIds" in s)).toBe(false);
 });

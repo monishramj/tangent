@@ -49,4 +49,6 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
-(none yet; prepend dated entries here)
+**2026-11-15 — v1 step 10:** After repair, waive only long sentences or one parenthetical on at most floor(shipped beats / 10); return `styleWaived` indices and print the count in the eval harness. Accuracy gates and unsupported-beat cuts remain in force.
+Proof: focused script/pipeline/storage tests cover boundaries, every lint class, mixed accuracy failures, and saved passage IDs; TypeScript passed.
+Not verified: live model/eval runs, real audio, native builds.

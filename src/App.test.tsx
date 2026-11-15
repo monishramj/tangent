@@ -94,3 +94,21 @@ it('opens Settings by shortcut while watching, with hidden library shortcuts dis
   expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
   expect(screen.queryByRole('slider')).toBeNull();
 });
+
+
+it("loads cached source passages for the tutor when replaying saved passage ids", async () => {
+  const source = "Evaporation converts liquid into vapor.";
+  const store = memoryJsonStore({ [`ir-${sourceFor('/b.pdf').id}`]: { sections: [
+    { id: "s1", title: "Heaps", level: 1, anchors: [], children: [], passages: [{ id: "p2", markdown: source, boxes: [] }] },
+  ] } });
+  const complete = vi.fn().mockResolvedValue(JSON.stringify({ answer: "The liquid turns into vapor.", annotations: [] }));
+  const video = { ...vid, scenes: vid.scenes.map(s => ({ ...s, passageIds: s.scene.beats.map(() => ["p2"]) })) };
+  render(<App provider={{ complete }} store={store} videoStore={fakeVideoStore([video])} initial={{ s: "watch", video }} />);
+  await screen.findByRole("slider");
+  fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  const box = screen.getByLabelText("Ask about this moment");
+  fireEvent.change(box, { target: { value: "Why does a puddle disappear?" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+  await screen.findByText("The liquid turns into vapor.");
+  expect(complete.mock.calls[0][0]).toContain(source);
+});

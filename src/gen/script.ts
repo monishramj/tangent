@@ -8,8 +8,8 @@ import { devlog } from "../devlog";
 export const Beat = z.object({ say: z.string().min(1), visualIntent: z.string().min(1), cite: z.string().optional(), passages: z.unknown().optional() });
 export type Beat = Omit<z.infer<typeof Beat>, "passages"> & { passages?: string[] };
 export type Violation = { beat: number; rule: string; message: string };
-/** `dropped`: says of beats removed because they still made an unsupported claim after the repair. */
-export type ScriptResult = { beats: Beat[] | null; attempts: number; violations: Violation[]; dropped?: string[] };
+/** `dropped`: unsupported says removed after repair. `styleWaived`: minor-style beat indices in the shipped script. */
+export type ScriptResult = { beats: Beat[] | null; attempts: number; violations: Violation[]; styleWaived: number[]; dropped?: string[] };
 
 const MAX_WORDS = 22;
 
@@ -152,7 +152,7 @@ export async function generateScript({ sectionMarkdown, provider, detail = "stan
   const first = parse(await provider.complete(base, SCRIPT_OPTS));
   let beats = first.beats ? first.beats.map(normalise) : null;
   let violations = beats ? check(beats) : [{ beat: -1, rule: "format", message: first.error ?? "Invalid output" }];
-  if (violations.length === 0) return { beats, attempts: 1, violations };
+  if (violations.length === 0) return { beats, attempts: 1, violations, styleWaived: [] };
   // One repair. A parsed script gets a targeted repair of only the broken beats (a few output tokens instead of the
   // whole script again, which halves the retry's latency); unparseable output is regenerated in full.
   if (beats) {
@@ -162,17 +162,27 @@ export async function generateScript({ sectionMarkdown, provider, detail = "stan
   } else {
     const r = parse(await provider.complete(`${base}\n\nYour previous answer broke these rules. Fix every one, keep everything else, and return the full JSON array again:\n${JSON.stringify(violations)}`, SCRIPT_OPTS));
     beats = r.beats ? r.beats.map(normalise) : null;
-    if (!beats) return { beats: null, attempts: 2, violations: [{ beat: -1, rule: "format", message: r.error ?? "Invalid output" }] };
+    if (!beats) return { beats: null, attempts: 2, styleWaived: [], violations: [{ beat: -1, rule: "format", message: r.error ?? "Invalid output" }] };
   }
   violations = check(beats);
   // Fail closed per beat, not per video: a beat that still states an unsupported number is cut, so the video never
   // says it. Cutting more than a quarter of the script would gut it; then the violations stand and the video fails.
   const ungrounded = new Set(violations.filter(v => v.rule === "unsupported-number").map(v => v.beat));
+  let dropped: string[] | undefined;
   if (ungrounded.size && ungrounded.size <= Math.max(1, Math.floor(beats.length / 4)) && ungrounded.size < beats.length) {
-    const dropped = beats.filter((_, i) => ungrounded.has(i)).map(b => b.say);
+    dropped = beats.filter((_, i) => ungrounded.has(i)).map(b => b.say);
     beats = beats.filter((_, i) => !ungrounded.has(i));
     devlog(`script: cut ${dropped.length} beat(s) with unsupported numbers: ${JSON.stringify(dropped).slice(0, 300)}`);
-    return { beats, attempts: 2, violations: check(beats), dropped };
+    violations = check(beats);
   }
-  return { beats, attempts: 2, violations };
+  const candidates = [...new Set(violations.map(v => v.beat))];
+  const minorOnly = violations.every(v => {
+    if (v.rule === "long-sentence") return true;
+    if (v.rule !== "parenthetical") return false;
+    const asides = [...beats[v.beat].say.matchAll(/(^|[\s,;])\([^)]*\)/g)];
+    return asides.length === 1 && !/(^|[\s,;])\(/.test(asides[0][0].trim().slice(1));
+  });
+  const styleWaived = minorOnly && candidates.length <= Math.floor(beats.length / 10) ? candidates : [];
+  if (styleWaived.length) violations = [];
+  return { beats, attempts: 2, violations, styleWaived, ...(dropped ? { dropped } : {}) };
 }

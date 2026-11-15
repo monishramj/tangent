@@ -3,7 +3,7 @@ import useKeybinds from "./hooks/useKeybinds";
 import { startMenuBridge, syncMenu } from "./menu";
 import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
-import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR } from "./home/api";
+import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR, type Passage } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
 import { recordStream, replayStream, tauriVideoStore, type VideoBundle, type VideoStore } from "./storage/videos";
@@ -42,16 +42,26 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
 function Watch({ video, provider, store, onBack }: { video: VideoBundle; provider?: LLMProvider; store: JsonStore; onBack: () => void }) {
   const stream = useMemo(() => replayStream(video), [video]);
   const [pages, setPages] = useState<number[]>([]);
+  const [source, setSource] = useState<{ markdown: string; passages: Passage[] }>({ markdown: video.title, passages: [] });
   useEffect(() => {
     let live = true;
     setPages([]);
-    void irCache(store).get(sourceFor(video.source.pdfPath).id).then(ir => {
-      if (live) setPages(ir && Array.isArray(ir.sections) ? sectionPages(ir, video.source.sectionId) : []);
+    setSource({ markdown: video.title, passages: [] });
+    void irCache(store).get(sourceFor(video.source.pdfPath).id).then(async ir => {
+      if (!ir || !Array.isArray(ir.sections)) return;
+      const ids = video.source.sectionId.split("+");
+      const passages = sectionsPassages(ir, ids);
+      if (live) {
+        setPages(sectionPages(ir, video.source.sectionId));
+        setSource({ markdown: passages.map(p => p.markdown).join("\n\n") || video.title, passages });
+      }
+      const markdown = stripWatermarks(await sectionsText(ir, ids));
+      if (live && markdown) setSource({ markdown, passages });
     }).catch(() => {});
     return () => { live = false; };
   }, [video, store]);
   return <PlayerScreen stream={stream} title={video.title} kicker={video.source.sectionTitle !== video.title ? video.source.sectionTitle : "Tangent"}
-    textbook={{ pdfPath: video.source.pdfPath, pages }} videoId={video.id} section={video.title} provider={provider} store={store} autoPlay onBack={onBack} />;
+    textbook={{ pdfPath: video.source.pdfPath, pages }} videoId={video.id} section={source.markdown} passages={source.passages} provider={provider} store={store} autoPlay onBack={onBack} />;
 }
 
 /** Read the section, start the pipeline, record it into a bundle, and play it as it streams. */
@@ -60,7 +70,7 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
 }) {
   const [videoId] = useState(() => newId("v"));
   const [progress, setProgress] = useState<Progress>();
-  const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string } | { error: string } | null>(null);
+  const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string; passages: Passage[] } | { error: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     const { sectionIds, meta } = args;
@@ -73,12 +83,13 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
         const markdown = stripWatermarks(await sectionsText(ir, sectionIds));
         if (controller.signal.aborted) return;
         const key = await giphyKey();
+        const passages = sectionsPassages(ir, sectionIds);
         const stream = startSession({
-          irSection: { markdown, passages: sectionsPassages(ir, sectionIds), figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
+          irSection: { markdown, passages, figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
           provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });
-        setState({ markdown, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { pdfPath: meta.pdfPath, sectionId, sectionTitle: meta.title } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
+        setState({ markdown, passages, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { pdfPath: meta.pdfPath, sectionId, sectionTitle: meta.title } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
       } catch (e) { if (!controller.signal.aborted) setState({ error: String(e) }); }
     })();
     return () => controller.abort();
@@ -86,7 +97,7 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   const empty = useMemo(() => (async function* () {})(), []);
   const error = state && "error" in state ? state.error : null;
   return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
-    kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} provider={provider} store={store}
+    kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} passages={state && "passages" in state ? state.passages : []} provider={provider} store={store}
     textbook={{ pdfPath: args.meta.pdfPath, pages: sectionPages(args.ir, args.sectionIds.join("+")) }}
     progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section: ${error}` : undefined} />;
 }

@@ -16,6 +16,8 @@ import type { Annotation } from "@motion/annotations";
 import { applyEventsAt } from "@motion/stage/scene";
 import { describeScene, visibleObjects } from "@motion/stage/describe";
 import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
+import { currentPassageIds } from "@/tutor/glue";
+import type { Passage } from "@/follow/types";
 import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
@@ -51,6 +53,7 @@ export type PlayerProps = {
   title: string;
   kicker?: string;
   videoId?: string; // threads + checkpoint results persist under this id
+  passages?: Passage[];
   section?: string; // source markdown for the tutor
   provider?: LLMProvider;
   store?: JsonStore;
@@ -62,7 +65,7 @@ export type PlayerProps = {
   textbook?: TextbookSource;
 };
 
-export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError, textbook }: PlayerProps) {
+export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", passages = [], provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError, textbook }: PlayerProps) {
   const [scenes, setScenes] = useState<StreamedScene[]>([]);
   const [current, setCurrent] = useState<StreamedScene | null>(null);
   const [time, setTime] = useState(0);
@@ -263,6 +266,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
         transcript: transcriptUntil(lines, t), section, priorQuestions: threads.map(x => x.title),
         sceneDescription: live && state ? describeScene(live.scene, state) : undefined,
         nowSaying: nowSayingAt(lines, t),
+        currentPassages: currentPassageIds(scenes, t).flatMap(id => passages.find(p => p.id === id)?.markdown ?? []),
       });
       const image = (await snapshotRef.current?.().catch(() => null)) ?? undefined;
       const r = await ask({ question, context, provider, history: base.messages, image });
