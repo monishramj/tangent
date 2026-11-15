@@ -65,14 +65,29 @@ it("shows progress Loading before the first scene, then the title and a 16:9 vid
   const s = setup();
   await settle();
   expect(screen.getByRole("heading", { name: "Heapify" })).toBeTruthy();
-  expect(screen.getByRole("status", { name: "Generation progress" })).toBeTruthy();
+  const waiting = screen.getByRole("status");
+  expect(waiting.getAttribute("aria-live")).toBe("polite");
+  expect(waiting.textContent).toBe("Preparing your explanation");
+  expect(screen.getByTestId("player-ring")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Play video" })).toBeNull();
   expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByTestId("video").className).toContain("aspect-video");
   await s.push(sceneEvent());
-  expect(screen.queryByRole("status", { name: "Generation progress" })).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
   expect(stage).toHaveBeenCalledWith(expect.objectContaining({ scene }));
   expect(screen.getByRole("slider").getAttribute("max")).toBe(String(timeline.totalSec));
+});
+
+it("hides the loader while playing and shows it when the scene buffers", async () => {
+  const s = setup();
+  await startWithScene(s);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  expect(screen.queryByRole("status")).toBeNull();
+  await act(async () => { s.audios[0].dispatchEvent(new Event("waiting")); });
+  expect(screen.getByRole("status").textContent).toBe("Buffering");
+  expect(screen.getByTestId("player-ring")).toBeTruthy();
+  await act(async () => { s.audios[0].dispatchEvent(new Event("canplay")); });
+  expect(screen.queryByRole("status")).toBeNull();
 });
 
 it("play and pause buttons drive the audio", async () => {

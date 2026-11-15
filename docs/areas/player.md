@@ -61,3 +61,4 @@ Visuals are scheduled *to* the audio, never the reverse.
   Audio-clock-adjacent: only compiler phrase-end metadata and Stage invocation changed; Player/SceneQueue/bufferClock, gap and rate untouched.
   Evidence: Stage pause/seek/rejoin and first-scene tests, transition time samples, affected suite and TypeScript check.
   Not verified: real GPU/audio playback or screenshot frames; no dev server/browser started.
+- 2026-11-16 Player wait (no scene yet) and mid-video buffer show the library's drawn white ring plus one stage line from existing `Progress` (`Loading.tsx`, keyframes in `index.css`). Overlay is absolute (`bottom-4`), `role=status` `aria-live=polite`; reduced motion holds the ring still. Evidence: `Loading.test.tsx`, `PlayerScreen.test.tsx`, `docs/ui-review/19-loading-first-scene.png`, `20-loading-buffering.png`, `21-loading-playing.png`, `22-loading-reduced.png`. Not verified: WKWebView, a real generation run.
