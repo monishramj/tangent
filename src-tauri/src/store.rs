@@ -92,12 +92,12 @@ pub fn secret_set(base: &Path, name: &str, value: &str) -> Result<(), String> {
 #[cfg(windows)]
 fn owner_only(path: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, GENERIC_ALL};
     use windows_sys::Win32::Security::Authorization::{
         SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, SE_FILE_OBJECT, SET_ACCESS, TRUSTEE_IS_SID, TRUSTEE_IS_USER,
     };
     use windows_sys::Win32::Security::{
-        GetTokenInformation, TokenUser, DACL_SECURITY_INFORMATION, GENERIC_ALL, NO_INHERITANCE,
+        GetTokenInformation, TokenUser, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
         PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};

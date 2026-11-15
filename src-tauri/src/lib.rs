@@ -57,20 +57,25 @@ impl Drop for Process {
     }
 }
 
+// The handle is a pointer. Store it as an integer so the sidecar mutex can move across threads.
 #[cfg(windows)]
-struct WindowsJob(windows_sys::Win32::Foundation::HANDLE);
+struct WindowsJob(usize);
+#[cfg(windows)]
+unsafe impl Send for WindowsJob {}
 #[cfg(windows)]
 impl WindowsJob {
     fn attach(child: &Child) -> Result<Self, String> {
         use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::HANDLE;
         use windows_sys::Win32::System::JobObjects::*;
         unsafe {
-            let job = Self(CreateJobObjectW(std::ptr::null(), std::ptr::null()));
-            if job.0.is_null() { return Err(std::io::Error::last_os_error().to_string()); }
+            let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if raw.is_null() { return Err(std::io::Error::last_os_error().to_string()); }
+            let job = Self(raw as usize);
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            if SetInformationJobObject(job.0, JobObjectExtendedLimitInformation, (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(), std::mem::size_of_val(&info) as u32) == 0
-                || AssignProcessToJobObject(job.0, child.as_raw_handle()) == 0 {
+            if SetInformationJobObject(job.0 as HANDLE, JobObjectExtendedLimitInformation, (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(), std::mem::size_of_val(&info) as u32) == 0
+                || AssignProcessToJobObject(job.0 as HANDLE, child.as_raw_handle()) == 0 {
                 return Err(std::io::Error::last_os_error().to_string());
             }
             Ok(job)
@@ -80,7 +85,7 @@ impl WindowsJob {
 #[cfg(windows)]
 impl Drop for WindowsJob {
     fn drop(&mut self) {
-        if !self.0.is_null() { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0); } }
+        if self.0 != 0 { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0 as windows_sys::Win32::Foundation::HANDLE); } }
     }
 }
 

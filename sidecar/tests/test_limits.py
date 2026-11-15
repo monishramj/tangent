@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -29,26 +30,32 @@ def test_apply_sets_blas_env(monkeypatch):
 
 
 def test_watchdog_exits_when_parent_dies(tmp_path):
+    # Load limits.py directly so the child does not import torch via the package init.
     # The app's pid is TANGENT_PARENT_PID (uv may sit in between). Kill that pid; the child must exit.
-    ready, done = tmp_path / "ready", tmp_path / "done"
+    import json
+    ready, done, err = tmp_path / "ready", tmp_path / "done", tmp_path / "err"
+    limits_py = json.dumps(str(Path(limits.__file__).resolve()))
     script = tmp_path / "watch.py"
     script.write_text(
-        "import os, time\nfrom pathlib import Path\nfrom tangent_sidecar import limits\n"
-        f"Path({ready.as_posix()!r}).write_text('up')\n"
-        "limits.start_watchdog(0.05)\ntime.sleep(30)\n"
-        f"Path({done.as_posix()!r}).write_text('nope')\n"
+        "import importlib.util, time\nfrom pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('limits', {limits_py})\n"
+        "mod = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\n"
+        f"Path({json.dumps(str(ready))}).write_text('up')\n"
+        "mod.start_watchdog(0.05)\ntime.sleep(30)\n"
+        f"Path({json.dumps(str(done))}).write_text('nope')\n"
     )
     holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], stdout=subprocess.DEVNULL)
     env = os.environ.copy()
     env["TANGENT_PARENT_PID"] = str(holder.pid)
-    child = subprocess.Popen([sys.executable, str(script)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with err.open("w") as err_file:
+        child = subprocess.Popen([sys.executable, str(script)], env=env, stdout=subprocess.DEVNULL, stderr=err_file)
     try:
-        for _ in range(100):
+        for _ in range(200):
             if ready.exists():
                 break
             time.sleep(0.05)
         else:
-            raise AssertionError("child never started")
+            raise AssertionError(f"child never started: {err.read_text()[-2000:]}")
         holder.kill()
         holder.wait(timeout=5)
         assert child.wait(timeout=5) == 0
