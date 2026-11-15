@@ -20,7 +20,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - PDFium is resolved from `TANGENT_PDFIUM` (explicit override), then bundled `runtime/libpdfium.dylib`, `runtime/pdfium.dll`, or `runtime/libpdfium.so`. Dev/tests can still use pypdfium2’s copy in a checkout venv. There is no system-library search.
 
 ### First-launch bootstrap (step 20)
-- `bootstrap.rs` opens a separate accessible setup window before exposing the main window. It says **about 2–3 GB**, provides Set up / Cancel / Resume, and shows indeterminate progress by real phase rather than invented byte percentages. Closing setup quits safely. Claude Code account setup remains step 23.
+- `bootstrap.rs` opens a separate accessible setup window before exposing the main window. It says **about 2–3 GB**, provides Set up / Cancel / Resume, and shows indeterminate progress by real phase rather than invented byte percentages. Closing setup quits safely. After that window hands off, the main window's first screen checks Claude Code (`launch_checks` on the main capability only).
 - Bundled uv first runs `python install 3.12`, then `sync --frozen --no-dev --python 3.12 --managed-python --project <resources>/runtime/sidecar`. Environment, managed Python, download cache, log, and later Hugging Face weights stay under `<app data>/runtime/{env,python,cache,setup.log,models}`. Model weights still download lazily when their tools first run; no models run during bootstrap.
 - A matching `complete` marker **and** interpreter are required before sidecar calls. The marker fingerprints the project, lock, and bootstrap Python version; it is written by atomic rename only after successful sync. Stale markers are removed before retry. Partial envs and uv cache remain reusable after interruption, cancellation, failure, or relaunch. No user content is deleted.
 - Each phase retries up to three times; uv also retries HTTP failures three times. Final errors show a Retry/Resume action and point to `setup.log`. Cancel terminates the installer process tree and never writes completion. One setup runs per app instance.
@@ -65,9 +65,15 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16 PR #31 review: `run_probe` drains stdout and stderr while it waits, keeps at most 64KiB, and kills the process group (Windows: `taskkill /T`) at the deadline so a grandchild holding the pipe cannot hang the check.
+  Evidence: cargo test — sleep past the deadline, a 2MB flood, and a grandchild that inherits the pipe. Not verified: the Windows `taskkill` path.
+
 - 2026-11-16 Step 22: `.github/workflows/release.yml` (tag `v*` -> draft release; macOS arm64+x64, Windows, Linux; tauri-action action-v0.6.2; manual run = dry run with workflow artifacts). Secrets `TAURI_SIGNING_PRIVATE_KEY` + `_PASSWORD`; ad-hoc mac signing kept; owner steps in `docs/release.md`.
   Decided: added macOS x64 (`macos-15-intel`), tag must equal `tauri.conf.json` version, `release.sh` left as local fallback; ci.yml untouched.
   Evidence: YAML parses (ruby); actionlint/yamllint not installed. Not verified: any real run (see `docs/release.md` last section).
+- 2026-11-16 Step 23: main window shows Claude Code install/login checks before the library (and again under Settings → Setup). `launch_checks` runs only `claude --version` and `claude auth status --json` (no `-p`). Ollama is not offered.
+  Evidence: `checks::` unit tests for missing, signed-out, ok, and timeout probes; vitest for the screen and the Settings section.
+  Not verified: a real logged-out `auth status` on a machine without Claude, or the setup-window hand-off in a packaged build.
 
 - 2026-11-16 PR #22 review fixes: `unsafe extern` for the Windows `NtResumeProcess` block (edition 2024); the setup window now closes only after the main window is created, otherwise it stays open with the error and a retry; `bootstrap.json` drops the ineffective `remote` urls (Tauri treats `setup://` as local) and is scoped by `windows:["bootstrap"]`, `local: true`.
   Evidence: cargo test 43 pass (hand-off failure test, capability shape), cargo check, generated `gen/schemas/capabilities.json` shows `default`->main and `bootstrap`->bootstrap only.

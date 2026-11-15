@@ -37,6 +37,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - **Model: `haiku` by default, `sonnet` for the script stage** (`SCRIPT_OPTS` in `src/gen/script.ts`; Haiku scripts broke the speech-first rules). `CompleteOpts.model` picks the tier; `src-tauri/src/llm.rs` allowlists `haiku|sonnet` and `src/llm/claudeCli.ts` mirrors it; keep both in sync.
 - Caveats: cold-start latency (unsuitable for the instant tutor), it eats the 5-hr Pro limit, and the ToS for driving it from my own app must be re-checked **before the OSS release** defaults to it.
 - **Provider interface from day one:** `ClaudeCodeCLI` (backend #1), `Ollama` (local fallback + tutor fast path), API-key providers (Claude/Gemini/OpenAI) for other users and later.
+- **Ollama (open):** the first-launch screen does not offer it. `src/llm/registry.ts` is still claude and codex only, so there is no end-to-end check that can pass. Add the row when a real local `complete()` works.
 - Budget constraint: nothing beyond Claude Pro should cost money by default.
 - **API keys (deferred):** none are needed yet, so no storage is built. When the first provider needs one (GIPHY/Klipy, Anthropic or other API-key providers), store it behind `get_secret`/`set_secret` Tauri commands (now an owner-only file `<appData>/secrets/<name>`, 0600; the Keychain was dropped 2026-11-10 because unsigned dev builds prompted for the login password on every read; revisit Keychain/encryption once builds are signed). `get_secret` only returns allowlisted names (`WEBVIEW_READABLE` in `store.rs`, just `giphy`: GIPHY keys are designed for client-side use); any other key is write-only from the webview and read only in Rust. Pass keys to the sidecar at spawn. Never put keys in the repo, `.env` files, or plain app settings. `.env*` is gitignored only as a safety net. The Claude Pro path (`claude -p`) needs no key.
 
@@ -59,6 +60,8 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Evidence: all 7 affected/importer test files passed (122 tests, fake LLM); TypeScript check passed; orphan cleanup ran.
 - Decisions/limits: opt-in factCheck defers checks until narration is final; legacy IR uses local paragraph ids; shared gate retains its small-count/rounding/arithmetic rules; same-family LLM checks are fallible.
 - Not verified: optional cloud OpenStax eval, local models, native playback/UI (unchanged).
+- 2026-11-16 — Step 23: first-launch checks call `claude --version` and `claude auth status` only. The `llm.rs` / `claudeCli.ts` `-p` allowlist is unchanged. Ollama stays hidden (no provider to verify).
+  Evidence: status-command unit tests; screen tests for missing, signed out, ok, and timeout. Not verified: live auth status while logged out.
 
 - 2026-11-16 — Step 15: a scene already got one background retry (same inputs; DSL retry goes through the repair path; audio reused). Added: after the retry fails, `error` events carry `scope: "scene"` (script part 2 failure is `"script"`), each is logged `generation: scene-N skipped after retry (k this session): reason`, and `stream.failedScenes()` counts them. Grounding/numeric failures take the same path (fail closed, never shipped).
   Tested with fake provider/TTS (retry-success, double failure, ungrounded number). Not verified: real runs.

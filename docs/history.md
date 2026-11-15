@@ -2,8 +2,10 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+2026-11-16 — PR #31: Claude check timeout kills the process group and stops reading at the deadline (64KiB cap).
 - 2026-11-16 Step 13: checkpoints now use spoken narration and cited paragraphs, with numeric + fail-closed Haiku grounding checks and textbook-first scene priority; fake-LLM/importer tests added, optional cloud eval skipped.
 2026-11-16 — Step 15 failed scenes: retry once (existing), then a 2 s "Skipping ahead" card in the queue; failures logged with reason and counted (`failedScenes()`); tests only, no real run.
+2026-11-16 — Step 23: first-launch Claude Code checks (install + `auth status`, no `claude -p`) before the library and in Settings; Ollama hidden until a real provider exists.
 2026-11-16 — Step 12 fact-check of every beat (`src/gen/factCheck.ts`, `streamVideo({ factCheck })`), default OFF; eval harness `src/gen/factCheck.eval.test.ts`; false-flag rate not yet measured.
 2026-11-16 — Step 7 real formula check: 30/30 matched (100%), 73.48 s added wait, nominal heat; ten source comparisons reveal fidelity errors, separate fix proposed in docs/formula-check-2026-11.md.
 - 2026-11-16 Formula fidelity guard: reject changed numbers, lost notation and malformed decodes; source-text fallback or number-free unverified placeholders, per-formula metadata and disagreement counts; recorded step-7/synthetic checks, no model runs.

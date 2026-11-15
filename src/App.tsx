@@ -13,6 +13,8 @@ import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
 import { devlog } from "./devlog";
+import FirstLaunch from "./firstLaunch/FirstLaunch";
+import { checksPassed, markChecksPassed } from "./firstLaunch/checks";
 
 type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta };
 type Screen =
@@ -21,6 +23,7 @@ type Screen =
   | { s: "watch"; video: VideoBundle; back?: LibraryRoute };
 
 export default function App({ provider, store = tauriJsonStore, videoStore = tauriVideoStore, initial = { s: "home" } }: { provider?: LLMProvider; store?: JsonStore; videoStore?: VideoStore; initial?: Screen }) {
+  const [ready, setReady] = useState(checksPassed);
   const [screen, setScreen] = useState<Screen>(initial);
   const inLibrary = screen.s !== 'watch' && screen.s !== 'generate';
   const libraryRoute = inLibrary ? screen : screen.back ?? { s: 'home' as const };
@@ -29,6 +32,7 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
   // PlayerScreen pushes its own (more detailed) state while mounted; this just disables
   // Playback/Panels again once it isn't.
   useEffect(() => { if (inLibrary) syncMenu({ player: false }); }, [inLibrary]);
+  if (!ready) return <FirstLaunch onContinue={() => { try { markChecksPassed(); } catch { /* this session still continues */ } setReady(true); }} />;
   return <>
     <div hidden={!inLibrary}><Home store={videoStore} jsonStore={store} provider={provider} route={libraryRoute} active={inLibrary} onNavigate={setScreen}
       onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: libraryRoute })}

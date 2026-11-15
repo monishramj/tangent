@@ -11,8 +11,10 @@ import { version } from "../../package.json";
 
 import logo from "../../assets/tangent-icon.png";
 import ShortcutsSection from "./settings/Shortcuts";
+import FirstLaunch from "@/firstLaunch/FirstLaunch";
+import { markChecksPassed } from "@/firstLaunch/checks";
 
-const sections = ["General", "Playback", "Keyboard shortcuts", "Updates & About"] as const;
+const sections = ["General", "Setup", "Playback", "Keyboard shortcuts", "Updates & About"] as const;
 const speeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
 function read(key: string, fallback: string) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -34,13 +36,14 @@ export default function Settings({ onBack }: { onBack: () => void }) {
       <nav className="tl-settings-nav" aria-label="Settings sections">{sections.map(name => <button type="button" key={name} aria-current={section === name ? 'page' : undefined} aria-controls={`settings-${sections.indexOf(name)}`} onClick={() => setSection(name)}>{name}</button>)}</nav>
       <div className="tl-settings">
       <div id="settings-0" hidden={section !== 'General'}><h2>General</h2><GiphySetting /></div>
-      <div id="settings-1" hidden={section !== 'Playback'}><section aria-labelledby="playback-heading"><h2 id="playback-heading">Playback defaults</h2>
+      <div id="settings-1" hidden={section !== 'Setup'}>{section === 'Setup' && <FirstLaunch heading="h2" onContinue={() => { try { markChecksPassed(); } catch { /* already in the app */ } }} />}</div>
+      <div id="settings-2" hidden={section !== 'Playback'}><section aria-labelledby="playback-heading"><h2 id="playback-heading">Playback defaults</h2>
         <label className="tl-setting-row" htmlFor="default-speed"><span>Speed<small>Used when a video opens.</small></span><Select id="default-speed" value={speed} onChange={e => { if (save('tangent.speed', e.target.value)) setSpeed(e.target.value); }}>{speeds.map(s => <option key={s} value={s}>{s === 1 ? 'Normal' : `${s}×`}</option>)}</Select></label>
         <label className="tl-setting-row" htmlFor="default-cc"><span>Captions<small>Show narration while watching.</small></span><Select id="default-cc" value={cc ? 'on' : 'off'} onChange={e => { if (save('tangent.cc', e.target.value)) setCc(e.target.value === 'on'); }}><option value="on">On</option><option value="off">Off</option></Select></label>
         {error && <p role="alert">{error}</p>}
       </section></div>
-      <div id="settings-2" hidden={section !== 'Keyboard shortcuts'}><ShortcutsSection /></div>
-      <div id="settings-3" hidden={section !== 'Updates & About'}><Updates /></div>
+      <div id="settings-3" hidden={section !== 'Keyboard shortcuts'}><ShortcutsSection /></div>
+      <div id="settings-4" hidden={section !== 'Updates & About'}><Updates /></div>
       </div>
     </div>
   </LibraryShell>;

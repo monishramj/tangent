@@ -5,6 +5,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 mod bootstrap;
+mod checks;
 mod llm;
 mod menu;
 mod pages;
@@ -183,7 +184,7 @@ pub fn run() {
                 if bootstrap::runtime().is_err() { window.app_handle().exit(0); }
             }
         })
-        .invoke_handler(tauri::generate_handler![bootstrap::bootstrap_status, bootstrap::bootstrap_start, bootstrap::bootstrap_cancel, pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
+        .invoke_handler(tauri::generate_handler![bootstrap::bootstrap_status, bootstrap::bootstrap_start, bootstrap::bootstrap_cancel, checks::launch_checks, pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {

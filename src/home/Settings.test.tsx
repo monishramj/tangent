@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
 import Settings from './Settings';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(null) }));
 
 const api = vi.hoisted(() => ({ getVersion: vi.fn(), checkForUpdate: vi.fn(), installUpdate: vi.fn() }));
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: api.getVersion }));
@@ -86,6 +89,17 @@ it('reports version lookup failures while retaining the update check', async () 
   openInstalled();
   expect((await screen.findByRole('alert')).textContent).toContain('version unavailable');
   expect((screen.getByRole('button', { name: 'Check for updates' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('shows the Claude checks on Setup and keeps Continue off until they pass', async () => {
+  vi.mocked(invoke).mockResolvedValue({ installed: 'missing', version: null, signedIn: 'skipped' });
+  render(<Settings onBack={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
+  expect(await screen.findByRole('heading', { name: 'Before you start' })).toBeTruthy();
+  expect(screen.getByText("Claude Code isn't installed.")).toBeTruthy();
+  expect(screen.queryByText(/ollama/i)).toBeNull();
+  expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(invoke).toHaveBeenCalledWith('launch_checks');
 });
 
 it('navigates sections without losing playback changes and mounts the shortcuts section', () => {

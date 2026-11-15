@@ -18,6 +18,7 @@ window.matchMedia ??= ((query: string) => ({ matches: false, media: query, addEv
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("tangent.checksPassed", "1");
   vi.mocked(invoke).mockImplementation(async cmd => (cmd === "get_secret" ? null : undefined));
   vi.stubGlobal("Audio", class extends EventTarget {
     currentTime = 0; readyState = 4; preload = "";
@@ -85,6 +86,23 @@ it('continues the upload queue during saved-video playback and keeps its status 
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   await screen.findByRole('heading', { name: 'library' });
   await waitFor(() => expect(screen.getAllByText(/Ready/)).toHaveLength(3));
+});
+
+it("holds the library until Claude checks pass", async () => {
+  localStorage.removeItem("tangent.checksPassed");
+  vi.mocked(invoke).mockImplementation(async cmd => cmd === "launch_checks"
+    ? { installed: "missing", version: null, signedIn: "skipped" } : null);
+  render(<App provider={provider} store={memoryJsonStore()} videoStore={fakeVideoStore([])} />);
+  expect(await screen.findByRole("heading", { name: "Before you start" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "library" })).toBeNull();
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  vi.mocked(invoke).mockImplementation(async cmd => cmd === "launch_checks"
+    ? { installed: "ok", version: "2.1.44 (Claude Code)", signedIn: "ok" } : null);
+  fireEvent.click(screen.getByRole("button", { name: "Re-check" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(await screen.findByRole("heading", { name: "library" })).toBeTruthy();
+  expect(localStorage.getItem("tangent.checksPassed")).toBe("1");
 });
 
 it('opens Settings by shortcut while watching, with hidden library shortcuts disabled', async () => {
