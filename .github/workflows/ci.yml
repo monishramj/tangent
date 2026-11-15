@@ -52,6 +52,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
+          enable-cache: false
       - name: Set uv cache directory
         shell: bash
         run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"
@@ -78,6 +79,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
+          enable-cache: false
       - name: Set uv cache directory
         shell: bash
         run: echo "UV_CACHE_DIR=$HOME/.cache/uv" >> "$GITHUB_ENV"

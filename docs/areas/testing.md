@@ -18,6 +18,11 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+### 2026-11-15 — uv CI cache cleanup
+- Disabled setup-uv's implicit cache; the explicit `~/.cache/uv` cache remains, avoiding a post-job save from an unused directory.
+- Proof: workflow assertions and `git diff --check` passed; initial CI web Linux/Windows passed, Linux Rust/sidecar failed in cache cleanup; Windows platform failures remain advisory.
+- Not verified: corrected CI run and cancelled macOS jobs; all three matrices already use `fail-fast: false`; native/model paths not run.
+
 ### 2026-11-15 — CI and local evidence contract
 - Added three-platform web/Rust/sidecar CI, cached installs, hooks, PR checklist and release-seeded CHANGELOG.
 - Proof: `nice -n 10 bunx tsc --noEmit` passed; `nice -n 10 bun run test:focused packages/motion/src/player/bufferClock.test.ts`: 5 passed; shell hook demo: 11 assertions passed; `sh -n` and `git diff --check` passed (sandbox denied nice priority changes).
