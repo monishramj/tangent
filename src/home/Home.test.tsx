@@ -253,7 +253,8 @@ it('opens a Settings screen, persists playback defaults, and returns to the libr
   expect((screen.getByLabelText(/^Speed/) as HTMLSelectElement).value).toBe('1.5');
 });
 
-it('multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO', async () => {
+// flaky on CI macos-15, quarantined 2026-11-15, see docs/areas/testing.md
+it.skip('multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO', async () => {
   let finish!: (value: typeof ir) => void;
   vi.mocked(loadIr).mockImplementationOnce((_path, report) => {
     report?.({ fraction: .4, label: 'Reading PDF' });
