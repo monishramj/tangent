@@ -60,8 +60,7 @@
     ],
     "createUpdaterArtifacts": true,
     "macOS": {
-      "signingIdentity": "-",
-      "entitlements": "./Entitlements.plist"
+      "signingIdentity": "-"
     }
   },
   "plugins": {

@@ -18,8 +18,7 @@ export type PipelineEvent =
   | { type: "checkpoints"; items: Checkpoint[] };
 
 /** Real generation progress for the loading UI: which step scene `scene` is on, and how many scenes are ready. */
-/** "formulas" is set by the caller (App) while the section's formulas decode, before the pipeline starts. */
-export type Progress = { step: "formulas" | "script" | "narration" | "animation" | "ready"; scene: number; scenesReady: number; scenesTotal: number; beats: string[]; formulas?: number };
+export type Progress = { step: "script" | "narration" | "animation" | "ready"; scene: number; scenesReady: number; scenesTotal: number; beats: string[] };
 
 export type GenerationStatus = "writing script" | "generating narration" | "building scenes" | "done";
 
