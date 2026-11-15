@@ -26,6 +26,11 @@ Step 21 addresses the ledger below. Windows CI on that PR is the confirmation; t
 
 ## Log
 
+### 2026-11-16 — PR #33 review: cache symlink, secret ACL, process group
+- Cache hits require a regular file in the cache dir and open it with `O_NOFOLLOW` (Windows: `FILE_FLAG_OPEN_REPARSE_POINT`). A symlink is a miss, so a user PDF is never opened for write.
+- Evidence: `cache_hit_does_not_follow_a_symlink`, `restriction_failure_removes_the_secret_file`, and the grandchild-after-exit drop test. Full `cargo test --lib` with `TANGENT_HEAVY_SLOTS=1`.
+- Not verified: Windows reparse-point open or a real DACL.
+
 ### 2026-11-16 — Step 21: Windows cache-hit mtime
 - Cache hits open the PNG read-write before `set_modified`. Windows error 5 on `File::open` left the stamp at the test's epoch+10, so `renders_real_pdf_and_hits_cache_without_pdfium_lock` failed after the compile was green.
 - Evidence: local `cargo test --locked -j3` with `TANGENT_PDFIUM`. Windows CI on the follow-up push is the confirmation.

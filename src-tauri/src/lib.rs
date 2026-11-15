@@ -46,14 +46,15 @@ impl Drop for Process {
                 Ok(Some(_)) => break,
                 Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
                 _ => {
-                    #[cfg(unix)]
-                    unsafe { libc::killpg(self.child.id() as i32, libc::SIGKILL); }
                     let _ = self.child.kill();
                     let _ = self.child.wait();
                     break;
                 }
             }
         }
+        // A graceful exit still leaves grandchildren in the process group. Non-leaders make killpg fail.
+        #[cfg(unix)]
+        unsafe { libc::killpg(self.child.id() as i32, libc::SIGKILL); }
     }
 }
 
@@ -423,6 +424,18 @@ mod tests {
         drop(p);
         std::thread::sleep(Duration::from_millis(200));
         assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "grandchild outlived the drop");
+
+        // The shell exits on its own and leaves the grandchild. Drop must still kill the group.
+        let child = Command::new("sh").args(["-c", "sleep 30 & echo $!; exit 0"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let p = Process::new(child);
+        let pid: i32 = p.lines.recv_timeout(Duration::from_secs(3)).unwrap().unwrap().parse().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "grandchild should outlive the shell");
+        drop(p);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "grandchild outlived a graceful child exit");
 
         // A sidecar that dies mid-job fails that call; it is not restarted inside the same call.
         let dead = Command::new("sh").args(["-c", "exit 0"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();

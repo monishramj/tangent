@@ -305,25 +305,65 @@ fn atomic_write(path: &Path, write: impl FnOnce(&mut File) -> Result<(), String>
     result
 }
 
-fn cache_hit(png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
-    // write(true) so Windows accepts SetFileTime. File::open is read-only and returns access denied.
-    let file = match fs::OpenOptions::new().read(true).write(true).open(png) {
+fn regular_in_cache(dir: &Path, path: &Path) -> bool {
+    if path.parent() != Some(dir) { return false; }
+    let Ok(dir_meta) = fs::symlink_metadata(dir) else { return false };
+    if dir_meta.file_type().is_symlink() || !dir_meta.is_dir() { return false; }
+    let Ok(meta) = fs::symlink_metadata(path) else { return false };
+    meta.is_file() && !meta.file_type().is_symlink()
+}
+
+fn open_nofollow(path: &Path, write: bool) -> std::io::Result<File> {
+    let mut open = fs::OpenOptions::new();
+    open.read(!write).write(write);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        open.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    open.open(path)
+}
+
+fn cache_miss(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || (cfg!(unix) && error.raw_os_error() == Some(libc::ELOOP))
+}
+
+fn refresh_mtime(dir: &Path, path: &Path) {
+    if !regular_in_cache(dir, path) { return; }
+    if let Ok(file) = open_nofollow(path, true) { let _ = file.set_modified(SystemTime::now()); }
+}
+
+fn cache_hit(dir: &Path, png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
+    // A symlink here would make a writable open land on a user PDF. Miss instead.
+    if !regular_in_cache(dir, png) || !regular_in_cache(dir, size) { return Ok(None); }
+    let file = match open_nofollow(png, false) {
         Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if cache_miss(&e) => return Ok(None),
         Err(e) => return Err(e.to_string()),
     };
-    // Read only PNG metadata; incomplete headers are disposable cache misses.
     let decoder = png::Decoder::new(std::io::BufReader::new(&file));
     if decoder.read_info().is_err() { return Ok(None); }
-    if let Ok(text) = fs::read_to_string(size) {
-        let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
-        if let [w, h, count] = dims.as_slice() {
-            if page > *count { return Err(format!("page must be in 1..={count}")); }
-            let now = SystemTime::now();
-            let _ = file.set_modified(now);
-            let _ = fs::OpenOptions::new().write(true).open(size).and_then(|f| f.set_modified(now));
-            return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
-        }
+    let text = {
+        let mut size_file = match open_nofollow(size, false) {
+            Ok(file) => file,
+            Err(e) if cache_miss(&e) => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        let mut text = String::new();
+        if size_file.read_to_string(&mut text).is_err() { return Ok(None); }
+        text
+    };
+    let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+    if let [w, h, count] = dims.as_slice() {
+        if page > *count { return Err(format!("page must be in 1..={count}")); }
+        refresh_mtime(dir, png);
+        refresh_mtime(dir, size);
+        return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
     }
     Ok(None)
 }
@@ -336,7 +376,7 @@ fn cached_page(base: &Path, path: &Path, page: u32, width: u32, resource: Option
     let size = dir.join(format!("{page}.size"));
     {
         let _lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(hit) = cache_hit(&png, &size, page)? { return Ok(hit); }
+        if let Some(hit) = cache_hit(&dir, &png, &size, page)? { return Ok(hit); }
     }
     let (rgb, pixels_high, w, h, count) = render(path, page, width, resource)?;
     let _write_lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -550,13 +590,14 @@ mod tests {
         let size = png.parent().unwrap().join("1.size");
         fs::remove_file(png).unwrap();
         // Exercise the hit path directly, as if pruning ran after an existence check.
-        assert!(cache_hit(png, &size, 1).unwrap().is_none());
+        let dir = png.parent().unwrap();
+        assert!(cache_hit(dir, png, &size, 1).unwrap().is_none());
         let restored = cached_page(&base, &path, 1, 150, None).unwrap();
         assert_eq!(restored.path, first.path);
-        assert!(cache_hit(png, &size, 1).unwrap().is_some());
+        assert!(cache_hit(dir, png, &size, 1).unwrap().is_some());
         for truncated in [b"\x89PNG\r\n\x1a\n".as_slice(), b"not a PNG".as_slice()] {
             fs::write(png, truncated).unwrap();
-            assert!(cache_hit(png, &size, 1).unwrap().is_none());
+            assert!(cache_hit(dir, png, &size, 1).unwrap().is_none());
             let restored = cached_page(&base, &path, 1, 150, None).unwrap();
             assert_eq!((restored.width, restored.height), (200, 100));
             let mut reader = png::Decoder::new(std::io::BufReader::new(File::open(png).unwrap())).read_info().unwrap();
@@ -564,6 +605,25 @@ mod tests {
             let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
             reader.next_frame(&mut pixels).unwrap();
         }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_hit_does_not_follow_a_symlink() {
+        let base = tmp("symlink");
+        let outside = base.join("secret.pdf");
+        fs::write(&outside, b"%PDF-secret").unwrap();
+        let stamp = UNIX_EPOCH + Duration::from_secs(10);
+        fs::File::options().write(true).open(&outside).unwrap().set_modified(stamp).unwrap();
+        let dir = base.join("pages").join("bucket");
+        fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("1-100.png")).unwrap();
+        fs::write(dir.join("1.size"), "10 10 1").unwrap();
+        assert!(cache_hit(&dir, &dir.join("1-100.png"), &dir.join("1.size"), 1).unwrap().is_none());
+        assert_eq!(fs::read(&outside).unwrap(), b"%PDF-secret");
+        assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), stamp);
+        assert!(fs::symlink_metadata(dir.join("1-100.png")).unwrap().file_type().is_symlink());
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -610,7 +670,7 @@ mod tests {
                         prune(&base.join("pages"), 0, 0).unwrap();
                         let png = Path::new(&result.path);
                         let size = png.parent().unwrap().join(format!("{page}.size"));
-                        assert!(cache_hit(png, &size, page).unwrap().is_some());
+                        assert!(cache_hit(png.parent().unwrap(), png, &size, page).unwrap().is_some());
                     }
                 });
             }
