@@ -43,7 +43,7 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - No end-to-end run on a real chapter with the newest templates and Tangenter yet; expect prompt tuning.
 - Native menu `build()`, hardware pinch, updater install and Windows/Linux builds are unexercised.
 - Cached IRs predating passages are not re-ingested (open question: "Re-read PDF" action).
-- Windows: secret files not owner-only; packaged sidecar path unset; no Windows/Linux build run.
+- Windows/Linux builds are still unexercised on a machine here; owner-only secrets, the sidecar job, and the packaged runtime path are in code and waiting on CI.
 - First-scene latency unmeasured since planning call removal.
 - GlassSurface refraction unsupported in WKWebView (plain blur fallback).
 - Full list in `docs/history.md` ("Open issues").

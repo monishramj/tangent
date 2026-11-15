@@ -2,7 +2,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::ffi::{CString, c_char, c_int, c_ulong, c_void};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, atomic::{AtomicUsize, Ordering}};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -79,7 +79,6 @@ macro_rules! pdfium {
 }
 pdfium! {
     FPDF_InitLibrary: unsafe extern "system" fn(),
-    FPDF_LoadDocument: unsafe extern "system" fn(*const c_char, *const c_char) -> Handle,
     FPDF_GetLastError: unsafe extern "system" fn() -> c_ulong,
     FPDF_GetPageCount: unsafe extern "system" fn(Handle) -> c_int,
     FPDF_LoadPage: unsafe extern "system" fn(Handle, c_int) -> Handle,
@@ -93,11 +92,38 @@ pdfium! {
     FPDFBitmap_Destroy: unsafe extern "system" fn(Handle),
     FPDF_ClosePage: unsafe extern "system" fn(Handle),
     FPDF_CloseDocument: unsafe extern "system" fn(Handle),
+    FPDF_LoadCustomDocument: unsafe extern "system" fn(*mut FileAccess, *const c_char) -> Handle,
+}
+
+// PDFium keeps this struct and calls get_block until the document is closed.
+#[repr(C)]
+struct FileAccess {
+    len: c_ulong,
+    get_block: unsafe extern "C" fn(*mut c_void, c_ulong, *mut u8, c_ulong) -> c_int,
+    param: *mut c_void,
+}
+
+struct OpenDoc {
+    key: String,
+    path: PathBuf,
+    file: Box<File>,
+    access: Box<FileAccess>,
+    doc: usize,
+}
+// ponytail: the file pointer is only touched under PDFIUM_LOCK; split the lock if PDFium calls back off-thread.
+unsafe impl Send for OpenDoc {}
+
+unsafe extern "C" fn read_pdf(param: *mut c_void, position: c_ulong, buf: *mut u8, size: c_ulong) -> c_int {
+    if param.is_null() || buf.is_null() || size == 0 { return 0; }
+    let file = unsafe { &mut *(param as *mut File) };
+    if file.seek(std::io::SeekFrom::Start(position as u64)).is_err() { return 0; }
+    let out = unsafe { std::slice::from_raw_parts_mut(buf, size as usize) };
+    match file.read_exact(out) { Ok(()) => 1, Err(_) => 0 }
 }
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 // PDFium is process-global; document handles are only accessed under this lock.
-static PDFIUM_LOCK: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
+static PDFIUM_LOCK: Mutex<Vec<OpenDoc>> = Mutex::new(Vec::new());
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
@@ -158,7 +184,43 @@ fn cache_key(path: &Path) -> Result<String, String> {
 #[derive(Debug, Serialize)]
 pub struct Page { path: String, width: u32, height: u32 }
 
-// Keep at most two documents open; pages and bitmaps are closed before leaving the lock.
+fn open_shared(path: &Path) -> Result<File, String> {
+    let mut opts = fs::OpenOptions::new();
+    opts.read(true);
+    // Rust's default share mode already includes delete; say so, so a replaced PDF is not stuck on Windows.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        opts.share_mode(0x1 | 0x2 | 0x4);
+    }
+    opts.open(path).map_err(|e| e.to_string())
+}
+
+fn load_doc(api: &Pdfium, path: &Path, key: String) -> Result<OpenDoc, String> {
+    let mut file = Box::new(open_shared(path)?);
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    if len == 0 || len > c_ulong::MAX as u64 { return Err("PDF is empty or larger than PDFium can map".into()); }
+    let mut access = Box::new(FileAccess {
+        len: len as c_ulong,
+        get_block: read_pdf,
+        param: file.as_mut() as *mut File as *mut c_void,
+    });
+    // SAFETY: `access` and `file` are heap-stable for as long as this OpenDoc is in PDFIUM_LOCK.
+    let doc = unsafe { (api.FPDF_LoadCustomDocument)(access.as_mut(), std::ptr::null()) };
+    if doc.is_null() {
+        let err = unsafe { (api.FPDF_GetLastError)() };
+        return Err(format!("PDFium could not open PDF (error {err})"));
+    }
+    Ok(OpenDoc { key, path: path.to_path_buf(), file, access, doc: doc as usize })
+}
+
+fn close_doc(api: &Pdfium, doc: OpenDoc) {
+    unsafe { (api.FPDF_CloseDocument)(doc.doc as Handle); }
+    drop(doc.access);
+    drop(doc.file);
+}
+
+// Keep at most two documents open. A changed file closes the previous handle before the new one opens.
 fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result<(Vec<u8>, u32, u32, u32, u32), String> {
     let mut documents = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if PDFIUM.get().is_none() {
@@ -168,21 +230,21 @@ fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result
     }
     let api = PDFIUM.get().unwrap();
     let key = cache_key(path)?;
-    let filename = CString::new(path.to_str().ok_or("PDF path is not UTF-8")?).map_err(|e| e.to_string())?;
     // SAFETY: these symbols have PDFium's documented signatures; handles and buffers stay under the global lock.
     unsafe {
-        let doc = if let Some(index) = documents.iter().position(|(k, _)| k == &key) {
+        let doc = if let Some(index) = documents.iter().position(|d| d.path == path && d.key == key) {
             let entry = documents.remove(index);
-            let doc = entry.1 as Handle;
+            let doc = entry.doc as Handle;
             documents.push(entry);
             doc
         } else {
-            let doc = (api.FPDF_LoadDocument)(filename.as_ptr(), std::ptr::null());
-            if doc.is_null() { return Err(format!("PDFium could not open PDF (error {})", (api.FPDF_GetLastError)())); }
-            if documents.len() == 2 {
-                (api.FPDF_CloseDocument)(documents.remove(0).1 as Handle);
+            if let Some(index) = documents.iter().position(|d| d.path == path) {
+                close_doc(api, documents.remove(index));
             }
-            documents.push((key, doc as usize));
+            if documents.len() == 2 { close_doc(api, documents.remove(0)); }
+            let opened = load_doc(api, path, key)?;
+            let doc = opened.doc as Handle;
+            documents.push(opened);
             doc
         };
         (|| {
@@ -243,24 +305,70 @@ fn atomic_write(path: &Path, write: impl FnOnce(&mut File) -> Result<(), String>
     result
 }
 
-fn cache_hit(png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
-    let file = match File::open(png) {
+fn regular_in_cache(dir: &Path, path: &Path) -> bool {
+    if path.parent() != Some(dir) { return false; }
+    let Ok(dir_meta) = fs::symlink_metadata(dir) else { return false };
+    if dir_meta.file_type().is_symlink() || !dir_meta.is_dir() { return false; }
+    let Ok(meta) = fs::symlink_metadata(path) else { return false };
+    meta.is_file() && !meta.file_type().is_symlink()
+}
+
+fn open_nofollow(path: &Path, write: bool) -> std::io::Result<File> {
+    let mut open = fs::OpenOptions::new();
+    open.read(!write).write(write);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        open.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    open.open(path)
+}
+
+#[cfg(unix)]
+fn cache_miss(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ELOOP)
+}
+#[cfg(not(unix))]
+fn cache_miss(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound
+}
+
+fn refresh_mtime(dir: &Path, path: &Path) {
+    if !regular_in_cache(dir, path) { return; }
+    if let Ok(file) = open_nofollow(path, true) { let _ = file.set_modified(SystemTime::now()); }
+}
+
+fn cache_hit(dir: &Path, png: &Path, size: &Path, page: u32) -> Result<Option<Page>, String> {
+    // A symlink here would make a writable open land on a user PDF. Miss instead.
+    if !regular_in_cache(dir, png) || !regular_in_cache(dir, size) { return Ok(None); }
+    let file = match open_nofollow(png, false) {
         Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if cache_miss(&e) => return Ok(None),
         Err(e) => return Err(e.to_string()),
     };
-    // Read only PNG metadata; incomplete headers are disposable cache misses.
     let decoder = png::Decoder::new(std::io::BufReader::new(&file));
     if decoder.read_info().is_err() { return Ok(None); }
-    if let Ok(text) = fs::read_to_string(size) {
-        let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
-        if let [w, h, count] = dims.as_slice() {
-            if page > *count { return Err(format!("page must be in 1..={count}")); }
-            let now = SystemTime::now();
-            let _ = file.set_modified(now);
-            let _ = File::open(size).and_then(|f| f.set_modified(now));
-            return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
-        }
+    let text = {
+        let mut size_file = match open_nofollow(size, false) {
+            Ok(file) => file,
+            Err(e) if cache_miss(&e) => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        let mut text = String::new();
+        if size_file.read_to_string(&mut text).is_err() { return Ok(None); }
+        text
+    };
+    let dims: Vec<u32> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+    if let [w, h, count] = dims.as_slice() {
+        if page > *count { return Err(format!("page must be in 1..={count}")); }
+        refresh_mtime(dir, png);
+        refresh_mtime(dir, size);
+        return Ok(Some(Page { path: png.to_string_lossy().into_owned(), width: *w, height: *h }));
     }
     Ok(None)
 }
@@ -273,7 +381,7 @@ fn cached_page(base: &Path, path: &Path, page: u32, width: u32, resource: Option
     let size = dir.join(format!("{page}.size"));
     {
         let _lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(hit) = cache_hit(&png, &size, page)? { return Ok(hit); }
+        if let Some(hit) = cache_hit(&dir, &png, &size, page)? { return Ok(hit); }
     }
     let (rgb, pixels_high, w, h, count) = render(path, page, width, resource)?;
     let _write_lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -343,6 +451,12 @@ mod tests {
     use serde_json::json;
     use std::time::{Duration, Instant};
 
+    // File::open is read-only; Windows rejects SetFileTime on that handle (access denied).
+    fn set_mtime(path: impl AsRef<Path>, secs: u64) {
+        let file = fs::OpenOptions::new().write(true).open(path.as_ref()).unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+    }
+
     fn tmp(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("tangent-pages-{name}-{}-{}", std::process::id(), TEMP_ID.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir_all(&path).unwrap();
@@ -403,16 +517,30 @@ mod tests {
         let base = tmp("key");
         let path = pdf(&base);
         let first = cache_key(&path).unwrap();
-        File::open(&path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&path, 10);
         let second = cache_key(&path).unwrap();
         assert_ne!(first, second);
         fs::write(&path, b"%PDF-short").unwrap();
-        File::open(&path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&path, 10);
         assert_ne!(second, cache_key(&path).unwrap());
         let other = base.join("other.pdf");
         fs::copy(&path, &other).unwrap();
-        File::open(&other).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&other, 10);
         assert_ne!(cache_key(&path).unwrap(), cache_key(&other).unwrap());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn replacing_a_pdf_closes_the_previous_handle() {
+        let base = tmp("replace");
+        let path = pdf(&base);
+        let first = cached_page(&base, &path, 1, 100, None).unwrap();
+        let renders = RENDERS.load(Ordering::Relaxed);
+        set_mtime(&path, 40_000);
+        let second = cached_page(&base, &path, 1, 100, None).unwrap();
+        assert_ne!(Path::new(&first.path).parent(), Path::new(&second.path).parent());
+        assert!(RENDERS.load(Ordering::Relaxed) > renders);
+        fs::remove_file(&path).unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -430,9 +558,9 @@ mod tests {
         reader.next_frame(&mut pixels).unwrap();
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 0, 0]));
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 255, 255]));
-        File::open(&first.path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&first.path, 10);
         let size = Path::new(&first.path).parent().unwrap().join("2.size");
-        File::open(&size).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        set_mtime(&size, 10);
         let _lock = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let renders = RENDERS.load(Ordering::Relaxed);
         let second = cached_page(&base, &path, 2, 150, None).unwrap();
@@ -467,13 +595,14 @@ mod tests {
         let size = png.parent().unwrap().join("1.size");
         fs::remove_file(png).unwrap();
         // Exercise the hit path directly, as if pruning ran after an existence check.
-        assert!(cache_hit(png, &size, 1).unwrap().is_none());
+        let dir = png.parent().unwrap();
+        assert!(cache_hit(dir, png, &size, 1).unwrap().is_none());
         let restored = cached_page(&base, &path, 1, 150, None).unwrap();
         assert_eq!(restored.path, first.path);
-        assert!(cache_hit(png, &size, 1).unwrap().is_some());
+        assert!(cache_hit(dir, png, &size, 1).unwrap().is_some());
         for truncated in [b"\x89PNG\r\n\x1a\n".as_slice(), b"not a PNG".as_slice()] {
             fs::write(png, truncated).unwrap();
-            assert!(cache_hit(png, &size, 1).unwrap().is_none());
+            assert!(cache_hit(dir, png, &size, 1).unwrap().is_none());
             let restored = cached_page(&base, &path, 1, 150, None).unwrap();
             assert_eq!((restored.width, restored.height), (200, 100));
             let mut reader = png::Decoder::new(std::io::BufReader::new(File::open(png).unwrap())).read_info().unwrap();
@@ -481,6 +610,25 @@ mod tests {
             let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
             reader.next_frame(&mut pixels).unwrap();
         }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_hit_does_not_follow_a_symlink() {
+        let base = tmp("symlink");
+        let outside = base.join("secret.pdf");
+        fs::write(&outside, b"%PDF-secret").unwrap();
+        let stamp = UNIX_EPOCH + Duration::from_secs(10);
+        fs::File::options().write(true).open(&outside).unwrap().set_modified(stamp).unwrap();
+        let dir = base.join("pages").join("bucket");
+        fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("1-100.png")).unwrap();
+        fs::write(dir.join("1.size"), "10 10 1").unwrap();
+        assert!(cache_hit(&dir, &dir.join("1-100.png"), &dir.join("1.size"), 1).unwrap().is_none());
+        assert_eq!(fs::read(&outside).unwrap(), b"%PDF-secret");
+        assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), stamp);
+        assert!(fs::symlink_metadata(dir.join("1-100.png")).unwrap().file_type().is_symlink());
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -492,7 +640,7 @@ mod tests {
         for (name, time) in [("old/a.png", 1), ("new/b.png", 2), ("new/c.png", 3)] {
             let path = root.join(name);
             fs::write(&path, [0; 10]).unwrap();
-            File::open(path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(time)).unwrap();
+            set_mtime(&path, time);
         }
         prune(&root, 30, 10).unwrap();
         assert!(root.join("old/a.png").exists()); // At the limit, leave it alone.
@@ -527,7 +675,7 @@ mod tests {
                         prune(&base.join("pages"), 0, 0).unwrap();
                         let png = Path::new(&result.path);
                         let size = png.parent().unwrap().join(format!("{page}.size"));
-                        assert!(cache_hit(png, &size, page).unwrap().is_some());
+                        assert!(cache_hit(png.parent().unwrap(), png, &size, page).unwrap().is_some());
                     }
                 });
             }

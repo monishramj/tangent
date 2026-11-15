@@ -6,7 +6,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 ## Contract
 
 - Fast tier, every push: TypeScript (`bunx tsc --noEmit`), full Vitest (`bun test` is Bun's runner, so use `bun run test`), Rust (`cargo test --locked -j3` in `src-tauri`), Python (`uv sync --locked`, then `uv run --no-sync pytest -m "not slow"` in `sidecar`). `bun run check` combines TypeScript and full Vitest. Install web dependencies with `bun install --frozen-lockfile` first; Rust PDFium tests also need the sidecar venv (or `TANGENT_PDFIUM` pointing to its library).
-- GitHub runs the fast tier on pushes to main and every PR on macos-15, ubuntu-22.04 and windows-latest. Windows is advisory until platform fixes land; macOS and Linux failures block the evidence standard. Configure branch protection to require their CI jobs when enforcing merges.
+- GitHub runs the fast tier on pushes to main and every PR on macos-15, ubuntu-22.04 and windows-latest. Windows jobs are required (the advisory flag came off with the step 21 fixes). macOS, Linux, and Windows failures block the evidence standard. Configure branch protection to require their CI jobs when enforcing merges.
 - Enable local hooks with `git config core.hooksPath .githooks`: pre-commit retains the note/CLAUDE size rules and typechecks only when TypeScript is staged; pre-push runs `bun run test:focused` on changed directories (all Vitest tests for root config changes). New branches compare against origin/main; existing branches compare against their remote tip. Focused checks do not replace full CI.
 - Generation replay tier: recorded model answers for fixed sections, offline and free; CI wiring comes later. Existing eval harness: `scripts/eval-generation` (`TANGENT_EVAL=...`) in [generation-accuracy.md](../generation-accuracy.md).
 - UI tier: attach a screenshot to the PR for every UI change (Orca browser, one window).
@@ -18,13 +18,31 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Open issues
 
-Windows remains advisory; platform fixes are deferred, with no new skips. [CI run 43695667707](https://github.com/monishramj/tangent/actions/runs/43695667707) records:
+Step 21 addresses the ledger below. Windows CI on that PR is the confirmation; the 2026-11-15 run stays the record of what failed. [CI run 43695667707](https://github.com/monishramj/tangent/actions/runs/43695667707) records:
 
 - Rust: 28 passed, 3 failed, 1 existing ignored benchmark. `pages::tests::{cache_key_tracks_size_mtime_and_path, prunes_oldest_first_and_removes_empty_directories, renders_real_pdf_and_hits_cache_without_pdfium_lock}` fail with Windows access denied.
 - Sidecar: 88 passed, 7 failed, 5 setup errors, 2 slow deselected. Missing `os.nice`: `test_ingest.py::test_ingest_rpc_clean_stdout_and_recovery`, `test_limits.py::test_apply_sets_blas_env`, `test_tts_align.py::test_json_lines_keeps_stdout_clean_and_recovers`; Windows process error: `test_limits.py::test_watchdog_exits_when_parent_dies`; figure/caption assertions: `test_postprocess.py::{test_figure_filtering, test_caption_reattached}`; missing subprocess output: `test_rpc.py::test_subprocess_roundtrip_survives_malformed`.
 - Fixture setup uses macOS paths that Windows cannot convert to file URIs: `test_real_fixture.py::{test_glyphs_stripped, test_unnumbered_headings_nest_under_numbered, test_solution_folds_into_exercise, test_section_text_includes_descendants, test_section_text_rpc}` (5 errors).
 
 ## Log
+
+### 2026-11-16 — PR #33: Windows secret ACE count
+- `SetEntriesInAcl` stores an inheritable directory grant as two ACEs. The Windows test now requires every ACE to be an allow for the current user, and the secret file to have exactly one.
+- Evidence: the check is `cfg(windows)`. CI on the follow-up push is the confirmation.
+
+### 2026-11-16 — PR #33: Windows compile of cache_miss
+- `cfg!(unix) && libc::ELOOP` still type-checks on Windows, and `libc` is Unix-only, so rust (windows-latest) failed with E0433. `cache_miss` is now two `#[cfg]` functions. `O_NOFOLLOW` was already inside `#[cfg(unix)]`.
+- Evidence: local `cargo test --lib` filter. Windows CI on the follow-up push is the confirmation.
+
+### 2026-11-16 — PR #33 review: cache symlink, secret ACL, process group
+- Cache hits require a regular file in the cache dir and open it with `O_NOFOLLOW` (Windows: `FILE_FLAG_OPEN_REPARSE_POINT`). A symlink is a miss, so a user PDF is never opened for write.
+- Evidence: `cache_hit_does_not_follow_a_symlink`, `restriction_failure_removes_the_secret_file`, and the grandchild-after-exit drop test. Full `cargo test --lib` with `TANGENT_HEAVY_SLOTS=1`.
+- Not verified: Windows reparse-point open or a real DACL.
+
+### 2026-11-16 — Step 21: Windows cache-hit mtime
+- Cache hits open the PNG read-write before `set_modified`. Windows error 5 on `File::open` left the stamp at the test's epoch+10, so `renders_real_pdf_and_hits_cache_without_pdfium_lock` failed after the compile was green.
+- Evidence: local `cargo test --locked -j3` with `TANGENT_PDFIUM`. Windows CI on the follow-up push is the confirmation.
+- Not verified: a real Windows process tree or ACL read.
 
 ### 2026-11-16 — Step 14: recorded public replay answers
 - Coordinator authorized cloud `claude -p`; recorded five OpenStax sections only with `TANGENT_EVAL='--record'`, isolated output and a nonexistent local manifest (exact command in `docs/eval-set.md`).
@@ -38,6 +56,9 @@ Windows remains advisory; platform fixes are deferred, with no new skips. [CI ru
 - Evidence: offline `scripts/eval-set` + `scripts/eval-generation`, 2 files / 4 tests passed; five recording misses skipped, zero model calls.
 - Current calculus source is CC BY-NC-SA, so used only verified CC BY statistics; no generation-accuracy or native/sidecar checks. `nice` requested but sandbox denied priority changes.
 
+### 2026-11-16 — Windows and Linux platform fixes
+- PDF handles are keyed by path+mtime+size, closed on replacement, and opened with share-delete; mtime updates use a writable handle (the three access-denied tests). Sidecar tests use `Path.resolve().as_uri()`, a portable watchdog, and `setpriority` only where it exists.
+- Proof: host `cargo test` and the touched sidecar files. Not verified: Windows ACL/job/share-delete and the Linux WebKit/EGL probe (CI on this PR).
 ### 2026-11-15 — Quarantined flaky Home test
 - Open issue: `src/home/Home.test.tsx` "multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO" failed on CI web macos-15 ([run 43696901697](https://github.com/monishramj/tangent/actions/runs/43696901697)), passes locally 27/27. Skipped with `it.skip`; find root cause then re-enable (fix or delete within one week).
 - Not verified: root cause.

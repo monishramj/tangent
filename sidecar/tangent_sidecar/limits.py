@@ -45,9 +45,14 @@ def set_work_priority(work_class):
             if not kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x40 if background else 0x20):
                 raise ctypes.WinError(ctypes.get_last_error())
         else:
-            os.setpriority(os.PRIO_PROCESS, 0, 19 if background else 0)
+            # os.nice / os.setpriority are Unix-only; Windows uses the branch above.
+            setpriority = getattr(os, "setpriority", None)
+            if setpriority is None:
+                print(f"sidecar priority ({work_class}): os.setpriority is unavailable", file=sys.stderr)
+                return
+            setpriority(getattr(os, "PRIO_PROCESS", 0), 0, 19 if background else 0)
             if sys.platform == "darwin" and background:
-                os.setpriority(os.PRIO_DARWIN_PROCESS, 0, os.PRIO_DARWIN_BG)
+                setpriority(os.PRIO_DARWIN_PROCESS, 0, os.PRIO_DARWIN_BG)
     except OSError as error:
         print(f"sidecar priority ({work_class}): {error}", file=sys.stderr)
 

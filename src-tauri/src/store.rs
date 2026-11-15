@@ -56,27 +56,168 @@ pub fn secret_get(base: &Path, name: &str) -> Result<Option<String>, String> {
 }
 /// Empty value deletes the secret. Values are never logged.
 pub fn secret_set(base: &Path, name: &str, value: &str) -> Result<(), String> {
+    secret_set_with(base, name, value, restrict_secret)
+}
+
+fn secret_set_with(base: &Path, name: &str, value: &str, restrict: fn(&Path) -> Result<(), String>) -> Result<(), String> {
     let file = secret_file(base, name)?;
     if value.is_empty() {
         return match fs::remove_file(&file) { Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()), _ => Ok(()) };
     }
     let dir = file.parent().unwrap();
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    restrict_dir(dir)?;
     let tmp = file.with_extension("tmp");
+    // A leftover temp keeps its old ACL. Delete it so the new file is born private.
+    match fs::remove_file(&tmp) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.to_string()),
+        _ => {}
+    }
     let mut open = fs::OpenOptions::new();
     open.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        open.mode(0o600);
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    }
+    { use std::os::unix::fs::OpenOptionsExt; open.mode(0o600); }
     let mut f = open.open(&tmp).map_err(|e| e.to_string())?;
-    // mode() only applies on create: a stale .tmp left by a crash keeps its old bits, so force 0600 before writing.
+    if let Err(error) = restrict(&tmp) {
+        drop(f);
+        let _ = fs::remove_file(&tmp);
+        return Err(error);
+    }
+    if let Err(error) = std::io::Write::write_all(&mut f, value.as_bytes()) {
+        drop(f);
+        let _ = fs::remove_file(&tmp);
+        return Err(error.to_string());
+    }
+    drop(f);
+    fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+    if let Err(error) = restrict(&file) {
+        let _ = fs::remove_file(&file);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn restrict_dir(dir: &Path) -> Result<(), String> {
     #[cfg(unix)]
-    { use std::os::unix::fs::PermissionsExt; f.set_permissions(fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?; }
-    std::io::Write::write_all(&mut f, value.as_bytes()).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &file).map_err(|e| e.to_string())
+    { use std::os::unix::fs::PermissionsExt; fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string()) }
+    #[cfg(windows)]
+    owner_only(dir, true)
+}
+
+fn restrict_secret(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    { use std::os::unix::fs::PermissionsExt; fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string()) }
+    #[cfg(windows)]
+    owner_only(path, false)
+}
+
+/// Replace the DACL with one ACE for the current user. Inherited ACEs are blocked.
+/// Directory ACEs are inheritable so a new secret file is born private.
+#[cfg(windows)]
+fn owner_only(path: &Path, inherit: bool) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, GENERIC_ALL};
+    use windows_sys::Win32::Security::Authorization::{
+        SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, SE_FILE_OBJECT, SET_ACCESS, TRUSTEE_IS_SID, TRUSTEE_IS_USER,
+    };
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenUser, CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
+        OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut needed = 0u32;
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        let mut buf = vec![0u8; needed as usize];
+        if needed == 0 || GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let sid = (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let mut entry = EXPLICIT_ACCESS_W::default();
+        entry.grfAccessPermissions = GENERIC_ALL;
+        entry.grfAccessMode = SET_ACCESS;
+        entry.grfInheritance = if inherit { OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE } else { NO_INHERITANCE };
+        entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        entry.Trustee.TrusteeType = TRUSTEE_IS_USER;
+        entry.Trustee.ptstrName = sid.cast();
+        let mut acl = std::ptr::null_mut();
+        let built = SetEntriesInAclW(1, &entry, std::ptr::null(), &mut acl);
+        if built != 0 {
+            CloseHandle(token);
+            return Err(format!("secret ACL: {built}"));
+        }
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let set = SetNamedSecurityInfoW(
+            wide.as_ptr(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(), std::ptr::null_mut(), acl, std::ptr::null_mut(),
+        );
+        if !acl.is_null() { LocalFree(acl.cast()); }
+        CloseHandle(token);
+        if set != 0 { return Err(format!("secret ACL: {set}")); }
+        Ok(())
+    }
+}
+
+/// Count of ACEs, or an error if any ACE is not an allow for the current user.
+/// An inheritable directory grant is stored as two ACEs (this folder, plus inherit-only).
+#[cfg(windows)]
+fn user_ace_count(path: &Path) -> Result<u16, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        EqualSid, GetAce, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut needed = 0u32;
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        let mut buf = vec![0u8; needed as usize];
+        if needed == 0 || GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            CloseHandle(token);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let user = (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut dacl = std::ptr::null_mut();
+        let mut sd = std::ptr::null_mut();
+        let got = GetNamedSecurityInfoW(wide.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(), std::ptr::null_mut(), &mut dacl, std::ptr::null_mut(), &mut sd);
+        if got != 0 || dacl.is_null() {
+            CloseHandle(token);
+            if !sd.is_null() { LocalFree(sd); }
+            return Err(format!("secret ACL read: {got}"));
+        }
+        let count = (*dacl).AceCount;
+        for i in 0..count {
+            let mut ace = std::ptr::null_mut();
+            if GetAce(dacl, i as u32, &mut ace) == 0 {
+                CloseHandle(token);
+                LocalFree(sd);
+                return Err("secret ACE read".into());
+            }
+            let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
+            let sid = (ace as *mut u8).add(std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart)).cast();
+            if allowed.Header.AceType != 0 || EqualSid(user, sid) == 0 {
+                CloseHandle(token);
+                LocalFree(sd);
+                return Err("secret ACE is not an allow for the current user".into());
+            }
+        }
+        CloseHandle(token);
+        LocalFree(sd);
+        Ok(count)
+    }
 }
 
 /// Secrets the webview may read back. GIPHY keys are meant for client-side use (GIPHY's docs: call it from the client,
@@ -155,6 +296,17 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_secret_dacl_is_current_user_only() {
+        let base = tmp("winacl");
+        secret_set(&base, "giphy", "abc").unwrap();
+        let dir = user_ace_count(&base.join("secrets")).unwrap();
+        assert!((1..=2).contains(&dir), "{dir}");
+        assert_eq!(user_ace_count(&base.join("secrets/giphy")).unwrap(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn webview_reads_only_allowlisted_secrets() {
         let base = tmp("webview");
@@ -163,6 +315,17 @@ mod tests {
         assert_eq!(webview_get(&base, "giphy").unwrap(), Some("g".into()));
         assert!(webview_get(&base, "anthropic").is_err());
         assert_eq!(secret_get(&base, "anthropic").unwrap(), Some("a".into())); // Rust side still reads it
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn restriction_failure_removes_the_secret_file() {
+        let base = tmp("restrict");
+        let err = secret_set_with(&base, "giphy", "abc", |_| Err("acl".into())).unwrap_err();
+        assert_eq!(err, "acl");
+        assert!(!base.join("secrets/giphy.tmp").exists());
+        assert!(!base.join("secrets/giphy").exists());
+        assert_eq!(secret_get(&base, "giphy").unwrap(), None);
         let _ = fs::remove_dir_all(&base);
     }
 

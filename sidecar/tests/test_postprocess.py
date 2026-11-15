@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PIL import Image
 
 from tangent_sidecar.postprocess import postprocess
@@ -60,7 +62,7 @@ def test_figure_filtering(tmp_path):
     tiny = fig(5, png(tmp_path / "tiny.png", (8, 8), "black"))
     real = fig(6, png(tmp_path / "real.png", (200, 100), "red"), caption="Figure 1: x")
     allf = frames + [tiny, real]
-    md = "\n\n".join(f"![{f['caption']}](file://{f['image_path']})" for f in allf)
+    md = "\n\n".join(f"![{f['caption']}]({Path(f['image_path']).resolve().as_uri()})" for f in allf)
     out = postprocess({"sections": [node("1 A", md=md, figures=allf)]})["sections"][0]
     assert [f["id"] for f in out["figures"]] == ["figure-1", "figure-6"]
     assert "tiny.png" not in out["markdown"] and "f2.png" not in out["markdown"]
@@ -69,11 +71,21 @@ def test_figure_filtering(tmp_path):
 
 def test_caption_reattached(tmp_path):
     f = fig(1, png(tmp_path / "a.png", (200, 100), "blue"))
-    md = f"intro\n\n![](file://{f['image_path']})\n\nFigure 4.12 A heap.\n\nbody"
+    md = f"intro\n\n![]({Path(f['image_path']).resolve().as_uri()})\n\nFigure 4.12 A heap.\n\nbody"
     out = postprocess({"sections": [node("1 A", md=md, figures=[f])]})["sections"][0]
     assert out["figures"][0]["caption"] == "Figure 4.12 A heap."
     assert "![Figure 4.12 A heap.](" in out["markdown"]
     assert out["markdown"].count("Figure 4.12") == 1 and "body" in out["markdown"]
+
+
+def test_relative_figure_path_resolves_to_a_file_uri(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Image.new("RGB", (200, 100), "red").save(tmp_path / "real.png")
+    figure = fig(1, "real.png", caption="Figure 1: x")
+    md = f"![{figure['caption']}]({Path('real.png').resolve().as_uri()})"
+    out = postprocess({"sections": [node("1 A", md=md, figures=[figure])]})["sections"][0]
+    assert out["figures"][0]["id"] == "figure-1"
+    assert "real.png" in out["markdown"]
 
 
 def test_ligatures():

@@ -48,6 +48,13 @@ def _fix_ligatures(text):
     return re.sub(r"\w*�\w*", word, text)
 
 
+def _file_uri(path) -> str:
+    p = Path(path)
+    if not p.is_absolute():
+        p = p.resolve()
+    return p.as_uri()
+
+
 def _figures(sec):
     figs, keep, prev = sec["figures"], [], None
     from PIL import Image  # already a Docling dependency
@@ -70,16 +77,16 @@ def _figures(sec):
         else:
             keep.append(f)
     for f in drop:
-        uri = Path(f["image_path"]).as_uri()
+        uri = _file_uri(f["image_path"])
         sec["markdown"] = "\n\n".join(p for p in sec["markdown"].split("\n\n") if uri not in p)
     sec["figures"] = keep
     captioned = {f["image_path"] for f in keep if f["caption"]}
     if "passages" in sec:
-        dropped = [Path(f["image_path"]).as_uri() for f in drop]
+        dropped = [_file_uri(f["image_path"]) for f in drop]
         sec["passages"] = [p for p in sec["passages"] if not any(u in p["markdown"] for u in dropped)]
     # reattach detached captions to the nearest preceding captionless figure
     paras, last, out = sec["markdown"].split("\n\n"), None, []
-    by_uri = {Path(f["image_path"]).as_uri(): f for f in keep}
+    by_uri = {_file_uri(f["image_path"]): f for f in keep}
     for p in paras:
         for uri, f in by_uri.items():
             if p.startswith("![") and f"]({uri})" in p:

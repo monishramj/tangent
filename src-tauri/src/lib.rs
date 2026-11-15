@@ -15,8 +15,11 @@ use tauri::{Emitter, Manager, RunEvent, State};
 
 struct Process {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     lines: mpsc::Receiver<Result<String, String>>,
+    // Dropping the job kills uv and the python grandchild if the graceful close did not.
+    #[cfg(windows)]
+    job: Option<WindowsJob>,
 }
 
 impl Process {
@@ -29,18 +32,70 @@ impl Process {
                 if tx.send(line.map_err(|e| e.to_string())).is_err() { break; }
             }
         });
-        Self { child, stdin, lines }
+        Self { child, stdin: Some(stdin), lines, #[cfg(windows)] job: None }
     }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
-        // The child leads its own process group (see `spawn`), so this also reaches uv's python grandchild.
+        // Closing stdin lets the RPC loop finish. The job/process group covers a stuck grandchild.
+        self.stdin.take();
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                _ => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    break;
+                }
+            }
+        }
+        // A graceful exit still leaves grandchildren in the process group. Non-leaders make killpg fail.
         #[cfg(unix)]
         unsafe { libc::killpg(self.child.id() as i32, libc::SIGKILL); }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
+}
+
+// The handle is a pointer. Store it as an integer so the sidecar mutex can move across threads.
+#[cfg(windows)]
+struct WindowsJob(usize);
+#[cfg(windows)]
+unsafe impl Send for WindowsJob {}
+#[cfg(windows)]
+impl WindowsJob {
+    fn attach(child: &Child) -> Result<Self, String> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::System::JobObjects::*;
+        unsafe {
+            let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if raw.is_null() { return Err(std::io::Error::last_os_error().to_string()); }
+            let job = Self(raw as usize);
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(job.0 as HANDLE, JobObjectExtendedLimitInformation, (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(), std::mem::size_of_val(&info) as u32) == 0
+                || AssignProcessToJobObject(job.0 as HANDLE, child.as_raw_handle()) == 0 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            Ok(job)
+        }
+    }
+}
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        if self.0 != 0 { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0 as windows_sys::Win32::Foundation::HANDLE); } }
+    }
+}
+
+#[cfg(windows)]
+fn resume(child: &Child) -> Result<(), String> {
+    use std::os::windows::io::AsRawHandle;
+    #[link(name = "ntdll")]
+    unsafe extern "system" { fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32; }
+    if unsafe { NtResumeProcess(child.as_raw_handle()) } < 0 { Err("Could not resume the sidecar".into()) } else { Ok(()) }
 }
 
 #[derive(Default)]
@@ -71,7 +126,8 @@ pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: b
         return Ok(dir);
     }
     if dev { return Ok(manifest.join("../sidecar")); }
-    Err("Packaged sidecar is resolved from the app resources".into())
+    // Same directory the packaged spawn uses: <resources>/runtime/sidecar, recorded at startup.
+    bootstrap::recorded_sidecar().ok_or_else(|| "Packaged sidecar is <resources>/runtime/sidecar; startup has not recorded the app resources".into())
 }
 
 /// Shared heavy-work thread budget: ~30% of cores, max 6, at least 1.
@@ -93,7 +149,7 @@ fn spawn(background: bool) -> Result<Process, String> {
     } else {
         let runtime = bootstrap::runtime()?;
         let mut cmd = Command::new(runtime.python());
-        cmd.args(["-m", "tangent_sidecar"]).current_dir(runtime.resource.join("sidecar"))
+        cmd.args(["-m", "tangent_sidecar"]).current_dir(runtime.project())
             .env("HF_HOME", runtime.data.join("models")).env("PYTHONNOUSERSITE", "1")
             .env("PYTHONDONTWRITEBYTECODE", "1");
         cmd
@@ -106,7 +162,22 @@ fn spawn(background: bool) -> Result<Process, String> {
         .stdout(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    Ok(Process::new(cmd.spawn().map_err(|e| e.to_string())?))
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000 | 0x00000004); // CREATE_NO_WINDOW | CREATE_SUSPENDED, so it joins the job before spawning python
+    }
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut proc = Process::new(cmd.spawn().map_err(|e| e.to_string())?);
+    #[cfg(windows)]
+    {
+        proc.job = Some(WindowsJob::attach(&proc.child)?);
+        if let Err(error) = resume(&proc.child) {
+            drop(proc);
+            return Err(error);
+        }
+    }
+    Ok(proc)
 }
 
 #[cfg(test)]
@@ -120,8 +191,9 @@ fn call_progress(s: &mut Sidecar, method: &str, params: Value, timeout: Duration
     let id = s.next_id;
     let process = s.proc.as_mut().unwrap();
     let response = (|| {
-        writeln!(process.stdin, "{}", json!({"id": id, "method": method, "params": params})).map_err(|e| e.to_string())?;
-        process.stdin.flush().map_err(|e| e.to_string())?;
+        let stdin = process.stdin.as_mut().ok_or("sidecar stdin is closed")?;
+        writeln!(stdin, "{}", json!({"id": id, "method": method, "params": params})).map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())?;
         loop {
             let line = process.lines.recv_timeout(timeout).map_err(|e| match e {
                 mpsc::RecvTimeoutError::Timeout => "sidecar timed out".to_string(),
@@ -167,6 +239,66 @@ async fn sidecar_call(app: tauri::AppHandle, state: State<'_, State_>, method: S
 #[tauri::command]
 fn dev_log(msg: String) { eprintln!("[webview] {msg}"); } // dev diagnostics: webview events land in the terminal log
 
+/// Message shown when Linux cannot composite the window. `None` means rendering looks available.
+#[cfg(any(test, target_os = "linux"))]
+fn graphics_fix(webkit: bool, gpu: bool) -> Option<&'static str> {
+    if !webkit {
+        Some("WebKitGTK is not installed, so Tangent cannot draw its window. Install libwebkit2gtk-4.1. If the window is blank, quit and relaunch with WEBKIT_DISABLE_COMPOSITING_MODE=1.")
+    } else if !gpu {
+        Some("WebKitGTK cannot use the GPU, so the window may stay blank. Quit and relaunch with WEBKIT_DISABLE_COMPOSITING_MODE=1.")
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn library_loads(name: &str) -> bool {
+    let Ok(c) = std::ffi::CString::new(name) else { return false };
+    unsafe {
+        let handle = libc::dlopen(c.as_ptr(), libc::RTLD_LAZY);
+        if handle.is_null() { return false; }
+        libc::dlclose(handle);
+        true
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn webkit_present() -> bool {
+    ["libwebkit2gtk-4.1.so.0", "libwebkit2gtk-4.1.so", "libwebkit2gtk-4.0.so.37", "libwebkit2gtk-4.0.so"]
+        .into_iter().any(library_loads)
+}
+
+#[cfg(target_os = "linux")]
+fn gpu_rendering_available() -> bool {
+    if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some() { return true; }
+    let Ok(name) = std::ffi::CString::new("libEGL.so.1") else { return false };
+    unsafe {
+        let handle = libc::dlopen(name.as_ptr(), libc::RTLD_LAZY);
+        if handle.is_null() { return false; }
+        let get = libc::dlsym(handle, c"eglGetDisplay".as_ptr());
+        let init = libc::dlsym(handle, c"eglInitialize".as_ptr());
+        let ok = if get.is_null() || init.is_null() { false } else {
+            let get: unsafe extern "C" fn(isize) -> *mut std::ffi::c_void = std::mem::transmute(get);
+            let init: unsafe extern "C" fn(*mut std::ffi::c_void, *mut i32, *mut i32) -> i32 = std::mem::transmute(init);
+            let display = get(0);
+            if display.is_null() { false } else {
+                let (mut major, mut minor) = (0, 0);
+                init(display, &mut major, &mut minor) == 1
+            }
+        };
+        libc::dlclose(handle);
+        ok
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn warn_graphics(app: &tauri::AppHandle) {
+    let Some(msg) = graphics_fix(webkit_present(), gpu_rendering_available()) else { return };
+    eprintln!("Tangent: {msg}");
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.dialog().message(msg).title("Tangent").kind(MessageDialogKind::Warning).show(|_| {});
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -177,7 +309,13 @@ pub fn run() {
         .manage(bootstrap::Setup::default())
         .register_uri_scheme_protocol("setup", |_, request| bootstrap::response(request))
         .on_menu_event(|app, event| menu::on_click(app, event.id().0.as_str()))
-        .setup(|app| { menu::install(app.handle())?; bootstrap::setup(app.handle())?; Ok(()) })
+        .setup(|app| {
+            menu::install(app.handle())?;
+            #[cfg(target_os = "linux")]
+            warn_graphics(app.handle());
+            bootstrap::setup(app.handle())?;
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if window.label() == "bootstrap" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 // A successful setup shows main before closing the setup window.
@@ -222,6 +360,20 @@ mod tests {
         assert_eq!(sidecar_dir(None, manifest, true).unwrap(), manifest.join("../sidecar"));
         assert!(sidecar_dir(None, manifest, false).is_err());
         assert!(sidecar_dir(Some("".into()), manifest, true).is_err());
+        let resources = Path::new("/Applications/Tangent.app/Contents/Resources");
+        assert_eq!(bootstrap::bundled_sidecar(resources), resources.join("runtime").join("sidecar"));
+        let data = Path::new("/tmp/tangent-runtime");
+        assert_eq!(bootstrap::python_at(data, false), data.join("env/bin/python"));
+        assert_eq!(bootstrap::python_at(data, true), data.join("env/Scripts/python.exe"));
+    }
+
+    #[test]
+    fn linux_graphics_message_names_the_fix() {
+        assert!(graphics_fix(true, true).is_none());
+        let missing = graphics_fix(false, false).unwrap();
+        assert!(missing.contains("libwebkit2gtk-4.1") && missing.contains("WEBKIT_DISABLE_COMPOSITING_MODE=1"));
+        let gpu = graphics_fix(true, false).unwrap();
+        assert!(gpu.contains("WEBKIT_DISABLE_COMPOSITING_MODE=1"));
     }
 
     #[test]
@@ -266,12 +418,24 @@ mod tests {
         let child = Command::new("sh").args(["-c", "sleep 30 & echo $!; wait"])
             .stdin(Stdio::piped()).stdout(Stdio::piped())
             .process_group(0).spawn().unwrap();
-        let mut p = Process::new(child);
+        let p = Process::new(child);
         let pid: i32 = p.lines.recv_timeout(Duration::from_secs(3)).unwrap().unwrap().parse().unwrap();
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
         drop(p);
         std::thread::sleep(Duration::from_millis(200));
         assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "grandchild outlived the drop");
+
+        // The shell exits on its own and leaves the grandchild. Drop must still kill the group.
+        let child = Command::new("sh").args(["-c", "sleep 30 & echo $!; exit 0"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let p = Process::new(child);
+        let pid: i32 = p.lines.recv_timeout(Duration::from_secs(3)).unwrap().unwrap().parse().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "grandchild should outlive the shell");
+        drop(p);
+        std::thread::sleep(Duration::from_millis(200));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "grandchild outlived a graceful child exit");
 
         // A sidecar that dies mid-job fails that call; it is not restarted inside the same call.
         let dead = Command::new("sh").args(["-c", "exit 0"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();

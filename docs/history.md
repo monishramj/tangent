@@ -6,6 +6,10 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-16 Step 18: confirmed photo transcription into unverified IR passages and labelled source text; imported-only bounded native photo read, HEIC export fallback, labelled text follow-along during playback.
 
+2026-11-16 — PR #33 CI: `EqualSid` takes `*mut` SIDs, so the ACE check casts the SID that way.
+2026-11-16 — PR #33 CI: the secrets directory may store an inheritable grant as two current-user ACEs; the secret file stays one.
+2026-11-16 — PR #33 CI: `cache_miss` is split with `#[cfg]` so Windows does not compile `libc::ELOOP`. `libc` stays a Unix-only dependency.
+2026-11-16 — PR #33 review: cache hits refuse symlinks, secret files are born private and deleted if the ACL fails, and sidecar drop always kills the process group.
 2026-11-16 — PR #31: Claude check timeout kills the process group and stops reading at the deadline (64KiB cap).
 - 2026-11-16 PPTX and DOCX ingest on the same FIFO as PDFs; follow-along shows source text instead of page renders.
 - 2026-11-16 Step 13: checkpoints now use spoken narration and cited paragraphs, with numeric + fail-closed Haiku grounding checks and textbook-first scene priority; fake-LLM/importer tests added, optional cloud eval skipped.
@@ -15,6 +19,9 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 2026-11-16 — Step 7 real formula check: 30/30 matched (100%), 73.48 s added wait, nominal heat; ten source comparisons reveal fidelity errors, separate fix proposed in docs/formula-check-2026-11.md.
 - 2026-11-16 Formula fidelity guard: reject changed numbers, lost notation and malformed decodes; source-text fallback or number-free unverified placeholders, per-formula metadata and disagreement counts; recorded step-7/synthetic checks, no model runs.
 
+2026-11-16 — Step 21 CI fix: cache hits refresh mtime through a writable handle; Windows denied it on File::open.
+2026-11-16 — Step 21 CI fix: the Windows job handle is Send, GENERIC_ALL comes from Win32::Foundation, and the watchdog test loads limits.py without importing torch.
+2026-11-16 — Step 21: Windows PDF locks, sidecar job, owner-only secrets, portable sidecar tests, Linux graphics hint; CI must confirm Windows and Linux.
 2026-11-16 — PR #22 review fixes: unsafe extern, setup window kept on main-window failure, bootstrap capability scoped by label only.
 2026-11-16 — PR #21 follow-ups: bootstrap-only capability + per-command app permissions, main window created only after setup, Windows job-before-spawn (unverified), checksummed uv licences, CPython pinned 3.12.14.
 - 2026-11-16 Step 9: round-1 brace section picker built into SourceView (white accent, no checkboxes); generation still receives top-level section ids.
