@@ -487,3 +487,36 @@ it("aborts while waiting for the continuation after scene 1 has played", async (
   await rejected;
   expect(stream.status()).toBe("aborted");
 });
+
+// Step 12: fact-check flag. Off = no extra model calls; on = never blocks scene 1; later scenes redo audio if a beat is cut.
+const withCheck = (base: ReturnType<typeof setup>, check: (prompt: string) => Promise<string>) => {
+  const inner = base.provider;
+  const provider: LLMProvider = { complete: vi.fn((prompt, opts) => prompt.startsWith("Fact-check") ? check(prompt) : inner.complete(prompt, opts)) };
+  return { ...base, provider };
+};
+
+it("fact-check flag off: no fact-check calls, same scenes", async () => {
+  const s = withCheck(setup(3), async () => { throw new Error("must not be called"); });
+  const events = collect(streamVideo(s.options.sectionMarkdown ? { ...s.options, provider: s.provider } : s.options));
+  await vi.runAllTimersAsync();
+  expect(sceneEvents(await events).map(e => e.type)).toEqual(["scene", "scene", "scene"]);
+  expect((s.provider.complete as ReturnType<typeof vi.fn>).mock.calls.some(c => String(c[0]).startsWith("Fact-check"))).toBe(false);
+});
+
+it("fact-check on: a hanging check never delays scene 1; a cut beat in a later scene re-synthesizes its audio", async () => {
+  const s = withCheck(setup(3), prompt => {
+    if (prompt.includes("SceneAA")) return new Promise<string>(() => {}); // scene 1's check never answers
+    return Promise.resolve(JSON.stringify(prompt.includes("SceneAD") ? [{ beat: 0, verdict: "unsupported" }] : []));
+  });
+  const stream = streamVideo({ ...s.options, provider: s.provider, factCheck: true });
+  const first = stream.next();
+  await vi.advanceTimersByTimeAsync(400);
+  expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1" });
+  const rest = collect(stream);
+  await vi.runAllTimersAsync();
+  const [second] = sceneEvents(await rest);
+  expect(second).toMatchObject({ type: "scene", sceneId: "scene-2" });
+  if (second.type === "scene") expect(second.scene.beats).toHaveLength(3); // 4 beats, first one cut
+  const scene2Tts = s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2");
+  expect(scene2Tts.map(c => c[0].length)).toEqual([4, 3]);
+});

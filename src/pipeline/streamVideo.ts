@@ -1,3 +1,4 @@
+import { factCheckBeats } from "../gen/factCheck";
 import { generateScript, type ScriptResult, type Beat, type DetailLevel } from "../gen/script";
 import { generateGroupScene, recentFor } from "../gen/scene";
 import { chunkBeats, type Figure, type ScenePlan } from "../gen/plan";
@@ -48,10 +49,12 @@ type Options = {
   onProgress?: (p: Progress) => void;
   signal?: AbortSignal;
   clock?: { now(): number };
+  /** Step 12 fact-check of each scene's beats against their source. OFF until the false-flag rate is measured <= 5%. */
+  factCheck?: boolean;
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], passages = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() } }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], passages = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() }, factCheck = false }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -83,7 +86,13 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   let ready_ = 0, says: string[] = [];
   const progress = (step: Progress["step"], scene: number) => onProgress?.({ step, scene, scenesReady: ready_, scenesTotal: groups.length, beats: says });
 
-  async function build({ beats, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
+  const FACT_WAIT_MS = 20_000;
+  async function build({ beats: initial, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
+    let beats = initial;
+    // Runs beside TTS. Scene 1 never waits for it (flags are logged only); later scenes wait up to FACT_WAIT_MS.
+    let verdict: ReturnType<typeof factCheckBeats> | undefined = factCheck
+      ? factCheckBeats({ beats, sources: passages.length ? passages : [{ id: "section", markdown: sectionMarkdown }], provider: complete }) : undefined;
+    verdict?.then(r => r.log.length && devlog(`fact-check scene ${index + 1}: ${r.log.join("; ")}`), () => {});
     const sceneId = `scene-${index + 1}`;
     const start = clock.now();
     let error = new Error("Scene generation failed");
@@ -93,11 +102,21 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         checkAbort();
         onStatus?.("generating narration");
         progress("narration", index);
-        const spoken = beats.map(beat => mathToSpeech(beat.say));
+        let spoken = beats.map(beat => mathToSpeech(beat.say));
         // One wav per scene, one segment per beat: the sidecar puts a pause after each beat and reports
         // where each beat starts, so clips are cut on real boundaries.
         // Audio survives a failed scene attempt; only the DSL is retried.
         audio ??= await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
+        if (verdict && index > 0) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const r = await Promise.race([verdict.catch(() => null), new Promise<null>(res => { timer = setTimeout(() => res(null), FACT_WAIT_MS); }), aborted]);
+          clearTimeout(timer);
+          verdict = undefined;
+          if (r) {
+            beats = r.beats;
+            if (r.sayChanged) { spoken = beats.map(beat => mathToSpeech(beat.say)); audio = await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]); }
+          }
+        }
         checkAbort();
         if (!audio.wavPath?.trim() || !Number.isFinite(audio.sec) || audio.sec <= 0 || !audio.words.length)
           { audio = undefined; throw new Error("Invalid alignment audio"); }
