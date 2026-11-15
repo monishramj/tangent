@@ -11,10 +11,6 @@ fi
 [[ $# == 1 ]] || { echo 'Unknown arguments' >&2; exit 1; }
 : "${TAURI_SIGNING_PRIVATE_KEY:?Set this to ~/.tauri/tangent.key (or its contents)}"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}
-export TANGENT_SIDECAR_DIR=${TANGENT_SIDECAR_DIR:-"$PWD/sidecar"}
-[[ -f "$TANGENT_SIDECAR_DIR/pyproject.toml" && -d "$TANGENT_SIDECAR_DIR/.venv" ]] || {
-  echo 'Set TANGENT_SIDECAR_DIR to the stable sidecar project with its installed .venv' >&2; exit 1;
-}
 python3 - "$version" <<'PY'
 import json, pathlib, re, sys
 version = sys.argv[1]
@@ -29,7 +25,7 @@ p = pathlib.Path('src-tauri/Cargo.toml')
 p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{version}"', p.read_text(), count=1, flags=re.M))
 PY
 # Skip Finder automation for the disk image; keep builds within the shared CPU budget.
-CI=true CARGO_BUILD_JOBS=3 nice -n 10 bunx tauri build --bundles app,dmg
+CI=true scripts/heavy.sh bunx tauri build --bundles app,dmg
 python3 - "$version" <<'PY'
 import datetime, json, pathlib, sys
 root = pathlib.Path('src-tauri/target/release/bundle')

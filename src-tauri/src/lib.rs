@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
+mod bootstrap;
 mod llm;
 mod menu;
 mod pages;
@@ -69,9 +70,7 @@ pub(crate) fn sidecar_dir(override_dir: Option<PathBuf>, manifest: &Path, dev: b
         return Ok(dir);
     }
     if dev { return Ok(manifest.join("../sidecar")); }
-    // shortcut: personal builds use a local uv project; bundle the sidecar before distribution.
-    Ok(option_env!("TANGENT_SIDECAR_DIR").map(PathBuf::from)
-        .unwrap_or_else(|| manifest.join("../sidecar")))
+    Err("Packaged sidecar is resolved from the app resources".into())
 }
 
 /// Shared heavy-work thread budget: ~30% of cores, max 6, at least 1.
@@ -81,15 +80,24 @@ fn sidecar_threads() -> usize {
 }
 
 fn spawn(background: bool) -> Result<Process, String> {
-    let dir = sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from), Path::new(env!("CARGO_MANIFEST_DIR")), cfg!(debug_assertions))?
-        .canonicalize().map_err(|e| format!("sidecar directory: {e}"))?;
-    let home = llm::home_dir();
-    let dirs = llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
-    let uv = llm::resolve("uv", &dirs).ok_or("uv not found in PATH, ~/.local/bin or /opt/homebrew/bin")?;
-    let mut cmd = Command::new(uv);
-    cmd.arg("run").arg("--project").arg(&dir).args(["python", "-m", "tangent_sidecar"])
-        .current_dir(&dir)
-        .env("PATH", std::env::join_paths(&dirs).map_err(|e| e.to_string())?)
+    let mut cmd = if cfg!(debug_assertions) {
+        let dir = sidecar_dir(std::env::var_os("TANGENT_SIDECAR_DIR").map(PathBuf::from), Path::new(env!("CARGO_MANIFEST_DIR")), true)?
+            .canonicalize().map_err(|e| format!("sidecar directory: {e}"))?;
+        let dirs = llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &llm::home_dir());
+        let uv = llm::resolve("uv", &dirs).ok_or("uv not found in PATH, ~/.local/bin or /opt/homebrew/bin")?;
+        let mut cmd = Command::new(uv);
+        cmd.arg("run").arg("--project").arg(&dir).args(["python", "-m", "tangent_sidecar"])
+            .current_dir(&dir).env("PATH", std::env::join_paths(&dirs).map_err(|e| e.to_string())?);
+        cmd
+    } else {
+        let runtime = bootstrap::runtime()?;
+        let mut cmd = Command::new(runtime.python());
+        cmd.args(["-m", "tangent_sidecar"]).current_dir(runtime.resource.join("sidecar"))
+            .env("HF_HOME", runtime.data.join("models")).env("PYTHONNOUSERSITE", "1")
+            .env("PYTHONDONTWRITEBYTECODE", "1");
+        cmd
+    };
+    cmd
         .env("TANGENT_PARENT_PID", std::process::id().to_string()) // the sidecar's watchdog exits when we do
         .env("TANGENT_SIDECAR_THREADS", sidecar_threads().to_string())
         .env("TANGENT_WORK_CLASS", if background { "background" } else { "foreground" })
@@ -165,14 +173,23 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(State_::default())
+        .manage(bootstrap::Setup::default())
+        .register_uri_scheme_protocol("setup", |_, request| bootstrap::response(request))
         .on_menu_event(|app, event| menu::on_click(app, event.id().0.as_str()))
-        .setup(|app| { menu::install(app.handle())?; Ok(()) })
-        .invoke_handler(tauri::generate_handler![pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
+        .setup(|app| { menu::install(app.handle())?; bootstrap::setup(app.handle())?; Ok(()) })
+        .on_window_event(|window, event| {
+            if window.label() == "bootstrap" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                // A successful setup shows main before closing the setup window.
+                if bootstrap::runtime().is_err() { window.app_handle().exit(0); }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![bootstrap::bootstrap_status, bootstrap::bootstrap_start, bootstrap::bootstrap_cancel, pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {
             // Exit covers window close and quit; ExitRequested fires first, so kill there too.
             if matches!(e, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+                app.state::<bootstrap::Setup>().cancel();
                 let state = app.state::<State_>();
                 for connection in [&state.work, &state.ingest, &state.ping] {
                     // try_lock: never hang quit behind a running job; the child's watchdog covers that case.
@@ -202,8 +219,7 @@ mod tests {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(sidecar_dir(Some("/custom/sidecar".into()), manifest, false).unwrap(), PathBuf::from("/custom/sidecar"));
         assert_eq!(sidecar_dir(None, manifest, true).unwrap(), manifest.join("../sidecar"));
-        assert_eq!(sidecar_dir(None, manifest, false).unwrap(),
-            option_env!("TANGENT_SIDECAR_DIR").map(PathBuf::from).unwrap_or_else(|| manifest.join("../sidecar")));
+        assert!(sidecar_dir(None, manifest, false).is_err());
         assert!(sidecar_dir(Some("".into()), manifest, true).is_err());
     }
 
