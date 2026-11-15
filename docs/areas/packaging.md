@@ -65,6 +65,10 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16 Step 22: `.github/workflows/release.yml` (tag `v*` -> draft release; macOS arm64+x64, Windows, Linux; tauri-action action-v0.6.2; manual run = dry run with workflow artifacts). Secrets `TAURI_SIGNING_PRIVATE_KEY` + `_PASSWORD`; ad-hoc mac signing kept; owner steps in `docs/release.md`.
+  Decided: added macOS x64 (`macos-15-intel`), tag must equal `tauri.conf.json` version, `release.sh` left as local fallback; ci.yml untouched.
+  Evidence: YAML parses (ruby); actionlint/yamllint not installed. Not verified: any real run (see `docs/release.md` last section).
+
 - 2026-11-16 PR #22 review fixes: `unsafe extern` for the Windows `NtResumeProcess` block (edition 2024); the setup window now closes only after the main window is created, otherwise it stays open with the error and a retry; `bootstrap.json` drops the ineffective `remote` urls (Tauri treats `setup://` as local) and is scoped by `windows:["bootstrap"]`, `local: true`.
   Evidence: cargo test 43 pass (hand-off failure test, capability shape), cargo check, generated `gen/schemas/capabilities.json` shows `default`->main and `bootstrap`->bootstrap only.
   Not verified: Windows compile, real window-creation failure, caller-URL guard (not added).
