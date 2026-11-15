@@ -12,6 +12,13 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
+# Checksummed like the binaries; update with the uv version.
+UV_LICENSES = {
+    'UV-LICENSE-MIT': {'url': 'https://raw.githubusercontent.com/astral-sh/uv/0.12.19/LICENSE-MIT',
+                       'sha256': '860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c'},
+    'UV-LICENSE-APACHE': {'url': 'https://raw.githubusercontent.com/astral-sh/uv/0.12.19/LICENSE-APACHE',
+                          'sha256': 'c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4'},
+}
 
 
 def unpack(data, suffix, destination, wanted):
@@ -62,10 +69,8 @@ def main():
         shutil.copy2(ROOT / 'sidecar' / name, project / name)
     shutil.copytree(ROOT / 'sidecar/tangent_sidecar', project / 'tangent_sidecar', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     # Preserve upstream licences in the installer, alongside their binaries.
-    for name, url in [('UV-LICENSE-MIT', 'https://raw.githubusercontent.com/astral-sh/uv/0.12.19/LICENSE-MIT'),
-                      ('UV-LICENSE-APACHE', 'https://raw.githubusercontent.com/astral-sh/uv/0.12.19/LICENSE-APACHE')]:
-        with urllib.request.urlopen(url, timeout=30) as response:
-            (destination / name).write_bytes(response.read())
+    for name, asset in UV_LICENSES.items():
+        (destination / name).write_bytes(fetch(asset))
     with tarfile.open(fileobj=io.BytesIO(pdf), mode='r:gz') as archive:
         for item in archive.getmembers():
             if item.isfile() and ('LICENSE' in item.name.upper() or 'licenses/' in item.name):

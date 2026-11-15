@@ -65,6 +65,15 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16 PR #22 review fixes: `unsafe extern` for the Windows `NtResumeProcess` block (edition 2024); the setup window now closes only after the main window is created, otherwise it stays open with the error and a retry; `bootstrap.json` drops the ineffective `remote` urls (Tauri treats `setup://` as local) and is scoped by `windows:["bootstrap"]`, `local: true`.
+  Evidence: cargo test 43 pass (hand-off failure test, capability shape), cargo check, generated `gen/schemas/capabilities.json` shows `default`->main and `bootstrap`->bootstrap only.
+  Not verified: Windows compile, real window-creation failure, caller-URL guard (not added).
+
+- 2026-11-16 PR #21 review follow-ups: bootstrap window now has its own capability (only the 3 `bootstrap_*` commands, remote URLs `setup://`/`setup.localhost`); app commands got per-command permissions (`build.rs` manifest) and `default.json` (main only) lists them explicitly.
+  Main window is `create: false` and built by `setup()` only when no setup is needed (or after it finishes), so the frontend cannot hit the sidecar early. Windows uv starts CREATE_SUSPENDED, joins the job, then `NtResumeProcess`. uv licences are SHA256-checked; CPython pinned to 3.12.14 (in the marker fingerprint).
+  Evidence: cargo test (42 pass, incl. gating + capability-shape tests), cargo check, prepare-runtime python tests.
+  Not verified: Tauri's runtime enforcement of the remote capability on the `setup://` origin, any Windows compile/run, real install with 3.12.14.
+
 - 2026-11-15 (step 6): Dedicated ingest worker uses macOS nice 19 + background QoS, Linux nice 19, Windows IDLE; foreground workers use normal priority.
   Both ML classes keep the existing serial execution order and share a ~30%-of-cores cap, clamped to 1–6 even for overrides; active ingest still delays foreground work.
   Preserved watchdog/no-mid-job-restart rules, added non-signalling Windows process queries, and forward chunk progress to the existing UI caller in `src/library.ts`.
