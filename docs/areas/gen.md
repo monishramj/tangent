@@ -22,6 +22,9 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 ### Streaming
 - Scene N plays while N+1 generates. Time-to-first-frame ≈ one scene's generation (~10–20 s target).
 - Invariant: per-scene generation (script → TTS → align → DSL → compile) < scene playback time. Keep ≥1 scene of buffer; show a buffering state if starved.
+- Script generation is two Sonnet calls: an opening of exactly 3 beats plus a short remaining outline, then the rest with the accepted opening text as context. Scene 1 TTS/DSL overlaps the second call; later groups append without changing the first scene.
+- Both parts use the same speech and numeric gates. A lexical join guard repairs/cuts repeated definitions or explanatory sentences; it cannot recognize every paraphrase. Part 2 transport failures retry once, then emit an ordered error so the saved video is Partial and already playing scenes remain usable.
+- Dev logs stamp `script-part-1-start/ready`, `script-part-2-start/ready/failed`, and `first-scene-ready` with elapsed milliseconds from script start. These measure generation readiness, not the first audible frame.
 - Parallelize: TTS for beat k runs while the DSL for beat k−1 is generated/compiled.
 
 ### Checkpoint questions (v1)
@@ -48,6 +51,10 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - The scene retry sends the previous JSON along with the validator errors, and TTS audio is reused across DSL retries.
 
 ## Log
+
+- 2026-11-15 — Step 11: split the script into 3 opening beats + outline, then a concurrent continuation; added bounded retry/partial failure, lexical join repair/cut, and elapsed timing logs.
+  Evidence: after incorporating current v1, 224 tests passed across 12 affected files; Home quarantine + offline eval skipped; TypeScript passed.
+  Not verified: real first-scene latency or audio continuity; owner must listen to one video to assess the join.
 
 **2026-11-15 — v1 step 10:** After repair, waive only long sentences or one parenthetical on at most floor(shipped beats / 10); return `styleWaived` indices and print the count in the eval harness. Accuracy gates and unsupported-beat cuts remain in force.
 Proof: focused script/pipeline/storage tests cover boundaries, every lint class, mixed accuracy failures, and saved passage IDs; TypeScript passed.

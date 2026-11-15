@@ -7,11 +7,13 @@ import type { PipelineEvent } from "./streamVideo";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://${path}` }));
 vi.mock("@tauri-apps/api/path", () => ({ tempDir: async () => "/tmp", join: async (...parts: string[]) => parts.join("/") }));
 const say = "Arrays grow.";
-const script = JSON.stringify([{ say, visualIntent: "Show an array" }]);
-const scene = JSON.stringify({ beats: [{ say, template: "callout", variant: "box", data: { text: "Arrays grow" } }] });
+const script = JSON.stringify({ outline: "Nothing remains.", beats: Array.from({ length: 3 }, () => ({ say, visualIntent: "Show an array" })) });
+const scene = JSON.stringify({ beats: [{ say, template: "callout", variant: "box", data: { text: "Arrays grow" } }, { say, template: "list", variant: "column", data: { items: [{ text: "Arrays" }, { text: "Grow" }] } }, { say, template: "array", variant: "default", data: { values: [1, 2] } }] });
 // Route by prompt content, not call order: the checkpoint side call runs concurrently with scenes.
-const route = (prompt: string) => prompt.includes("Rewrite the textbook section") ? script : prompt.startsWith("Write checkpoint questions") ? "[]" : scene;
-const audio = { wavPath: "/fake.wav", sec: 2, words: [{ word: "Arrays", start: 0, end: 1 }, { word: "grow.", start: 1, end: 2 }], segments: [{ start: 0, end: 2 }] };
+const route = (prompt: string) => prompt.includes("Rewrite the textbook section") ? (prompt.includes("PART 1:") ? script : "[]") : prompt.startsWith("Write checkpoint questions") ? "[]" : scene;
+const audio = { wavPath: "/fake.wav", sec: 6,
+  words: Array.from({ length: 3 }, (_, i) => [{ word: "Arrays", start: i * 2, end: i * 2 + 1 }, { word: "grow.", start: i * 2 + 1, end: i * 2 + 2 }]).flat(),
+  segments: Array.from({ length: 3 }, (_, i) => ({ start: i * 2, end: i * 2 + 2 })) };
 beforeEach(() => { vi.mocked(invoke).mockReset(); });
 
 it("runs a section with real defaults through fake IPC and returns playable scenes and status", async () => {
@@ -24,6 +26,7 @@ it("runs a section with real defaults through fake IPC and returns playable scen
   expect(session.status()).toBe("idle");
   const events: PipelineEvent[] = [];
   for await (const event of session) events.push(event);
+  if (events[0].type === "error") throw events[0].error;
   expect(events).toHaveLength(2);
   expect(events[1]).toMatchObject({ type: "checkpoints", items: [] });
   expect(events[0]).toMatchObject({ type: "scene", sceneId: "scene-1", wavPath: expect.stringMatching(/^\/tmp\/tangent-.*\.wav$/) });
@@ -36,7 +39,7 @@ it("accepts provider and TTS overrides without IPC", async () => {
   const ttsAlign = vi.fn().mockResolvedValue(audio);
   const session = startSession({ irSection: { markdown: "Arrays" }, provider: { complete }, ttsAlign });
   expect((await session.next()).value).toMatchObject({ type: "scene", wavPath: audio.wavPath });
-  expect(ttsAlign).toHaveBeenCalledWith([say], expect.objectContaining({ sceneId: "scene-1", signal: expect.any(AbortSignal) }));
+  expect(ttsAlign).toHaveBeenCalledWith([say, say, say], expect.objectContaining({ sceneId: "scene-1", signal: expect.any(AbortSignal) }));
   await session.return();
   expect(invoke).not.toHaveBeenCalled();
 });
