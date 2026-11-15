@@ -20,7 +20,7 @@ const source = { pdfPath: "/book.pdf", pages: [12, 13] };
 it("renders the section's pages from the PDF and highlights the current beat's passage", async () => {
   render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
   await waitFor(() => expect(screen.getAllByRole("img").length).toBeGreaterThan(0));
-  expect(renderPage).toHaveBeenCalledWith("/book.pdf", 12, expect.any(Number));
+  expect(renderPage).toHaveBeenCalledWith("/book.pdf", 12, expect.any(Number), expect.any(AbortSignal));
   expect(screen.getByAltText("Page 12")).toBeTruthy();
   const marks = screen.getAllByTestId("passage-highlight");
   expect(marks).toHaveLength(1);

@@ -95,9 +95,9 @@ pdfium! {
     FPDF_CloseDocument: unsafe extern "system" fn(Handle),
 }
 
-static PDFIUM: OnceLock<Result<Pdfium, String>> = OnceLock::new();
-// ponytail: one render at a time across all documents; use isolated processes if parallel rendering becomes necessary.
-static PDFIUM_LOCK: Mutex<()> = Mutex::new(());
+static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
+// PDFium is process-global; document handles are only accessed under this lock.
+static PDFIUM_LOCK: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
@@ -158,16 +158,34 @@ fn cache_key(path: &Path) -> Result<String, String> {
 #[derive(Debug, Serialize)]
 pub struct Page { path: String, width: u32, height: u32 }
 
-// All handles are closed before leaving the lock, including on errors.
+// Keep at most two documents open; pages and bitmaps are closed before leaving the lock.
 fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result<(Vec<u8>, u32, u32, u32, u32), String> {
-    let _lock = PDFIUM_LOCK.lock().map_err(|e| e.to_string())?;
-    let api = PDFIUM.get_or_init(|| unsafe { Pdfium::load(&library_path(resource)?) }).as_ref().map_err(Clone::clone)?;
-    let path = CString::new(path.to_str().ok_or("PDF path is not UTF-8")?).map_err(|e| e.to_string())?;
+    let mut documents = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if PDFIUM.get().is_none() {
+        // A missing library may become available later; do not cache load failures.
+        let api = unsafe { Pdfium::load(&library_path(resource)?)? };
+        let _ = PDFIUM.set(api);
+    }
+    let api = PDFIUM.get().unwrap();
+    let key = cache_key(path)?;
+    let filename = CString::new(path.to_str().ok_or("PDF path is not UTF-8")?).map_err(|e| e.to_string())?;
     // SAFETY: these symbols have PDFium's documented signatures; handles and buffers stay under the global lock.
     unsafe {
-        let doc = (api.FPDF_LoadDocument)(path.as_ptr(), std::ptr::null());
-        if doc.is_null() { return Err(format!("PDFium could not open PDF (error {})", (api.FPDF_GetLastError)())); }
-        let result = (|| {
+        let doc = if let Some(index) = documents.iter().position(|(k, _)| k == &key) {
+            let entry = documents.remove(index);
+            let doc = entry.1 as Handle;
+            documents.push(entry);
+            doc
+        } else {
+            let doc = (api.FPDF_LoadDocument)(filename.as_ptr(), std::ptr::null());
+            if doc.is_null() { return Err(format!("PDFium could not open PDF (error {})", (api.FPDF_GetLastError)())); }
+            if documents.len() == 2 {
+                (api.FPDF_CloseDocument)(documents.remove(0).1 as Handle);
+            }
+            documents.push((key, doc as usize));
+            doc
+        };
+        (|| {
             let count = (api.FPDF_GetPageCount)(doc);
             if page > count.max(0) as u32 { return Err(format!("page must be in 1..={count}")); }
             let pdf_page = (api.FPDF_LoadPage)(doc, (page - 1) as c_int);
@@ -205,9 +223,7 @@ fn render(path: &Path, page: u32, width: u32, resource: Option<&Path>) -> Result
             })();
             (api.FPDF_ClosePage)(pdf_page);
             result
-        })();
-        (api.FPDF_CloseDocument)(doc);
-        result
+        })()
     }
 }
 
@@ -255,9 +271,12 @@ fn cached_page(base: &Path, path: &Path, page: u32, width: u32, resource: Option
     let dir = root.join(cache_key(path)?);
     let png = dir.join(format!("{page}-{width}.png"));
     let size = dir.join(format!("{page}.size"));
-    if let Some(hit) = cache_hit(&png, &size, page)? { return Ok(hit); }
+    {
+        let _lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = cache_hit(&png, &size, page)? { return Ok(hit); }
+    }
     let (rgb, pixels_high, w, h, count) = render(path, page, width, resource)?;
-    let _write_lock = CACHE_WRITE_LOCK.lock().map_err(|e| e.to_string())?;
+    let _write_lock = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     atomic_write(&png, |file| {
         let mut encoder = png::Encoder::new(file, width, pixels_high);
@@ -294,6 +313,9 @@ fn prune(root: &Path, limit: u64, target: u64) -> Result<(), String> {
         files.sort_by_key(|f| f.0);
         for (_, len, path) in files {
             if total <= target { break; }
+            // Hits refresh timestamps under CACHE_WRITE_LOCK, shared with cache publication/pruning.
+            if fs::metadata(&path).and_then(|m| m.modified()).ok()
+                .and_then(|t| t.elapsed().ok()).is_none_or(|age| age.as_secs() < 60) { continue; }
             match fs::remove_file(path) {
                 Ok(()) => total -= len,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => total -= len,
@@ -328,13 +350,20 @@ mod tests {
     }
 
     fn pdf(base: &Path) -> PathBuf {
-        let objects = [
-            "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 5 0 R >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 600] /Resources << >> /Contents 5 0 R >>",
-            "<< /Length 25 >>\nstream\n1 0 0 rg 0 0 50 50 re f\n\nendstream",
+        pdf_pages(base, 2)
+    }
+
+    fn pdf_pages(base: &Path, count: usize) -> PathBuf {
+        let kids = (3..3 + count).map(|n| format!("{n} 0 R")).collect::<Vec<_>>().join(" ");
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            format!("<< /Type /Pages /Kids [{kids}] /Count {count} >>"),
         ];
+        for n in 0..count {
+            let dims = if n == 0 { "200 100" } else { "300 600" };
+            objects.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {dims}] /Resources << >> /Contents {} 0 R >>", count + 3));
+        }
+        objects.push("<< /Length 25 >>\nstream\n1 0 0 rg 0 0 50 50 re f\n\nendstream".into());
         let mut bytes = b"%PDF-1.4\n".to_vec();
         let mut offsets = Vec::new();
         for (i, object) in objects.iter().enumerate() {
@@ -342,9 +371,9 @@ mod tests {
             write!(bytes, "{} 0 obj\n{object}\nendobj\n", i + 1).unwrap();
         }
         let xref = bytes.len();
-        write!(bytes, "xref\n0 6\n0000000000 65535 f \n").unwrap();
+        write!(bytes, "xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).unwrap();
         for offset in offsets { writeln!(bytes, "{offset:010} 00000 n ").unwrap(); }
-        write!(bytes, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").unwrap();
+        write!(bytes, "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).unwrap();
         let path = base.join("book.pdf");
         fs::write(&path, bytes).unwrap();
         path.canonicalize().unwrap()
@@ -402,7 +431,9 @@ mod tests {
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 0, 0]));
         assert!(pixels.chunks_exact(3).any(|p| p == [255, 255, 255]));
         File::open(&first.path).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
-        let _lock = PDFIUM_LOCK.lock().unwrap();
+        let size = Path::new(&first.path).parent().unwrap().join("2.size");
+        File::open(&size).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(10)).unwrap();
+        let _lock = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let renders = RENDERS.load(Ordering::Relaxed);
         let second = cached_page(&base, &path, 2, 150, None).unwrap();
         assert_eq!(first.path, second.path);
@@ -410,6 +441,12 @@ mod tests {
         assert_eq!(RENDERS.load(Ordering::Relaxed), renders);
         assert!(fs::metadata(&first.path).unwrap().modified().unwrap() > UNIX_EPOCH + Duration::from_secs(10));
         drop(_lock);
+        {
+            let _guard = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            prune(&base.join("pages"), 0, 0).unwrap();
+            assert!(Path::new(&first.path).exists());
+            assert!(size.exists());
+        }
         std::thread::scope(|scope| {
             let a = scope.spawn(|| cached_page(&base, &path, 1, 160, None).unwrap());
             let b = scope.spawn(|| cached_page(&base, &path, 1, 160, None).unwrap());
@@ -464,6 +501,39 @@ mod tests {
         assert!(!root.join("new/b.png").exists());
         assert!(root.join("new/c.png").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn long_books_interleave_rendering_and_pruning_after_poison() {
+        let base = tmp("long");
+        let path = pdf_pages(&base, 320);
+        let other = base.join("other.pdf");
+        fs::copy(&path, &other).unwrap();
+        let _ = std::thread::spawn(|| {
+            let _guard = PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            panic!("simulate poisoned render lock");
+        }).join();
+        let _ = std::thread::spawn(|| {
+            let _guard = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            panic!("simulate poisoned cache lock");
+        }).join();
+        std::thread::scope(|scope| {
+            for book in [&path, &other] {
+                let base = &base;
+                scope.spawn(move || {
+                    for page in 1..=320 {
+                        let result = cached_page(base, book, page, 32, None).unwrap();
+                        let _guard = CACHE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+                        prune(&base.join("pages"), 0, 0).unwrap();
+                        let png = Path::new(&result.path);
+                        let size = png.parent().unwrap().join(format!("{page}.size"));
+                        assert!(cache_hit(png, &size, page).unwrap().is_some());
+                    }
+                });
+            }
+        });
+        assert!(PDFIUM_LOCK.lock().unwrap_or_else(|e| e.into_inner()).len() <= 2);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

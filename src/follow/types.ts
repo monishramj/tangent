@@ -28,4 +28,4 @@ export type TextbookSource = { pdfPath: string; pages: number[] };
 
 /** One rendered page from the Rust `pdf_page` command. `width`/`height` are the page size in PDF points. */
 export type PageImage = { url: string; width: number; height: number };
-export type RenderPage = (pdfPath: string, page: number, widthPx: number) => Promise<PageImage>;
+export type RenderPage = (pdfPath: string, page: number, widthPx: number, signal?: AbortSignal) => Promise<PageImage>;

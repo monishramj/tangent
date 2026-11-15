@@ -42,4 +42,9 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
-(none yet; prepend dated entries here)
+### 2026-11-15 — Long PDF page loading
+- Log native/image errors via devlog; retry failures on viewport re-entry and one image failure per entry; abort stale queued requests.
+- Retain two PDFium documents, retry library initialization, recover poisoned locks, and protect PNG/size files touched within 60 seconds.
+- Code confirmed all suspects: sticky failures, reopen/uncancelled queues, poison/cached load failures, fresh-file pruning, and per-request library reads (retained for authorization).
+- Proof: 6 Rust tests (640 renders across two generated 320-page PDFs, interleaving, forced prune, poisoned locks); focused frontend retry/cancel and caller tests.
+- Not verified: owner's failing PDF, real WKWebView image loading, Windows/Linux; one in-flight native render finishes before queued work advances.

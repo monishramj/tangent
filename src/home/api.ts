@@ -104,7 +104,15 @@ export function sectionPages(ir: IR, videoSectionId: string): number[] {
   return [...pages].sort((a, b) => a - b);
 }
 
-export const pdfPage = async (path: string, page: number, width: number): Promise<PageImage> => {
-  const result = await invoke<{ path: string; width: number; height: number }>("pdf_page", { path, page, width });
-  return { url: convertFileSrc(result.path), width: result.width, height: result.height };
+let pageQueue: Promise<unknown> = Promise.resolve();
+export const pdfPage = (path: string, page: number, width: number, signal?: AbortSignal): Promise<PageImage> => {
+  const request = pageQueue.catch(() => {}).then(async () => {
+    signal?.throwIfAborted();
+    // shortcut: the one in-flight native render finishes; add native cancellation if single-page latency becomes a problem.
+    const result = await invoke<{ path: string; width: number; height: number }>("pdf_page", { path, page, width });
+    signal?.throwIfAborted();
+    return { url: convertFileSrc(result.path), width: result.width, height: result.height };
+  });
+  pageQueue = request;
+  return request;
 };

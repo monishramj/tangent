@@ -115,3 +115,41 @@ describe("sectionsPassages / sectionPages / pdfPage", () => {
     expect(invoke).toHaveBeenCalledWith("pdf_page", { path: "/b.pdf", page: 3, width: 640 });
   });
 });
+
+it("drops aborted queued PDF pages and continues after native failure", async () => {
+  const { pdfPage } = await import("./api");
+  vi.mocked(invoke).mockClear();
+  let reject!: (error: Error) => void;
+  vi.mocked(invoke).mockImplementationOnce(() => new Promise((_resolve, r) => { reject = r; }));
+  const first = pdfPage("/b.pdf", 1, 32);
+  const failed = expect(first).rejects.toThrow("native failure");
+  const controller = new AbortController();
+  const dropped = pdfPage("/b.pdf", 2, 32, controller.signal);
+  const aborted = expect(dropped).rejects.toMatchObject({ name: "AbortError" });
+  vi.mocked(invoke).mockResolvedValueOnce({ path: "/page.png", width: 200, height: 100 });
+  const third = pdfPage("/b.pdf", 3, 32);
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  controller.abort();
+  reject(new Error("native failure"));
+  await failed;
+  await aborted;
+  expect(await third).toMatchObject({ url: "asset:/page.png" });
+  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(invoke).not.toHaveBeenCalledWith("pdf_page", expect.objectContaining({ page: 2 }));
+});
+
+it("ignores an aborted active PDF result without blocking the next request", async () => {
+  const { pdfPage } = await import("./api");
+  let resolve!: (value: unknown) => void;
+  vi.mocked(invoke).mockClear().mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+  const controller = new AbortController();
+  const first = pdfPage("/b.pdf", 1, 32, controller.signal);
+  const aborted = expect(first).rejects.toMatchObject({ name: "AbortError" });
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  controller.abort();
+  vi.mocked(invoke).mockResolvedValueOnce({ path: "/next.png", width: 200, height: 100 });
+  const next = pdfPage("/b.pdf", 2, 32);
+  resolve({ path: "/stale.png", width: 200, height: 100 });
+  await aborted;
+  expect(await next).toMatchObject({ url: "asset:/next.png" });
+});
