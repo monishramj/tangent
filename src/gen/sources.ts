@@ -34,6 +34,14 @@ export function sceneSourceIds(beats: Cited[], ids: string[]): string[] | undefi
   return out.some(Boolean) ? out : undefined;
 }
 
+/** Passage text for the one source this beat cites. Empty when the beat names none or several: numeric checks then fail closed. */
+export function oneSourceText(beat: Cited, passages: { id: string; markdown: string }[], ids: Set<string>): string {
+  const cited = citedSources(beat, ids);
+  if (cited.length !== 1) return "";
+  const prefix = `${cited[0]}/`;
+  return passages.filter(p => p.id.startsWith(prefix)).map(p => p.markdown).join("\n");
+}
+
 /** Numeric-gate text. One source uses the whole section. Several sources use only the ones this beat cites. */
 export function groundingText(beat: Cited, fallback: string, sources?: { id: string; markdown: string }[]): string {
   if (!sources || sources.length < 2) return fallback;

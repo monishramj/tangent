@@ -42,6 +42,7 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
+- 2026-11-16 The follow panel keys strictly on the beat's source id. A missing IR shows a placeholder and never another source's pages, including when only one of several sources loaded. Evidence: SourceFollow.test.tsx. Not verified: playback in the app.
 - 2026-11-16 When a video has several sources, the textbook panel follows the beat: PDF pages for a PDF source, source text for slides, Word, or a photo. One-source videos keep the existing panel. Evidence: SourceFollow.test.tsx. Not verified: playback in the app.
 - 2026-11-16 PPTX/DOCX textbook panel is source text with the current passage highlighted (passage ids, no page render). The source tab shows the same text. Verified: TextSource and SourceView tests. Not verified: playback against a real deck.
 

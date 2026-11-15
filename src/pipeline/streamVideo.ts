@@ -9,7 +9,7 @@ import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "@motion/dsl/ops";
 import { resolveAnchor, type Timeline, type Word } from "@motion/dsl/compile";
 import { boxesFor } from "../follow/passages";
-import { sceneSourceIds } from "../gen/sources";
+import { citedSources, oneSourceText, sceneSourceIds } from "../gen/sources";
 import type { BeatBoxes, Passage } from "../follow/types";
 import type { LLMProvider } from "../llm/provider";
 import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
@@ -142,7 +142,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
         progress("animation", index);
-        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)), source: sectionMarkdown });
+        const sourceIdsKnown = new Set((sources ?? []).map(s => s.id));
+        const perBeatSource = sourceIdsKnown.size > 1 ? beats.map(b => oneSourceText(b, passages, sourceIdsKnown)) : undefined;
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)), source: perBeatSource ? undefined : sectionMarkdown, perBeatSource });
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
@@ -247,9 +249,15 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       // With fact checking enabled, wait for repairs/cuts so checks use the narration that actually shipped.
       let releaseChecks = () => {};
       const narrationReady = factCheck ? new Promise<void>(resolve => { releaseChecks = resolve; }) : Promise.resolve();
+      const knownSources = new Set((sources ?? []).map(s => s.id));
       const pending = continuation.then(() => narrationReady).then(() => generateCheckpoints({ sectionMarkdown, exercises, figures,
         scenes: groups.map(g => g.beats.map(b => b.say).join(" ")),
-        passages: passages.filter(p => groups.some(g => g.beats.some(b => b.passages?.includes(p.id)))), provider: complete }))
+        passages: passages.filter(p => groups.some(g => g.beats.some(b => b.passages?.includes(p.id)))),
+        sceneSources: knownSources.size > 1 ? groups.map(g => {
+          const ids = g.beats.map(b => citedSources(b, knownSources));
+          return ids.length && ids.every(x => x.length === 1 && x[0] === ids[0][0]) ? [ids[0][0]] : [];
+        }) : undefined,
+        provider: complete }))
         .then(items => { checkpoints = items; }, () => { checkpoints = []; });
       while (cursor < groups.length || !scriptDone) {
         if (cursor === groups.length) {

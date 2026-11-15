@@ -480,7 +480,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       {tab && <SidePanel tab={tab} onTab={setTab} onClose={() => setTab(null)} time={time} lines={lines} threads={threads} activeThread={activeThread}
         onSelectThread={setActiveThread} onSend={send} thinking={thinking} onSeek={seek} onResume={resume}
         checksBadge={<span data-testid="checks-badge" className="absolute -top-0.5 -right-1 rounded-full bg-fg px-1.5 text-[10px] leading-4 font-bold text-bg tabular-nums">{answered}/{checkpoints.length}</span>}
-        textbook={followSources && followSources.length > 1
+        textbook={followSources?.length
           ? <SourceFollow sources={followSources} scenes={scenes} time={time} />
           : textbook ? ((isOfficeSource(textbook.pdfPath) || isPhotoSource(textbook.pdfPath))
           ? <TextSource passages={passages} scenes={scenes} time={time} transcribed={isPhotoSource(textbook.pdfPath)} />

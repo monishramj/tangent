@@ -66,14 +66,14 @@ function Watch({ video, provider, store, onBack }: { video: VideoBundle; provide
         let markdown = "";
         for (const p of parts) {
           const ir = await irCache(store).get(p.id).catch(() => null);
-          if (!ir || !Array.isArray(ir.sections)) continue;
+          if (!ir || !Array.isArray(ir.sections)) { loaded.push({ id: p.id, pdfPath: p.pdfPath, pages: [], passages: [], missing: true }); continue; }
           const ids = p.sectionId.split("+").filter(Boolean);
           const passages = sectionsPassages(ir, ids).map(x => ({ ...x, id: `${p.id}/${x.id}` }));
           loaded.push({ id: p.id, pdfPath: p.pdfPath, pages: isOfficeSource(p.pdfPath) ? [] : sectionPages(ir, p.sectionId), passages });
           const text = stripWatermarks(await sectionsText(ir, ids));
           markdown += (markdown && text ? "\n\n" : "") + text;
         }
-        if (live) { setFollowSources(loaded); setPages(loaded[0]?.pages ?? []); setSource({ markdown: markdown || video.title, passages: loaded.flatMap(s => s.passages) }); }
+        if (live) { setFollowSources(loaded); setPages([]); setSource({ markdown: markdown || video.title, passages: loaded.flatMap(s => s.passages) }); }
       })();
       return () => { live = false; };
     }

@@ -7,7 +7,7 @@ import { pdfPage } from "@/home/api";
 import Textbook from "./Textbook";
 import TextSource from "./TextSource";
 
-export type FollowSource = { id: string; pdfPath: string; pages: number[]; passages: Passage[] };
+export type FollowSource = { id: string; pdfPath: string; pages: number[]; passages: Passage[]; missing?: boolean };
 type Scene = { timeline: Timeline; sourceIds?: string[]; passageIds?: string[][]; passages?: BeatBoxes; scene: { beats: unknown[] } };
 
 /** Source id of the spoken beat at t. Same clock as currentPassageIds. */
@@ -23,13 +23,19 @@ export function sourceIdAt(scenes: { timeline: Timeline; sourceIds?: string[] }[
   return id || undefined;
 }
 
+/** The beat's own source, or null when that source is missing. Never a different source. */
+export function panelSource(sources: FollowSource[], id: string | undefined): FollowSource | null {
+  if (!id) return null;
+  const src = sources.find(s => s.id === id);
+  return src && !src.missing ? src : null;
+}
+
 /** Textbook pages for a PDF source, source text for slides, Word, or a photo. Switches with the beat. */
 export default function SourceFollow({ sources, scenes, time, renderPage = pdfPage }: {
   sources: FollowSource[]; scenes: Scene[]; time: number; renderPage?: RenderPage;
 }) {
-  const id = sourceIdAt(scenes, time) ?? sources[0]?.id;
-  const src = sources.find(s => s.id === id) ?? sources[0];
-  if (!src) return null;
+  const src = panelSource(sources, sourceIdAt(scenes, time));
+  if (!src) return <p aria-label="Source text" className="px-4 py-4 text-sm text-muted">This source isn't available.</p>;
   const view = scenes.map(s => ({
     ...s,
     passages: s.passages?.map((boxes, i) => s.sourceIds?.[i] === src.id ? boxes : []),
