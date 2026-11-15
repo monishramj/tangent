@@ -29,6 +29,10 @@ Windows remains advisory; platform fixes are deferred, with no new skips. [CI ru
 ### 2026-11-15 — Quarantined flaky Home test
 - Open issue: `src/home/Home.test.tsx` "multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO" failed on CI web macos-15 ([run 43696901697](https://github.com/monishramj/tangent/actions/runs/43696901697)), passes locally 27/27. Skipped with `it.skip`; find root cause then re-enable (fix or delete within one week).
 - Not verified: root cause.
+### 2026-11-15 — Owner testing/CI guide
+- Added `docs/testing-and-ci.md` (checks, real past bugs, red-CI/flaky/PR rules, 10-minute break-a-test drill) and a docs index line.
+- Proof: `bunx tsc --noEmit` passed; `bufferClock.test.ts` 5 passed, with the documented break 2 failed (`expected 4 to be 2`), restored; `cargo test --locked -j3 --no-run` compiled; every cited path/script/hook/job checked to exist.
+- Not verified: the CI half of the drill on a throwaway branch, sidecar pytest (venv not synced), generation replay wiring.
 
 ### 2026-11-15 — Windows CI failure ledger
 - Recorded exact Windows failures and fixture setup errors from CI run 43695667707 for the later platform work; no test changes.
