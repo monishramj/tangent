@@ -6,7 +6,7 @@ import './section-picker.css';
 
 // Static mockups for plan step 8. Nothing here touches the sidecar, the app state or any PDF.
 type Row = { id: string; title: string; level: number; p0: number; p1: number };
-type Variant = 'braces' | 'lines';
+type Variant = 'curl' | 'pinch' | 'elbow';
 type State = 'none' | 'some' | 'full';
 
 // ---- fixtures ----
@@ -87,17 +87,14 @@ const partial = (rows: Row[], m: Model) => {
 };
 
 // ---- picker ----
-const Check = () => <svg className="pk-check" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6.5 5.2 8.6 9 3.8" /></svg>;
-const Dash = () => <svg className="pk-dash" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h6" /></svg>;
-// Slightly uneven strokes keep the brace from looking vector-perfect.
-const Brace = ({ state, onClick, label }: { state: State; onClick: () => void; label: string }) =>
-  <button type="button" tabIndex={-1} aria-hidden className="pk-brace" data-state={state} title={label} onClick={onClick}><span className="pk-brace-in">
-    <svg viewBox="0 0 12 9" height="9"><path d="M11 1.1C8.4 .9 6.5 2.3 6.2 5.2L6.3 9" /></svg>
-    <span className="pk-stem" />
-    <svg viewBox="0 0 12 13" height="13"><path d="M6.3 0C6.5 4.3 5.2 6.2 1 6.6 5.1 7 6.4 9 6.1 13" /></svg>
-    <span className="pk-stem" />
-    <svg viewBox="0 0 12 9" height="9"><path d="M6.1 0 6.3 3.8C6.6 6.8 8.5 8.2 11 8" /></svg>
-  </span></button>;
+// Curly-brace flair, all drawn with the hairline stroke of the tree lines (var(--sw), colour var(--lc)).
+const Tip = ({ onClick, label }: { onClick: () => void; label: string }) =>
+  <button type="button" tabIndex={-1} aria-hidden className="pk-tip" title={label} onClick={onClick}><svg viewBox="0 0 16 12"><path d="M7.5 12V8C7.5 3.6 10 1.3 14.5 1" /></svg></button>;
+const Pinch = ({ onClick, label }: { onClick: () => void; label: string }) =>
+  <button type="button" tabIndex={-1} aria-hidden className="pk-pinch" title={label} onClick={onClick}><svg viewBox="0 0 14 22"><path d="M7.5 0C7.5 7 6 10 1.5 11 6 12 7.5 15 7.5 22" /></svg></button>;
+// Elbow: the connector is a short brace curl, with a tiny flick at its end. Last child bends down-to-right, others branch off the trunk.
+const Elbow = ({ last }: { last: boolean }) =>
+  <svg className="pk-curl" viewBox="0 0 18 16">{last ? <path d="M8.5 0C8.5 5.5 10 8 14 8H15.6C16.6 8 17.2 7.3 17.4 6.2" /> : <path d="M8.5 16C8.5 10.5 10 8 14 8H15.6C16.6 8 17.2 7.3 17.4 6.2" />}</svg>;
 
 function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Variant; initial: boolean; label: string }) {
   const m = useMemo(() => model(rows), [rows]);
@@ -129,16 +126,17 @@ function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Varia
   const renderNode = (i: number, last: boolean): ReactElement => {
     const r = rows[i], st = stateOf(i, sel, rows, m), d = Math.min(r.level, 6), hasKids = m.kids[i].length > 0;
     return <div role="none" key={r.id} className={`pk-node${last ? ' pk-last' : ''}`} data-d={d}>
-      {variant === 'lines' && m.parent[i] >= 0 && <button type="button" tabIndex={-1} aria-hidden className="pk-trunk" title="Select the whole section" onClick={() => toggle(m.parent[i])} />}
+      {m.parent[i] >= 0 && <button type="button" tabIndex={-1} aria-hidden className="pk-trunk" title="Select the whole section" onClick={() => toggle(m.parent[i])}>{variant === 'elbow' && <Elbow last={last} />}</button>}
       <div role="treeitem" ref={el => { refs.current[i] = el; }} data-i={i} data-state={st} data-ring={(kb && i === focus) || undefined} className="pk-row" aria-level={r.level} aria-selected={st === 'full'} aria-description={st === 'some' ? 'Partly selected' : undefined}
         tabIndex={i === focus ? 0 : -1} onFocus={() => setFocus(i)}
         onPointerDown={e => { if (e.button !== 0 || e.pointerType === 'touch') return; drag.current = { start: i, base: sel, add: st !== 'full', moved: false }; }}
         onPointerEnter={e => { const dr = drag.current; if (!dr) return; if (e.buttons !== 1) { drag.current = null; return; } dr.moved = true; setSel(paint(dr.base, rows, m, dr.start, i, dr.add)); }}
         onClick={() => { const dr = drag.current; if (dr?.moved) { drag.current = null; return; } toggle(i); }}>
-        <span className="pk-mark" aria-hidden><Check /><Dash /></span><span className="pk-title">{r.title}</span><span className="pk-pages">{pages(r)}</span>
+        <span className="pk-title">{r.title}</span><span className="pk-pages">{pages(r)}</span>
       </div>
       {hasKids && <div role="none" className="pk-kids" data-state={st}>
-        {variant === 'braces' && <Brace state={st} label={`Select all of “${r.title}”`} onClick={() => toggle(i)} />}
+        {variant === 'curl' && <Tip label="Select the whole section" onClick={() => toggle(i)} />}
+        {variant === 'pinch' && m.end[i] - i >= 5 && <Pinch label="Select the whole section" onClick={() => toggle(i)} />}
         {m.kids[i].map((k, n, all) => renderNode(k, n === all.length - 1))}
       </div>}
     </div>;
@@ -148,7 +146,7 @@ function Picker({ rows, variant, initial, label }: { rows: Row[]; variant: Varia
   return <div className="pk-frame">
     <div className="pk-head"><span>Choose sections<small>{top ? `${top} selected` : 'Click or drag to select'}</small></span>
       <span className="pk-head-r"><button className="tl-text-button" onClick={() => setSel(all ? new Set() : new Set(rows.map(r => r.id)))}>{all ? 'Clear' : 'Select all'}</button><button className="tl-primary" disabled={!top}>Make video</button></span></div>
-    <div className="pk-scroll"><div role="tree" aria-label={label} aria-multiselectable onPointerDownCapture={() => setKb(false)} className={`pk-tree pk-${variant === 'braces' ? 'braces' : 'lines'}`} onKeyDown={onKey}>
+    <div className="pk-scroll"><div role="tree" aria-label={label} aria-multiselectable onPointerDownCapture={() => setKb(false)} className={`pk-tree pk-v-${variant}`} onKeyDown={onKey}>
       {roots.map((i, n) => renderNode(i, n === roots.length - 1))}
     </div></div>
   </div>;
@@ -161,14 +159,14 @@ function Page() {
   const [run, setRun] = useState(0);
   const only = q.get('v'), w = Number(q.get('w')) || 0;
   const rows = FIXTURES[fx];
-  const cols: [Variant, string, string][] = [['braces', 'A', 'Braces'], ['lines', 'B', 'Lines']];
+  const cols: [Variant, string, string, string][] = [['curl', '1', 'Curl tip', 'The trunk ends in a small curl under its parent'], ['pinch', '2', 'Pinch', 'A brace point at the trunk’s midpoint'], ['elbow', '3', 'Curl elbows', 'Every connector is a tiny brace curl']];
   return <div className="tl-library pk-page"><div className="tl-wrap tl-wide">
-    <div className="pk-bar"><h1>Section picker<small>Two static variants. {rows.length} rows. Try click, drag, arrows, Space, Shift+arrows.</small></h1>
+    <div className="pk-bar"><h1>Section picker<small>Three static variants of thin tree lines with brace flair. {rows.length} rows. Try click, drag, arrows, Space, Shift+arrows.</small></h1>
       <div className="pk-bar-tools"><div className="tl-tabs" role="tablist" aria-label="Fixture">{(['deep', 'shallow'] as const).map(k => <button key={k} role="tab" aria-selected={fx === k} onClick={() => { setFx(k); setRun(n => n + 1); }}>{k === 'deep' ? 'Deep outline' : 'Shallow book'}</button>)}</div>
         <button className="tl-quiet" onClick={() => { setSeed(s => !s); setRun(n => n + 1); }}>{seed ? 'Start empty' : 'Start with a selection'}</button></div></div>
-    <div className="pk-cols" style={w ? { maxWidth: w, margin: '0 auto', gridTemplateColumns: 'minmax(0,1fr)' } : undefined}>
-      {cols.filter(([v]) => !only || only === (v === 'braces' ? 'a' : 'b')).map(([v, k, name]) => <div className="pk-col" key={`${v}${fx}${run}`}>
-        <div className="pk-cap"><b>{k} · {name}</b><span>{v === 'braces' ? 'The brace selects its whole section' : 'The trunk selects its whole section'}</span></div>
+    <div className="pk-cols" style={w || only ? { maxWidth: w || 720, margin: '0 auto', gridTemplateColumns: 'minmax(0,1fr)' } : undefined}>
+      {cols.filter(([, k]) => !only || only === k).map(([v, k, name, note]) => <div className="pk-col" key={`${v}${fx}${run}`}>
+        <div className="pk-cap"><b>{k} · {name}</b><span>{note}</span></div>
         <Picker rows={rows} variant={v} initial={seed} label={`${name} section picker`} />
       </div>)}
     </div></div></div>;
