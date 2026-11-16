@@ -4,11 +4,10 @@
 
 # Tangent
 
-**Turn a textbook section into a narrated, animated explainer you can interrupt with a question.**
+Turn a textbook section into a narrated, animated video. Pause it any time and ask a question.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/monishramj/tangent?include_prereleases&label=release)](https://github.com/monishramj/tangent/releases)
-[![CI](https://github.com/monishramj/tangent/actions/workflows/ci.yml/badge.svg)](https://github.com/monishramj/tangent/actions/workflows/ci.yml)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 ![Status](https://img.shields.io/badge/status-beta-orange)
 
@@ -16,96 +15,70 @@
 
 </div>
 
-> **Beta.** Tested by hand on macOS only. Windows and Linux installers are built by CI but have not been hand-tested.
+I built Tangent because I kept zoning out on dense textbook chapters, and I wanted something that explained them the way a good tutor would. You give it a PDF, slides, a Word file or a photo of notes and pick a section. It writes a script meant to be heard, reads it out loud, and animates it on screen. If something doesn't click, you pause and ask, and it answers about the scene you're on. Then you pick the video back up.
 
-## What it does
+It's a beta. I've only tested it by hand on macOS. Windows and Linux installers get built, but nobody has run them yet, so expect rough edges there.
 
-- Drop in a textbook PDF, slide deck (PPTX), Word file (DOCX), or a photo of notes, then pick a section.
-- Tangent writes a script meant to be *heard*, narrates it locally, and animates it on screen. One idea per beat.
-- Playback starts as soon as the first scene is ready. The rest streams in while you watch.
-- **Pause any time and ask.** The tutor answers about the scene you are on, then you rejoin the video.
-- Saved videos replay with no further model calls.
+## Install
 
-## Features
+Grab the installer for your system from [Releases](https://github.com/monishramj/tangent/releases).
 
-- **Written for the ear:** short sentences, defined terms, numbers spoken naturally.
-- **Animation locked to narration:** visuals anchor to spoken words on one audio clock.
-- **Computed visuals and number checks:** arrays, trees and similar are calculated, not drawn from memory, and numbers are checked against the source text.
-- **Textbook follow-along:** a side panel shows the source passage for the current beat.
-- **Ask threads and checkpoints:** typed questions stay as threads you can return to.
-- **Library:** sources first, with folders, saved videos and a background upload queue.
-- **Reaction GIFs (optional):** add a GIPHY key in Settings. Without one they show as text cards.
-- **In-app updates:** release builds check for updates quietly and ask before installing.
+**macOS** (Apple Silicon or Intel): open the `.dmg` and drag Tangent to Applications. The app is signed ad hoc and not notarized, so macOS may refuse to open it. If that happens, try to open it once, then go to System Settings, Privacy & Security, and click Open Anyway. You can also run `xattr -dr com.apple.quarantine /Applications/Tangent.app`.
 
-## Download and install
+**Windows** (x64): run the `-setup.exe` or the `.msi`. It's unsigned, so SmartScreen will warn you. Click More info, then Run anyway.
 
-Get the installer for your system from [GitHub Releases](https://github.com/monishramj/tangent/releases).
-
-| OS | File | Note |
-| --- | --- | --- |
-| macOS (Apple Silicon, Intel) | `.dmg` | Drag **Tangent.app** to `/Applications`. The build is ad-hoc signed, not notarized. If macOS blocks it, launch once, then open **System Settings → Privacy & Security → Open Anyway**. Or run `xattr -dr com.apple.quarantine /Applications/Tangent.app`. |
-| Windows (x64) | `-setup.exe` or `.msi` | Unsigned. On the SmartScreen warning choose **More info → Run anyway**. |
-| Linux (x64) | `.AppImage`, `.deb`, `.rpm` | `chmod +x` the AppImage, or install the package with your package manager. |
+**Linux** (x64): use the `.AppImage` (`chmod +x` it first), or install the `.deb` or `.rpm`.
 
 ## First launch
 
-1. **One-time setup download, about 2–3 GB.** Tangent installs its Python runtime, document tools and voice model into the app data folder. Retrying or cancelling reuses what already downloaded.
-2. **Claude Code must be installed and logged in.** Generation runs through the `claude` CLI on your PATH. Install it from [code.claude.com](https://code.claude.com), run `claude` once to log in, and Tangent's "Before you start" screen will confirm both.
-3. **Local models (Ollama) are not supported yet.** The code has a provider interface for them, but no working local provider ships, so the app does not offer it.
+The first time you open it, Tangent downloads its Python runtime, document tools and voice model. That's about 2 to 3 GB, and if you cancel or retry it keeps what it already got.
 
-Whether an app may run on top of your Claude Code login is a terms question the owner is still checking: see [docs/open-source.md](docs/open-source.md).
+You also need [Claude Code](https://code.claude.com) installed and logged in. Tangent calls the `claude` command to write scripts and answer questions, so there's no API key to set up. A "Before you start" screen checks this for you.
+
+There's no local-model option yet. I've sketched a provider interface for something like Ollama, but nothing works end to end, so the app doesn't offer it.
+
+I'm still reading Anthropic's terms to make sure an app like this is fine to distribute. My notes are in [docs/open-source.md](docs/open-source.md).
 
 ## How it works
 
 ```
 PDF / PPTX / DOCX / photo
-  -> parsed into sections (Docling, cached)
+  -> sections (Docling)
   -> script written for speech (Claude Code)
-  -> numbers and math made speakable, then checked against the source
-  -> local narration (PocketTTS) + word-level alignment
-  -> animated scenes from templates, validated
-  -> PixiJS player on the audio clock  <->  tutor answers your questions
+  -> math and numbers made speakable, checked against the source
+  -> narration (PocketTTS) and word-level timing
+  -> animated scenes from templates
+  -> player on one audio clock, with the tutor for your questions
 ```
 
-The app is Tauri (Rust) with a React and PixiJS front end, plus a Python sidecar run through `uv`. The animation engine lives in `packages/motion`. Details are in [docs/areas](docs/areas/).
+Scenes stream in, so playback starts as soon as the first one is ready. Saved videos replay without calling the model again. Animations are tied to the spoken words, and things like arrays and trees are computed rather than drawn from memory. Typed questions stay as threads you can come back to, and a side panel shows the part of the book the narration is on. If you add a GIPHY key in Settings you get reaction GIFs, otherwise those show as text cards.
 
 ![Player](docs/readme/player.png)
 
+Under the hood it's a Tauri app (Rust) with a React and PixiJS front end and a Python sidecar run through `uv`. The animation engine is in `packages/motion`, and notes on each area are in [docs/areas](docs/areas/).
+
 ## Privacy
 
-- Narration and document parsing run on your machine.
-- Your books stay on your machine. Nothing is uploaded except the text the Claude CLI needs to write scripts and answer questions, under your own Claude Code account.
-- No textbook, course PDF or extracted text ships in this repository or in the installers. Bring your own files.
-- No API keys are stored. A GIPHY key, if you add one, is kept in an owner-only file in app data.
+Parsing and narration run on your computer. The only thing that leaves it is the text the `claude` command needs to write a script or answer a question, and that goes through your own Claude account. No textbook or course material is included in this repo or the installers, so bring your own files. Tangent doesn't store API keys. If you add a GIPHY key, it's kept in a file only your user can read.
 
 ## Development
 
-Needs [bun](https://bun.sh), [uv](https://docs.astral.sh/uv/), Rust, and a logged-in `claude` CLI.
+You need [bun](https://bun.sh), [uv](https://docs.astral.sh/uv/), Rust, and a logged-in `claude`.
 
 ```sh
 bun install
-bunx tauri dev          # Vite + app; the sidecar starts from ./sidecar via uv
-bun run check           # typecheck + frontend tests
-(cd src-tauri && cargo test --locked -j3)
-(cd sidecar && uv sync --locked && uv run --no-sync pytest -m "not slow")
+bunx tauri dev
 ```
 
-How changes are proven, and what CI runs: [docs/testing-and-ci.md](docs/testing-and-ci.md). Releases: [docs/release.md](docs/release.md). Design principles and project notes: [CLAUDE.md](CLAUDE.md).
+Tests and how I check changes are in [docs/testing-and-ci.md](docs/testing-and-ci.md). Release steps are in [docs/release.md](docs/release.md), and my project notes are in [CLAUDE.md](CLAUDE.md).
 
 ## Roadmap
 
-v1 is in progress: section picker, generation accuracy, more input types, and the first public beta. Planned for v2:
-
-- MP4 export
-- Editor for tweaking a video
-- Usage meter
-- Klipy GIFs
-
-Not planned yet: voice questions, animated tutor branches, web capture.
+I'm still working toward a first public beta. After that I want MP4 export, an editor for tweaking videos, a usage meter, and Klipy GIFs.
 
 ## Credits
 
-Built on [Docling](https://github.com/docling-project/docling), [PocketTTS](https://github.com/kyutai-labs/pocket-tts), [PDFium](https://pdfium.googlesource.com/pdfium/) (via pdfium-binaries), [Tauri](https://tauri.app), [PixiJS](https://pixijs.com), [React Bits](https://reactbits.dev) components, [Hugeicons](https://hugeicons.com), [KaTeX](https://katex.org) and [Motion](https://motion.dev). Full licences and weight-licence flags: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Tangent stands on [Docling](https://github.com/docling-project/docling), [PocketTTS](https://github.com/kyutai-labs/pocket-tts), [PDFium](https://pdfium.googlesource.com/pdfium/), [Tauri](https://tauri.app), [PixiJS](https://pixijs.com), [React Bits](https://reactbits.dev), [Hugeicons](https://hugeicons.com), [KaTeX](https://katex.org) and [Motion](https://motion.dev). Licences are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License
 
