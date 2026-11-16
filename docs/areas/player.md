@@ -64,3 +64,7 @@ Visuals are scheduled *to* the audio, never the reverse.
   Evidence: Stage pause/seek/rejoin and first-scene tests, transition time samples, affected suite and TypeScript check.
   Not verified: real GPU/audio playback or screenshot frames; no dev server/browser started.
 - 2026-11-16 Player wait (no scene yet) and mid-video buffer show the library's drawn white ring plus one stage line from existing `Progress` (`Loading.tsx`, keyframes in `index.css`). Overlay is absolute (`bottom-4`), `role=status` `aria-live=polite`; reduced motion holds the ring still. Evidence: `Loading.test.tsx`, `PlayerScreen.test.tsx`, `docs/ui-review/19-loading-first-scene.png`, `20-loading-buffering.png`, `21-loading-playing.png`, `22-loading-reduced.png`. Not verified: WKWebView, a real generation run.
+- 2026-11-15: Seek bar reserves a scene-count estimate for later scenes, with transform-only stripes and a hover/time-label generation hint; seeking and markers stay inside arrived content.
+  Pipeline progress alone enables it; completion (including skipped scenes) clears it, and saved replays never show it. Reduced motion uses static dim stripes.
+  Evidence: PlayerScreen + App suites (43 tests), TypeScript, production fixture build; Orca fixture screenshots in `docs/ui-review/player-loading/` and computed reduced-motion animation `none`, opacity `0.4`.
+  Not verified: real generation or native WKWebView; no model runs. Remainder is an estimate because future scene durations are unknown.

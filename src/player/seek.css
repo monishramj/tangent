@@ -1,0 +1,15 @@
+/* Move a prepainted stripe layer; never animate the track's paint or layout. */
+.seek-generating::before {
+  content: "";
+  position: absolute;
+  inset: 0 -24px;
+  background: repeating-linear-gradient(110deg, transparent 0 8px, #ffffff26 8px 12px, transparent 12px 24px);
+  animation: seek-stripes 1.8s linear infinite;
+}
+@keyframes seek-stripes {
+  from { transform: translateX(-24px); }
+  to { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seek-generating::before { animation: none; opacity: 0.4; }
+}

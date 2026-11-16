@@ -50,6 +50,8 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-16 Script prompt rule 8 (everyday words) and a stiff-word lint; style slips still repair, then pass if they cover at most 10% of beats.
 - 2026-11-16 Player loading: drawn ring and one stage line while the first scene or the next scene is not ready (`src/player/Loading.tsx`).
+- 2026-11-15 Player seek bar shows a striped generating remainder with scene-count hover hint, static reduced-motion fallback, and no replay indicator; 43 player/App tests, TypeScript and Orca fixture screenshots verified.
+
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
 

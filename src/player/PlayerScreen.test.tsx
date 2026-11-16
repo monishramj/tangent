@@ -1,7 +1,8 @@
+import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import PlayerScreen, { IDLE_MS, clock, type PlayerProps } from "./PlayerScreen";
-import type { PipelineEvent } from "@/pipeline/streamVideo";
+import type { PipelineEvent, Progress } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import type { LLMProvider } from "@/llm/provider";
 import { memoryJsonStore, type Thread } from "@/storage/store";
@@ -28,7 +29,7 @@ const sceneEvent = (id = "s1"): Extract<PipelineEvent, { type: "scene" }> => ({ 
 const mcq: Checkpoint = { id: "cp1", afterScene: 0, kind: "mcq", prompt: "Which child swaps?", choices: ["The bigger", "The smaller"], answer: "The bigger", explanation: "Bigger keeps the heap valid.", source: "generated" };
 
 /** A stream the test drives by hand. */
-function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore>; passages?: PlayerProps["passages"]; textbook?: PlayerProps["textbook"] } = {}) {
+function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJsonStore>; passages?: PlayerProps["passages"]; textbook?: PlayerProps["textbook"]; progress?: Progress } = {}) {
   const audios: FakeAudio[] = [];
   vi.stubGlobal("Audio", class extends EventTarget {
     currentTime = 0; readyState = 4; preload = "";
@@ -49,7 +50,7 @@ function setup(opts: { provider?: LLMProvider; store?: ReturnType<typeof memoryJ
   const store = opts.store ?? memoryJsonStore();
   const complete = vi.fn().mockResolvedValue(JSON.stringify({ answer: "Because the bigger child keeps the heap valid.", annotations: [] }));
   const provider = opts.provider ?? { complete };
-  const props = { stream, passages: opts.passages, textbook: opts.textbook, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
+  const props = { stream, passages: opts.passages, textbook: opts.textbook, progress: opts.progress, title: "Heapify", videoId: "vid1", store, provider, onRetry: vi.fn(), onBack: vi.fn() };
   const view = render(<PlayerScreen {...props} />);
   return { ...props, complete, audios, push, end, view };
 }
@@ -661,4 +662,60 @@ it("shows photo passages and the transcription label in the textbook panel", asy
   expect(screen.getByLabelText("Source text").textContent).toContain("Value: [illegible]");
   expect(screen.getByText("transcribed, check against your notes")).toBeTruthy();
   expect(screen.queryByAltText("Page 1")).toBeNull();
+});
+const generationProgress: Progress = { step: "animation", scene: 1, scenesReady: 1, scenesTotal: 4, beats: [] };
+
+it("reserves the generating remainder while keeping seeking within playable scenes", async () => {
+  const s = setup({ progress: generationProgress });
+  await startWithScene(s);
+  expect(screen.getByTestId("seek-generating").style.width).toBe("75%");
+  expect(screen.getByTestId("seek-playable").style.width).toBe("25%");
+  expect(screen.getByTitle("Generating… 1 of 4 scenes")).toBeTruthy();
+  const slider = screen.getByRole("slider") as HTMLInputElement;
+  expect(slider.style.width).toBe("25%");
+  expect(Number(slider.max)).toBe(timeline.totalSec);
+  fireEvent.change(slider, { target: { value: String(timeline.totalSec) } });
+  const thumb = slider.previousElementSibling as HTMLElement;
+  expect(thumb.style.left).toBe("25%");
+  const wrap = slider.parentElement!;
+  wrap.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, right: 100, bottom: 10, height: 10, x: 0, y: 0, toJSON() {} });
+  fireEvent.pointerMove(wrap, { clientX: 60 });
+  expect(screen.getByTestId("scrub-preview").textContent).toContain("Generating… 1 of 4 scenes");
+  await s.end(); // Failed/skipped later scenes must not leave a permanent loading indicator.
+  expect(screen.queryByTestId("seek-generating")).toBeNull();
+  expect(slider.style.width).toBe("100%");
+  expect(screen.getByTestId("scrub-preview").textContent).not.toContain("Generating");
+});
+
+it("removes generation feedback as soon as every scene is ready", async () => {
+  const s = setup({ progress: generationProgress });
+  await startWithScene(s);
+  s.view.rerender(<PlayerScreen {...s} progress={{ ...generationProgress, scenesReady: 4 }} />);
+  expect(screen.queryByTestId("seek-generating")).toBeNull();
+  expect(screen.queryByTitle(/Generating/)).toBeNull();
+});
+
+it("never shows a generating remainder for a saved replay without pipeline progress", async () => {
+  const s = setup();
+  await startWithScene(s); // Replay scenes can arrive before the replay iterator finishes.
+  expect(screen.queryByTestId("seek-generating")).toBeNull();
+  expect(screen.getByTestId("seek-playable").style.width).toBe("100%");
+  await s.end();
+  expect(screen.queryByTitle(/Generating/)).toBeNull();
+});
+
+it("keeps the generating remainder static and dim under reduced motion", async () => {
+  const matchMedia = window.matchMedia;
+  vi.stubGlobal("matchMedia", (query: string) => ({ ...matchMedia(query), matches: query.includes("prefers-reduced-motion") }));
+  const s = setup({ progress: generationProgress });
+  await startWithScene(s);
+  expect(screen.getByTestId("seek-generating").getAttribute("aria-hidden")).toBe("true");
+  expect(screen.getByTitle("Generating… 1 of 4 scenes")).toBeTruthy();
+  // jsdom does not evaluate media queries or pseudo-element animations.
+  const css = readFileSync("src/player/seek.css", "utf8");
+  expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*{\s*\.seek-generating::before\s*{ animation: none; opacity: 0\.4; }/);
+  expect(css.match(/@keyframes seek-stripes\s*{[\s\S]*?\n}/)?.[0]).toBe(`@keyframes seek-stripes {
+  from { transform: translateX(-24px); }
+  to { transform: translateX(0); }
+}`);
 });
