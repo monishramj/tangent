@@ -23,6 +23,7 @@
 .tl-picker .pk-brace-in { display:flex; flex-direction:column; height:100%; width:12px; pointer-events:none; }
 .tl-picker .pk-brace svg { display:block; flex:none; width:12px; fill:none; stroke:currentColor; stroke-width:var(--bw); stroke-linecap:round; stroke-linejoin:round; overflow:visible; }
 .tl-picker .pk-stem { flex:1 1 0; min-height:0; width:var(--bw); margin-left:calc(6.2px - var(--bw) / 2); background:currentColor; border-radius:1px; }
+.tl-picker .pk-brace:disabled { opacity:1; cursor:default; pointer-events:none; }
 .tl-picker .pk-brace:hover { color:rgba(255,255,255,.7); }
 .tl-picker .pk-brace[data-state=some] { color:color-mix(in srgb,var(--pk-accent) 45%,transparent); }
 .tl-picker .pk-brace[data-state=full] { color:var(--pk-accent); }

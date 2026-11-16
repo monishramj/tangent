@@ -83,7 +83,7 @@ it('Select all and cancel clear selection without starting generation', async ()
   fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
   expect(screen.getAllByRole('treeitem').every(el => el.getAttribute('aria-selected') === 'false')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('treeitem')).toBeNull(); expect(onStart).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('treeitem').every(el => !el.hasAttribute('aria-selected'))).toBe(true); expect(onStart).not.toHaveBeenCalled();
 });
 it('drag selects a contiguous range and pointerup ends it', async () => {
   const { container } = setup(); await upload(container);

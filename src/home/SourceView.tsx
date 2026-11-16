@@ -103,10 +103,7 @@ export default function SourceView(props: SourceViewProps) {
                 setAdd(null);
               }}>Add sections</button></div></>;
           })()}
-          {selecting && !add ? <SectionPicker rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />
-            : !selecting ? <div className="tl-sections" aria-label="Sections">{sections.map(section => <div className="tl-section-row" key={section.id}>
-              <span style={{ paddingLeft: Math.min(4, Math.max(0, section.level - 1)) * 16 }}>{section.title}</span><small>{pages(section)}</small>
-            </div>)}</div> : null}
+          {!add && <SectionPicker browse={!selecting} rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />}
           {selecting && !add && <div className="tl-generation"><div className="tl-generation-top"><span id="video-detail-label">Detail level</span></div>
             <div className="tl-detail" role="radiogroup" aria-labelledby="video-detail-label">{DETAIL_LEVELS.map(d => {
               const minutes = minutesFor(d);

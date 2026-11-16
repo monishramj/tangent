@@ -4,6 +4,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-15 Fixed PR #15 scene-transition bleed with moving viewport masks for Pixi and DOM; deterministic timing/audio unchanged, renderer regression and Orca before/after frames.
 - 2026-11-15 Make a video estimates length from the selected sections and detail level (about N min; 6.92 s/beat from saved bundles).
+- 2026-11-16 Default Sections shares the existing white-brace SectionPicker with selection mode; rebased onto current v1, preserving multi-source behavior, with affected tests, TypeScript and refreshed Orca fixture screenshots; native touch/WKWebView/screen reader unverified.
 - 2026-11-16 Step 25: rebuilt v1 after #40/#41; ad-hoc/no runtime, fresh setup/nonblank main, saved WebAudio playback, Textbook rendering and SIGTERM sidecar cleanup pass; owner still to hear audio/check PPTX + ring; app retained, updater signing key absent (see docs/mac-smoke-2026-11.md).
 
 - 2026-11-16 Step 12: 52 real cloud Haiku checks; retained original prompt (2/41 correct beats falsely flagged, 6/6 wrong caught), rejected one tweak (2/41, 5/6); enabled fact-check in production sessions and added exact public-recording eval coverage; small-sample and synthetic-only limits in docs/areas/gen.md.
