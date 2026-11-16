@@ -6,7 +6,7 @@ Screenshots: `docs/polish-review/` (library, folder, source, make-video, loading
 ## Test evidence (run once, niced, `TANGENT_HEAVY_SLOTS=1 taskpolicy -b scripts/heavy.sh`)
 - `tsc --noEmit`: clean.
 - Vitest: **85 files passed, 1 skipped; 1075 tests passed, 4 skipped.** Skips: `Home.test.tsx:258` (quarantined flaky multi-drop, see P1-9) and 3 env-gated evals (`factCheck.eval.test.ts:20,66`, `scripts/eval-generation.test.ts:82`). The area note says "three existing skips"; reality is one real quarantine + env-gated evals.
-- Rust (`cargo test --locked -j3`): RUST_RESULT
+- Rust (`cargo test --locked -j3`): **58 passed, 0 failed, 1 ignored** (`pages::tests::bench_render`, a benchmark). Ran with a copied `target/` and `TANGENT_PDFIUM` from another worktree venv.
 - Sidecar (`pytest -m "not slow"`): **121 passed, 2 slow deselected, 0 failed** (115 s). Ran with another worktree's venv (`w4-ff/sidecar/.venv`, no `uv sync`), importing the sidecar via `conftest.py` rootdir; a clean `uv sync --locked` run was not done.
 - Not run: real Docling ingest, TTS, formula model, `claude -p`, any release build, native menu, WKWebView audio, updater, Windows/Linux.
 
