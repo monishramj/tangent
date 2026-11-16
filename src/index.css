@@ -71,6 +71,19 @@ body {
   background: linear-gradient(180deg, rgba(23, 23, 23, 0.82), rgba(10, 10, 10, 0.72));
 }
 
+/* Paused play button: plain frosted glass (GlassSurface's url() backdrop refraction is unsupported in WKWebView). */
+.play-glass {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  transition: transform 150ms ease-out, background-color 150ms, border-color 150ms;
+}
+.play-glass:hover { transform: scale(1.05); background: rgba(255, 255, 255, 0.16); border-color: var(--line-hover); }
+.play-glass:active { transform: scale(0.95); }
+@media (prefers-reduced-motion: reduce) { .play-glass { transition: none; } .play-glass:hover, .play-glass:active { transform: none; } }
+
 @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } }
 .fade-up { animation: fade-up 500ms both cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes fade-in { from { opacity: 0; } }
