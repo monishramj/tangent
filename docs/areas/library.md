@@ -17,7 +17,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - 2026-11-15 Make a video shows "about N min" beside Overview, Standard, Detailed and Complete. Length follows the sections you pick and the detail (`estimateMinutesFor` × 6.92 s/beat). Proof: Home and SourceView tests; Orca screenshot of the picker. Not verified: estimate vs a newly generated video.
 - 2026-11-16 Default Sections now reuses the existing SectionPicker in browse mode; Make a video switches the same component into selection, preserving the approved white hairline braces and heading/page layout.
   Browse exposes no selection state and keeps clicks inert; keyboard movement and reduced-motion CSS are retained, alongside multi-source selection.
-  Evidence: 47 passing tests and one existing skip across SectionPicker, SourceView, Home, sectionTree and App; TypeScript, static SourceView fixture and refreshed Orca screenshots `source-{browse,select,selected}.png`.
+  Evidence: 48 passing tests and one existing skip across SectionPicker, SourceView, Home, sectionTree and App; TypeScript, static SourceView fixture and refreshed Orca screenshots `source-{browse,select,selected}.png`.
   Not verified: native WKWebView, physical touch or screen reader; no model runs.
 
 - 2026-11-16 One video can take sections from a second source: "Add another source" on the picker, then back; the selected list names each source. Default one-source Make a video is unchanged. Bundles gain optional `source.id` / `source.also` and per-beat `sourceIds`; a bundle without them still replays. Evidence: SourceView and videos tests. Not verified: a real two-file generation.
