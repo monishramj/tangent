@@ -64,6 +64,15 @@ export const multiTitle = (titles: string[]) => titles.length <= 2 ? titles.join
 const findNode = (nodes: SectionIR[], id: string): SectionIR | undefined => {
   for (const n of nodes) { if (n.id === id) return n; const hit = findNode(n.children, id); if (hit) return hit; }
 };
+/** Section markdown plus descendants, already stored on the IR. Same scope as section_text, no sidecar call. */
+export function cachedSectionText(ir: IR, id: string): string {
+  const texts = (n: SectionIR): string[] => [
+    typeof n.markdown === "string" ? n.markdown : "",
+    ...(Array.isArray(n.children) ? n.children.flatMap(texts) : []),
+  ];
+  const node = findNode(ir.sections, id);
+  return node ? texts(node).filter(t => t.trim()).join("\n\n") : "";
+}
 /** One id: plain sectionText. Several: each preceded by its "## title", in the given order. */
 export async function sectionsText(ir: IR, ids: string[]): Promise<string> {
   if (ids.length === 1) return sectionText(ir, ids[0]);

@@ -91,6 +91,23 @@ it('sizes pages immediately from the scroller, caps width, and settles only shar
   expect(renderPage).toHaveBeenCalledTimes(2);
 });
 
+it('shows about-minutes for every detail level and updates them as sections are picked', () => {
+  const words = (n: number) => Array.from({ length: n }, () => 'word').join(' ');
+  const sections = [
+    { id: 'a', title: 'Alpha', level: 1, anchors: [{ page: 1 }] },
+    { id: 'b', title: 'Beta', level: 1, anchors: [{ page: 2 }] },
+  ];
+  const text: Record<string, string> = { a: words(3000), b: words(3000) };
+  setup({ sections, seedSelection: ['a'], sectionMarkdown: id => text[id] ?? '' });
+  expect((screen.getByRole('radio', { name: /Standard/ }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole('radio', { name: 'Overview, about 1 min' })).toBeTruthy();
+  expect(screen.getByRole('radio', { name: 'Standard, about 3 min' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('treeitem', { name: /Beta/ }));
+  expect(screen.getByRole('radio', { name: 'Overview, about 3 min' })).toBeTruthy();
+  expect(screen.getByRole('radio', { name: 'Standard, about 6 min' })).toBeTruthy();
+  expect(screen.getByText(/Sections and detail set the length/)).toBeTruthy();
+});
+
 it('shows the source text for a Word doc instead of PDF pages', () => {
   setup({ source: { id: 'notes', name: 'notes.docx', pdfPath: '/notes.docx' },
     passages: [{ id: 'p1', markdown: 'A heap is a tree.', boxes: [] }] });

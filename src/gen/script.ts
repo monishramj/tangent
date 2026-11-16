@@ -27,6 +27,24 @@ export function targetBeats(sectionMarkdown: string, detail: DetailLevel): numbe
   return Math.max(4, Math.round(words / WORDS_PER_BEAT[detail]));
 }
 
+/** Seconds per beat, pooled from the five saved bundles in
+ *  ~/Library/Application Support/com.tangent.app/videos on 2026-11-15:
+ *  2721.36s / 393 beats = 6.92 (per bundle 10.45, 10.10, 7.21, 6.67, 6.81). */
+export const SECONDS_PER_BEAT = 6.92;
+
+/** Whole minutes for this text at this detail. 0 when there is no text.
+ *  At least 1 otherwise: four beats is ~28s, and "about 0 min" is not a length. */
+export function estimateMinutes(sectionMarkdown: string, detail: DetailLevel): number {
+  if (!sectionMarkdown.trim()) return 0;
+  return Math.max(1, Math.round((targetBeats(sectionMarkdown, detail) * SECONDS_PER_BEAT) / 60));
+}
+
+/** Same join as sectionsText: one section is its markdown; several are "## title" blocks. One targetBeats call, so the 4-beat floor applies once. */
+export function estimateMinutesFor(parts: { title: string; markdown: string }[], detail: DetailLevel): number {
+  const markdown = parts.length <= 1 ? parts[0]?.markdown ?? "" : parts.map(p => `## ${p.title}\n\n${p.markdown}`).join("\n\n");
+  return estimateMinutes(markdown, detail);
+}
+
 function detailRules(detail: DetailLevel, beats: number): string {
   const what: Record<DetailLevel, string> = {
     overview: "Overview: only the key ideas and why they matter. Skip side examples, proofs and minor caveats.",

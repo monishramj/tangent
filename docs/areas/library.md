@@ -14,6 +14,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+- 2026-11-15 Make a video shows "about N min" beside Overview, Standard, Detailed and Complete. Length follows the sections you pick and the detail (`estimateMinutesFor` × 6.92 s/beat). Proof: Home and SourceView tests; Orca screenshot of the picker. Not verified: estimate vs a newly generated video.
 - 2026-11-16 One video can take sections from a second source: "Add another source" on the picker, then back; the selected list names each source. Default one-source Make a video is unchanged. Bundles gain optional `source.id` / `source.also` and per-beat `sourceIds`; a bundle without them still replays. Evidence: SourceView and videos tests. Not verified: a real two-file generation.
 - 2026-11-16 Step 18: image picker/drop accepts JPG/JPEG/PNG/HEIC/WEBP; modal counts unique new photos and warns of Claude Pro usage before saving/reading. Source screen and its Source text tab label transcription for checking against notes.
   Evidence: Home/dialog/SourceView/importer tests (pre-push full suite: 81 files, 1057 passing, three existing skips), TypeScript. Not verified: native dialog/WKWebView; photo playback reuses TextSource with its transcription label and passage highlighting (40 player tests + 8 App tests passed; App needed a longer timeout under background throttle).

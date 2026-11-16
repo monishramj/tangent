@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider } from "../llm/provider";
-import { checkScript, checkJoin, cleanSay, generateScript, targetBeats, type Beat } from "./script";
+import { checkScript, checkJoin, cleanSay, estimateMinutes, estimateMinutesFor, generateScript, SECONDS_PER_BEAT, targetBeats, type Beat } from "./script";
 
 const b = (say: string): Beat => ({ say, visualIntent: "x" });
 const rules = (say: string) => checkScript([b(say)]).map((v) => v.rule);
@@ -118,6 +118,17 @@ describe("detail level", () => {
   it("targets beats proportional to section length", () => {
     expect([targetBeats(section, "overview"), targetBeats(section, "standard"), targetBeats(section, "detailed"), targetBeats(section, "complete")]).toEqual([5, 10, 17, 30]);
     expect(targetBeats("short text", "complete")).toBe(4);
+  });
+  it("estimates whole minutes from the measured seconds per beat", () => {
+    expect(SECONDS_PER_BEAT).toBe(6.92);
+    expect(estimateMinutes("", "standard")).toBe(0);
+    expect(estimateMinutes("   ", "complete")).toBe(0);
+    // 1200 words: 5, 10, 17, 30 beats → 35s, 69s, 118s, 208s.
+    expect([estimateMinutes(section, "overview"), estimateMinutes(section, "standard"), estimateMinutes(section, "detailed"), estimateMinutes(section, "complete")]).toEqual([1, 1, 2, 3]);
+    expect(estimateMinutes("short text", "complete")).toBe(1);
+    const bit = "one two three";
+    expect(estimateMinutesFor([{ title: "A", markdown: bit }, { title: "B", markdown: bit }], "overview")).toBe(1);
+    expect(estimateMinutes(bit, "overview") + estimateMinutes(bit, "overview")).toBe(2);
   });
   it("defines the chosen level in the script prompt and keeps the speech rules", async () => {
     const ok = JSON.stringify([b("First, a heap is a tree.")]);

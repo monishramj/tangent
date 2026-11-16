@@ -1,13 +1,12 @@
 import { isPhotoSource, TRANSCRIPTION_LABEL } from "../gen/transcribe";
 import { useEffect, useRef, useState } from 'react';
 import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
-import Select from '@/components/ui/Select';
 import Icon from '@/components/Icon';
 import ShinyText from '@/components/ShinyText';
 import LoadingCircle from '@/components/LoadingCircle';
 import Page from '@/player/PdfPage';
 import type { Passage, RenderPage } from '@/follow/types';
-import { DETAIL_LEVELS, isDetailLevel, type DetailLevel } from '../gen/script';
+import { DETAIL_LEVELS, estimateMinutesFor, type DetailLevel } from '../gen/script';
 import type { LoadProgress } from '../library';
 import { preparationLabel, type IngestItem } from './ingestQueue';
 import type { VideoBundle } from '../storage/videos';
@@ -28,6 +27,8 @@ export type SourceViewProps = {
   onDeleteVideo?: (id: string) => void | Promise<void>;
   passages?: Passage[];
   initialDetail?: DetailLevel; onDetailChange?: (detail: DetailLevel) => void;
+  /** Markdown of one section plus descendants. sourceId is set for a section from another source. */
+  sectionMarkdown?: (id: string, sourceId?: string) => string;
   preparation?: IngestItem<unknown>; loading?: string; progress?: LoadProgress; error?: string; cleanupPending?: boolean; warning?: string; onRetryCleanup?: () => void;
 };
 const detailLabel: Record<DetailLevel, string> = { overview: 'Overview', standard: 'Standard', detailed: 'Detailed', complete: 'Complete' };
@@ -56,6 +57,10 @@ export default function SourceView(props: SourceViewProps) {
   const others = (props.otherSources ?? []).filter(s => s.sections?.length);
   useEffect(() => { setTab('sections'); setSelecting(props.seedSelection != null); setSelected(new Set(props.seedSelection ?? [])); setExtras([]); setAdd(null); setError(''); }, [source.id, props.seedSelection]);
   const ids = topSelected(sections, selected);
+  const minutesFor = (level: DetailLevel) => estimateMinutesFor([
+    ...ids.map(id => ({ title: sections.find(s => s.id === id)?.title ?? id, markdown: props.sectionMarkdown?.(id) ?? "" })),
+    ...extras.map(e => ({ title: e.title, markdown: props.sectionMarkdown?.(e.sectionId, e.sourceId) ?? "" })),
+  ], level);
   const count = ids.length + extras.length;
   const cancel = () => { setSelecting(false); setSelected(new Set()); setExtras([]); setAdd(null); requestAnimationFrame(() => makeButton.current?.focus()); };
   const generate = async () => {
@@ -102,8 +107,13 @@ export default function SourceView(props: SourceViewProps) {
             : !selecting ? <div className="tl-sections" aria-label="Sections">{sections.map(section => <div className="tl-section-row" key={section.id}>
               <span style={{ paddingLeft: Math.min(4, Math.max(0, section.level - 1)) * 16 }}>{section.title}</span><small>{pages(section)}</small>
             </div>)}</div> : null}
-          {selecting && !add && <div className="tl-generation"><div className="tl-generation-top"><label htmlFor="video-detail">Detail level</label><Select id="video-detail" value={detail} onChange={e => { const value = e.target.value; if (!isDetailLevel(value)) return; setDetail(value); props.onDetailChange?.(value); }}>{DETAIL_LEVELS.map(d => <option value={d} key={d}>{detailLabel[d]}</option>)}</Select></div>
-            <p>{detailHint[detail]}</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!count || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${count ? ` · ${count} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
+          {selecting && !add && <div className="tl-generation"><div className="tl-generation-top"><span id="video-detail-label">Detail level</span></div>
+            <div className="tl-detail" role="radiogroup" aria-labelledby="video-detail-label">{DETAIL_LEVELS.map(d => {
+              const minutes = minutesFor(d);
+              const length = minutes ? `about ${minutes} min` : "";
+              return <label key={d} className={detail === d ? "tl-picked" : ""}><input type="radio" name="video-detail" value={d} checked={detail === d} aria-label={length ? `${detailLabel[d]}, ${length}` : detailLabel[d]} onChange={() => { setDetail(d); props.onDetailChange?.(d); }} /><span>{detailLabel[d]}</span>{length && <small>{length}</small>}</label>;
+            })}</div>
+            <p>{detailHint[detail]} Sections and detail set the length.</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!count || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${count ? ` · ${count} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
           </div>}
         </>}
       </div> : <div role="tabpanel" id="source-panel-pdf" aria-labelledby="source-tab-pdf" className="tl-pdf-panel">
