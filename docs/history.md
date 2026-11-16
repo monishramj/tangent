@@ -3,6 +3,7 @@
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
 - 2026-11-15 Make a video estimates length from the selected sections and detail level (about N min; 6.92 s/beat from saved bundles).
+- 2026-11-16 Default Sections shares the existing white-brace SectionPicker with selection mode; rebased onto current v1, preserving multi-source behavior, with affected tests, TypeScript and refreshed Orca fixture screenshots; native touch/WKWebView/screen reader unverified.
 - 2026-11-16 Step 25: rebuilt v1 after #40/#41; ad-hoc/no runtime, fresh setup/nonblank main, saved WebAudio playback, Textbook rendering and SIGTERM sidecar cleanup pass; owner still to hear audio/check PPTX + ring; app retained, updater signing key absent (see docs/mac-smoke-2026-11.md).
 
 - 2026-11-16 Step 12: 52 real cloud Haiku checks; retained original prompt (2/41 correct beats falsely flagged, 6/6 wrong caught), rejected one tweak (2/41, 5/6); enabled fact-check in production sessions and added exact public-recording eval coverage; small-sample and synthetic-only limits in docs/areas/gen.md.
@@ -52,7 +53,6 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 - 2026-11-16 Script prompt rule 8 (everyday words) and a stiff-word lint; style slips still repair, then pass if they cover at most 10% of beats.
 - 2026-11-16 Player loading: drawn ring and one stage line while the first scene or the next scene is not ready (`src/player/Loading.tsx`).
 - 2026-11-15 Player seek bar shows a striped generating remainder with scene-count hover hint, static reduced-motion fallback, and no replay indicator; 43 player/App tests, TypeScript and Orca fixture screenshots verified.
-- 2026-11-16 Default Sections shares the existing white-brace SectionPicker with selection mode; rebased onto current v1, preserving multi-source behavior, with affected tests, TypeScript and refreshed Orca fixture screenshots; native touch/WKWebView/screen reader unverified.
 
 - 2026-11-15 Section picker mockups (braces vs lines) on `src/dev/section-picker.html`; screenshots in `docs/ui-review/section-picker/`; owner picks one (plan step 9).
 - 2026-11-15: Hardened long-PDF page loading with logged errors, viewport retry/cancellation, two open documents, poison recovery and fresh-cache protection; generated 320-page stress and focused frontend tests pass; owner PDF/WKWebView and Windows/Linux unverified.
