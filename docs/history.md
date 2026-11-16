@@ -2,6 +2,7 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-16 Paused play button: plain frosted glass (.play-glass) replaces GlassSurface (WKWebView refraction); player test passes, screenshots via player fixture.
 - 2026-11-16 Polish fixes B (P1-2, 5, 6, 8 non-stage, 12): plainError helper, neutral FirstLaunch with copy button, dev-CSP blob: for player fixture, shared prefersReducedMotion, grayscale folder emoji (see player/library notes).
 - 2026-11-16 Player generation shows a monotonic percentage from weighted pipeline events, centered drawn ring and secondary step; mid-video waits say “Updating video”. Evidence: 49 player tests, TypeScript and Orca fixture before/after screenshots; real generation/WKWebView unverified.
 - 2026-11-16 Filter stationary pointer events so textbook auto-follow leaves player chrome faded; wheel/touch/key input wakes it, with player/follow regressions.
