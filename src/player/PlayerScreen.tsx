@@ -35,6 +35,7 @@ import Checks, { type CheckStatus } from "./Checks";
 import CheckpointCard, { results, type CheckpointResult } from "./CheckpointCard";
 import Quiz from "./Quiz";
 import SkipCard, { isSkip, skipScene } from "./skipCard";
+import "./seek.css";
 
 type StreamedScene = Extract<PipelineEvent, { type: "scene" }>;
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -302,14 +303,20 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     saveThreads(next); setThinking(false);
   };
 
+  const generating = !done && !error && !!progress && progress.scenesTotal > 0 && progress.scenesReady < progress.scenesTotal;
+  // Scene lengths are unknown until they arrive; reserve an estimated remainder by scene count.
+  const playable = generating ? Math.min(scenes.length, progress.scenesReady) / progress.scenesTotal : 1;
+  const barDuration = playable > 0 ? duration / playable : 0;
+  const generationHint = generating ? `Generating… ${progress.scenesReady} of ${progress.scenesTotal} scenes` : "";
+
   // Hover preview on the seek bar: time under the cursor, or the marker it is near. Never seeks.
   const hoverMove = (e: React.PointerEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (e.pointerType === "touch" || !duration || !r.width) return;
-    const x = Math.min(r.width, Math.max(0, e.clientX - r.left)), t = x / r.width * duration;
-    const nearCps = checkpoints.filter(c => { const at = cpTime(c); return at !== undefined && Math.abs(at / duration * r.width - x) < 8; });
+    const x = Math.min(r.width, Math.max(0, e.clientX - r.left)), t = Math.min(duration, x / r.width * barDuration);
+    const nearCps = checkpoints.filter(c => { const at = cpTime(c); return at !== undefined && Math.abs(at / barDuration * r.width - x) < 8; });
     const nearCp = nearCps[0];
-    const near = threads.find(th => Math.abs(th.t / duration * r.width - x) < 8);
+    const near = threads.find(th => Math.abs(th.t / barDuration * r.width - x) < 8);
     setHover({ x, t, label: nearCps.length > 1 ? `${nearCps.length} checkpoints` : nearCp ? `Checkpoint · ${nearCp.prompt}` : near ? near.title : "" });
   };
   const openTab = (t: Tab) => {
@@ -330,7 +337,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   });
   const fullscreen = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   const waiting = !current && !error;
-  const p = duration ? time / duration * 100 : 0;
+  const p = barDuration ? time / barDuration * 100 : 0;
   const toggle = playing ? pause : play;
   const canPlay = !!current && !error;
 
@@ -432,19 +439,21 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       <div data-hidden={!chrome || undefined} {...chromeHover} className="chrome scrim-bottom pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pt-10 pb-1.5 sm:px-3">
         <div className="group pointer-events-auto relative" onPointerMove={hoverMove} onPointerLeave={() => setHover(null)}>
           {hover && <span role="tooltip" data-testid="scrub-preview" className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-[20rem] truncate whitespace-nowrap rounded-md bg-black/80 px-2 py-1 text-xs text-fg"
-            style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)}{hover.label && ` · ${hover.label}`}</span>}
+            style={{ transform: `translateX(${hover.x}px) translateX(-50%)` }}>{clock(hover.t)}{(hover.label || generationHint) && ` · ${hover.label || generationHint}`}</span>}
           <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-fg/25 transition-transform duration-150 ease-out group-hover:scale-y-150">
-            <div className="h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
+            {generating && <div aria-hidden data-testid="seek-generating" className="seek-generating absolute inset-y-0 right-0 overflow-hidden" style={{ width: `${(1 - playable) * 100}%` }} />}
+            <div aria-hidden data-testid="seek-playable" className="absolute inset-y-0 left-0 bg-fg/30" style={{ width: `${playable * 100}%` }} />
+            <div className="relative h-full w-full origin-left bg-accent" style={{ transform: `scaleX(${p / 100})` }} />
           </div>
           <span aria-hidden className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ left: `${p}%` }} />
           <input type="range" aria-label="Seek" aria-valuetext={`${clock(time)} of ${clock(duration)}`} min={0} max={duration || 0} step="any" value={time}
             // Drag = pause once, seek silently, play once on release. play/pause/seek per input event deadlocks WebKit's AVFoundation media stack.
             onPointerDown={() => { scrubResume.current = queue.playing; queue.pause(); }}
             onPointerUp={() => { if (scrubResume.current) { scrubResume.current = false; queue.play(); } }}
-            onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-6 w-full" />
+            onChange={e => seek(Number(e.target.value))} className="scrubber relative block h-6" style={{ width: `${playable * 100}%` }} />
           {duration > 0 && threads.map(th => <button key={th.id} type="button" aria-label={`Question at ${clock(th.t)}: ${th.title}`} title={th.title}
             onClick={() => { setActiveThread(th.id); setTab("ask"); seek(th.t); }}
-            className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black bg-fg" style={{ left: `${Math.min(100, th.t / duration * 100)}%` }} />)}
+            className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black bg-fg" style={{ left: `${Math.min(100, th.t / barDuration * 100)}%` }} />)}
           {/* One diamond per scene end (its checkpoints share that moment): hollow = something left, filled = all right. */}
           {duration > 0 && [...new Set(checkpoints.map(c => c.afterScene))].map(sceneI => {
             const group = checkpoints.flatMap((cp, i) => cp.afterScene === sceneI ? [{ cp, n: i + 1 }] : []);
@@ -457,7 +466,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             return <button key={sceneI} type="button" aria-label={label} title={group.map(g => g.cp.prompt).join("\n")} onClick={() => openCp(target.cp)}
               className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[2px] border-2 transition-transform hover:scale-125 ${
                 s === "right" ? "border-black bg-fg" : s === "wrong" ? "border-fg bg-black" : s === "skipped" ? "border-fg/50 bg-black" : "border-fg bg-black"}`}
-              style={{ left: `${Math.min(100, at / duration * 100)}%` }} />;
+              style={{ left: `${Math.min(100, at / barDuration * 100)}%` }} />;
           })}
         </div>
         <div className="pointer-events-auto flex items-center gap-0.5 text-sm text-fg/80 tabular-nums">
@@ -465,7 +474,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             <Icon icon={playing ? PauseIcon : PlayIcon} className="fill-current" /></button>
           <button type="button" aria-label="Back 10 seconds" title="Back 10 seconds" disabled={!canPlay} onClick={() => seek(time - 10)} className={iconBtn}><Icon icon={GoBackward10SecIcon} /></button>
           <button type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled={!canPlay} onClick={() => seek(time + 10)} className={iconBtn}><Icon icon={GoForward10SecIcon} /></button>
-          <span className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
+          <span title={generationHint || undefined} className="ml-1 whitespace-nowrap">{clock(time)} <span className="text-fg/50">/ {clock(duration)}</span></span>
           <div className="ml-auto flex items-center gap-0.5">
             <Menu label="Playback speed" menuLabel="Speed" trigger={fmtSpeed(speed)} open={speedOpen} onOpenChange={setSpeedOpen} above triggerClassName={`${iconBtn} w-auto min-w-10 px-2 text-[13px] font-semibold`}>
               {SPEEDS.map(r => <button key={r} type="button" role="menuitemradio" tabIndex={-1} aria-checked={r === speed} onClick={() => changeSpeed(r)}>
