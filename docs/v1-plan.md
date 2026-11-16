@@ -220,3 +220,6 @@ Write one line per issue in `docs/dogfood.md` (date, what happened, which video/
 - Reading PDFs in chunks might break how sections are stitched together. If so, pauses happen between steps instead.
 - Not sure Ollama works end to end today.
 - Not sure the ML packages install cleanly on Windows/Linux as pinned.
+
+## Later
+- Decide how to keep private notes (CLAUDE.md, docs/areas, history, plans, reviews, usage, handoff, dogfood) out of the public repo: private notes repo checked out at `.notes/` and symlinked into worktrees (recommended) vs. ignore-only. Public docs (release.md, testing-and-ci.md, README images) stay tracked. History rewrite is optional.
