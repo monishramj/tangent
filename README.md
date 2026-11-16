@@ -1,42 +1,112 @@
+<div align="center">
+
+<img src="assets/app-icon.png" width="120" alt="Tangent icon" />
+
 # Tangent
 
-Desktop app that turns a section of a PDF into a short narrated animation you can pause and ask about. Personal tool first. No textbook, course PDF, or extracted chapter text ships in this repository. Bring your own files.
+**Turn a textbook section into a narrated, animated explainer you can interrupt with a question.**
 
-Design notes live in `CLAUDE.md`. Third-party licences: `THIRD_PARTY_NOTICES.md`. Terms questions for shipping `claude -p`: `docs/open-source.md`.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/monishramj/tangent?include_prereleases&label=release)](https://github.com/monishramj/tangent/releases)
+[![CI](https://github.com/monishramj/tangent/actions/workflows/ci.yml/badge.svg)](https://github.com/monishramj/tangent/actions/workflows/ci.yml)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
+![Status](https://img.shields.io/badge/status-beta-orange)
 
-## Install
+<img src="docs/readme/ask.png" width="760" alt="Tangent player paused with the Ask panel open" />
 
-The app needs the [Claude Code](https://code.claude.com) CLI on your PATH and a logged-in `claude` account. Installers do not include textbook content.
+</div>
 
-- **macOS:** open the `.dmg` from [GitHub Releases](https://github.com/monishramj/tangent/releases), drag **Tangent.app** to `/Applications`, and eject the image. This build is ad-hoc signed, not notarized. If Gatekeeper blocks it, try launching once, then System Settings → Privacy & Security → Open Anyway. For your own build: `xattr -dr com.apple.quarantine /Applications/Tangent.app`.
-- **Windows and Linux:** installers are produced by CI. They have not been hands-tested on a Windows or Linux machine.
+> **Beta.** Tested by hand on macOS only. Windows and Linux installers are built by CI but have not been hand-tested.
 
-A from-source run still needs `bun`, `uv`, and Rust. Personal release builds can also point at a local sidecar venv via `TANGENT_SIDECAR_DIR` (see `docs/areas/packaging.md`). That path is a developer bridge, not something users install.
+## What it does
 
-## Run
+- Drop in a textbook PDF, slide deck (PPTX), Word file (DOCX), or a photo of notes, then pick a section.
+- Tangent writes a script meant to be *heard*, narrates it locally, and animates it on screen. One idea per beat.
+- Playback starts as soon as the first scene is ready. The rest streams in while you watch.
+- **Pause any time and ask.** The tutor answers about the scene you are on, then you rejoin the video.
+- Saved videos replay with no further model calls.
+
+## Features
+
+- **Written for the ear:** short sentences, defined terms, numbers spoken naturally.
+- **Animation locked to narration:** visuals anchor to spoken words on one audio clock.
+- **Computed visuals and number checks:** arrays, trees and similar are calculated, not drawn from memory, and numbers are checked against the source text.
+- **Textbook follow-along:** a side panel shows the source passage for the current beat.
+- **Ask threads and checkpoints:** typed questions stay as threads you can return to.
+- **Library:** sources first, with folders, saved videos and a background upload queue.
+- **Reaction GIFs (optional):** add a GIPHY key in Settings. Without one they show as text cards.
+- **In-app updates:** release builds check for updates quietly and ask before installing.
+
+## Download and install
+
+Get the installer for your system from [GitHub Releases](https://github.com/monishramj/tangent/releases).
+
+| OS | File | Note |
+| --- | --- | --- |
+| macOS (Apple Silicon, Intel) | `.dmg` | Drag **Tangent.app** to `/Applications`. The build is ad-hoc signed, not notarized. If macOS blocks it, launch once, then open **System Settings → Privacy & Security → Open Anyway**. Or run `xattr -dr com.apple.quarantine /Applications/Tangent.app`. |
+| Windows (x64) | `-setup.exe` or `.msi` | Unsigned. On the SmartScreen warning choose **More info → Run anyway**. |
+| Linux (x64) | `.AppImage`, `.deb`, `.rpm` | `chmod +x` the AppImage, or install the package with your package manager. |
+
+## First launch
+
+1. **One-time setup download, about 2–3 GB.** Tangent installs its Python runtime, document tools and voice model into the app data folder. Retrying or cancelling reuses what already downloaded.
+2. **Claude Code must be installed and logged in.** Generation runs through the `claude` CLI on your PATH. Install it from [code.claude.com](https://code.claude.com), run `claude` once to log in, and Tangent's "Before you start" screen will confirm both.
+3. **Local models (Ollama) are not supported yet.** The code has a provider interface for them, but no working local provider ships, so the app does not offer it.
+
+Whether an app may run on top of your Claude Code login is a terms question the owner is still checking: see [docs/open-source.md](docs/open-source.md).
+
+## How it works
+
+```
+PDF / PPTX / DOCX / photo
+  -> parsed into sections (Docling, cached)
+  -> script written for speech (Claude Code)
+  -> numbers and math made speakable, then checked against the source
+  -> local narration (PocketTTS) + word-level alignment
+  -> animated scenes from templates, validated
+  -> PixiJS player on the audio clock  <->  tutor answers your questions
+```
+
+The app is Tauri (Rust) with a React and PixiJS front end, plus a Python sidecar run through `uv`. The animation engine lives in `packages/motion`. Details are in [docs/areas](docs/areas/).
+
+![Player](docs/readme/player.png)
+
+## Privacy
+
+- Narration and document parsing run on your machine.
+- Your books stay on your machine. Nothing is uploaded except the text the Claude CLI needs to write scripts and answer questions, under your own Claude Code account.
+- No textbook, course PDF or extracted text ships in this repository or in the installers. Bring your own files.
+- No API keys are stored. A GIPHY key, if you add one, is kept in an owner-only file in app data.
+
+## Development
+
+Needs [bun](https://bun.sh), [uv](https://docs.astral.sh/uv/), Rust, and a logged-in `claude` CLI.
 
 ```sh
 bun install
-bunx tauri dev
+bunx tauri dev          # Vite + app; the sidecar starts from ./sidecar via uv
+bun run check           # typecheck + frontend tests
+(cd src-tauri && cargo test --locked -j3)
+(cd sidecar && uv sync --locked && uv run --no-sync pytest -m "not slow")
 ```
 
-`tauri dev` starts Vite and the app. The Python sidecar is spawned from `./sidecar` with `uv`.
+How changes are proven, and what CI runs: [docs/testing-and-ci.md](docs/testing-and-ci.md). Releases: [docs/release.md](docs/release.md). Design principles and project notes: [CLAUDE.md](CLAUDE.md).
 
-## Test
+## Roadmap
 
-```sh
-nice -n 10 bunx vitest run --maxWorkers=2
-cd src-tauri && CARGO_BUILD_JOBS=3 nice -n 10 cargo test
-```
+v1 is in progress: section picker, generation accuracy, more input types, and the first public beta. Planned for v2:
 
-Rust page rendering needs PDFium (`TANGENT_SIDECAR_DIR` or the sidecar venv). Python fast tests: `uv run --project sidecar python -m pytest sidecar/tests`. Slow model tests stay off unless you pass `-m slow` yourself.
+- MP4 export
+- Editor for tweaking a video
+- Usage meter
+- Klipy GIFs
 
-## Debug
+Not planned yet: voice questions, animated tutor branches, web capture.
 
-In dev, webview events (`status …`, `stream scene …`, `scene attempt N rejected: …`, `buffering=…`) are forwarded to the `tauri dev` terminal with a `[webview]` prefix.
+## Credits
 
-## Pipeline
+Built on [Docling](https://github.com/docling-project/docling), [PocketTTS](https://github.com/kyutai-labs/pocket-tts), [PDFium](https://pdfium.googlesource.com/pdfium/) (via pdfium-binaries), [Tauri](https://tauri.app), [PixiJS](https://pixijs.com), [React Bits](https://reactbits.dev) components, [Hugeicons](https://hugeicons.com), [KaTeX](https://katex.org) and [Motion](https://motion.dev). Full licences and weight-licence flags: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-PDF → IR (sidecar) → speech-first script → scene plans → for each scene: TTS and alignment, then a validated scene → PixiJS on one audio clock. Playback starts when scene 1 is ready.
+## License
 
-Saved videos go to `~/Library/Application Support/com.tangent.app/videos/<id>/` and replay without another model call.
+[MIT](LICENSE) © 2026 Monish Ramesh J
