@@ -27,10 +27,16 @@ it("renders the section's pages from the PDF and highlights the current beat's p
   expect(marks[0].closest("[data-page]")?.getAttribute("data-page")).toBe("12");
 });
 
-it("moves the highlight with playback", async () => {
+it("auto-follow scrolls to the next highlight without stopping following", async () => {
   const { rerender } = render(<Textbook source={source} scenes={mapped} time={0.5} renderPage={renderPage} />);
-  rerender(<Textbook source={source} scenes={mapped} time={2.5} renderPage={renderPage} />);
-  await waitFor(() => expect(screen.getAllByTestId("passage-highlight")[0].closest("[data-page]")?.getAttribute("data-page")).toBe("13"));
+  const root = screen.getByLabelText("Textbook pages");
+  const scroll = vi.spyOn(root, "scrollTo").mockImplementation(() => { fireEvent.scroll(root); });
+  try {
+    rerender(<Textbook source={source} scenes={mapped} time={2.5} renderPage={renderPage} />);
+    await waitFor(() => expect(screen.getAllByTestId("passage-highlight")[0].closest("[data-page]")?.getAttribute("data-page")).toBe("13"));
+    expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+    expect(screen.queryByRole("button", { name: "Back to current" })).toBeNull();
+  } finally { scroll.mockRestore(); }
 });
 
 it("a user scroll stops following and shows Back to current; clicking it resumes", async () => {

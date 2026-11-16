@@ -13,7 +13,7 @@ import { captionCues } from "./Captions";
 
 const stage = vi.fn();
 const snap = vi.hoisted(() => ({ image: "FRAMEPNG" as string | null }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(null), convertFileSrc: (p: string) => p }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async (command: string) => command === "pdf_page" ? { path: "/page.png", width: 600, height: 800 } : null), convertFileSrc: (p: string) => p }));
 vi.mock("@/Stage", () => ({ default: (props: { snapshotRef?: { current: unknown } }) => {
   stage(props);
   if (props.snapshotRef) props.snapshotRef.current = async () => snap.image;
@@ -21,6 +21,8 @@ vi.mock("@/Stage", () => ({ default: (props: { snapshotRef?: { current: unknown 
 } }));
 vi.mock("@/components/ShinyText", () => ({ default: ({ text }: { text: string }) => <span>{text}</span> }));
 window.matchMedia ??= ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
+Element.prototype.scrollTo ??= function () {};
+globalThis.IntersectionObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof IntersectionObserver;
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); stage.mockClear(); localStorage.clear(); snap.image = "FRAMEPNG"; });
 
@@ -565,7 +567,7 @@ it("chrome over the video fades out after idle playback and comes back on pointe
     act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
     expect(frame.dataset.chrome).toBe("hidden");
     expect(screen.getByRole("button", { name: "Pause" }).closest("[data-hidden]")).toBeTruthy();
-    fireEvent.pointerMove(frame);
+    fireEvent(frame, new MouseEvent("pointermove", { bubbles: true, clientX: 20, clientY: 30 }));
     expect(frame.dataset.chrome).toBe("shown");
     act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
     expect(frame.dataset.chrome).toBe("hidden");
@@ -573,6 +575,49 @@ it("chrome over the video fades out after idle playback and comes back on pointe
     act(() => { vi.advanceTimersByTime(IDLE_MS * 2); });
     expect(frame.dataset.chrome).toBe("shown");
   } finally { vi.useRealTimers(); }
+});
+
+it("auto-follow and stationary pointer events leave chrome idle; user input wakes it", async () => {
+  const scrollTo = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element) {
+    fireEvent.scroll(this);
+    fireEvent(this, new MouseEvent("pointermove", { bubbles: true, clientX: 20, clientY: 30 }));
+    fireEvent.mouseMove(this, { clientX: 20, clientY: 30 });
+  });
+  try {
+    const s = setup({ textbook: { pdfPath: "/book.pdf", pages: [1, 2] } });
+    await settle();
+    await s.push({ ...sceneEvent(), passages: scene.beats.map((_, i) => [{ page: i + 1, bbox: [0.1, 0.2, 0.9, 0.3] }]) });
+    fireEvent.click(screen.getByRole("button", { name: "Textbook" }));
+    const pages = screen.getByLabelText("Textbook pages");
+    const frame = screen.getByTestId("frame");
+    fireEvent(pages, new MouseEvent("pointermove", { bubbles: true, clientX: 20, clientY: 30 }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
+    expect(frame.dataset.chrome).toBe("hidden");
+    scrollTo.mockClear();
+    const nextBeat = timeline.events.find(e => e.verb === "say" && e.beat === 1)!.start;
+    await act(async () => {
+      s.audios[0].currentTime = nextBeat + 0.1;
+      await new Promise(requestAnimationFrame); // The audio clock is sampled on the next frame.
+    });
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+    expect(screen.getByTestId("passage-highlight").closest("[data-page]")?.getAttribute("data-page")).toBe("2");
+    expect(frame.dataset.chrome).toBe("hidden");
+    fireEvent(pages, new MouseEvent("pointermove", { bubbles: true, clientX: 20, clientY: 30 }));
+    expect(frame.dataset.chrome).toBe("hidden");
+    fireEvent(pages, new MouseEvent("pointermove", { bubbles: true, clientX: 21, clientY: 30 }));
+    expect(frame.dataset.chrome).toBe("shown");
+    for (const input of [() => fireEvent.wheel(pages, { deltaY: 100 }),
+      () => fireEvent.touchMove(pages), () => fireEvent.keyDown(window, { key: "x" }),
+      () => fireEvent.keyDown(pages, { key: "ArrowDown" }),
+      () => fireEvent.pointerDown(pages)]) {
+      act(() => { vi.advanceTimersByTime(IDLE_MS + 10); });
+      expect(frame.dataset.chrome).toBe("hidden");
+      input();
+      expect(frame.dataset.chrome).toBe("shown");
+    }
+  } finally { vi.useRealTimers(); scrollTo.mockRestore(); }
 });
 
 it("Ask sends the frame, what's on screen, and the line being said", async () => {

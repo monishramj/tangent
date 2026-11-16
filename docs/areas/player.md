@@ -47,6 +47,10 @@ Visuals are scheduled *to* the audio, never the reverse.
   Percentage uses real Progress events: script 20%, remaining work per ready scene, narration 60% of a scene before animation; no timed increments. High-water mark survives loader unmounts, retries and expanding totals; 100 waits for stream completion.
   Evidence: 49 focused Loading/PlayerScreen tests, TypeScript, production fixture build, Orca before/after screenshots in `docs/ui-review/player-percent/`.
   First-scene queue/autoplay and reduced-motion ring behavior retained. Not verified: a real model generation or native WKWebView; weighted work is not elapsed time and can hold while totals grow.
+- 2026-11-16 Textbook auto-follow no longer wakes idle player chrome: ignore pointer events at unchanged viewport coordinates.
+  Idle observes pointer movement/down, wheel, touch movement and captured keys; programmatic scroll events remain excluded (no scroll listener or follow flag needed).
+  Evidence: real audio-clock frame + follow scroll regression; 96 tests in PlayerScreen, Textbook, SourceFollow, SidePanel, App, App.generation and SourceView; TypeScript passes. Playback clock and Textbook follow logic unchanged.
+  Not verified: native WKWebView playback with a stationary cursor.
 
 - 2026-11-16 **Open issue: installed-build silence remains unexplained.** The owner heard no audio from `/Applications/Tangent.app` at `b9daaed` (ad-hoc, no hardened runtime), but confirmed audible old-bundle playback in instrumented current-v1 (`d86644f`) dev and release builds.
   Native measurements for `vmwh7y0mfvjpz4` scene 1: running 48 kHz context; 1,176,000 decoded mono frames; peak 0.720925; direct two-channel destination routing; live analyser peak 0.428199; no CSP/decode errors.
