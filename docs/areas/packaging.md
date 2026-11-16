@@ -67,6 +67,8 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 
 ## Log
 
+- 2026-11-16: Mac smoke of the v1 tip (`docs/mac-smoke-2026-11.md`). The PR #37 fix was incomplete: Tauri defaults `hardenedRuntime` to true, so the built app still had `flags=0x10002(adhoc,runtime)` and PDFium page load failed; set `hardenedRuntime: false` (test updated), re-signed copy renders. Blank main window right after first setup, and SIGTERM leaves the sidecar running. Not verified: audio, rebuild with the fix.
+
 ### 2026-11-16 P0 no-audio: hardened runtime removed
 - Dropped Entitlements.plist from the ad-hoc bundle; owner confirmed a copy without the runtime flag has sound. Added scripts/macos-signing.test.ts (passes).
 - Not verified: dylib loading (venv/PDFium) in a rebuilt app; owner to confirm in the next build.
