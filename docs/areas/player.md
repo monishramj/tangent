@@ -3,6 +3,8 @@
 Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Design: [textbook-follow.md](../textbook-follow.md)
 
+- (2026-11-16) Paused play button is plain frosted glass (`.play-glass` in index.css: blur + -webkit blur, white 10% tint, `--line` border, soft shadow, hover/active, reduced-motion safe) instead of GlassSurface, whose url() refraction is wrong in WKWebView. Side panel glass untouched. Evidence: PlayerScreen.test 43 pass; Orca screenshots of src/dev/player-loading.html before/after. Not verified in the real Tauri WKWebView.
+
 ## Contract
 
 ### Audio–visual sync (non-negotiable)

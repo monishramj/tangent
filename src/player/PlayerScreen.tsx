@@ -5,7 +5,6 @@ import useKeybinds from "@/hooks/useKeybinds";
 import { syncMenu } from "@/menu";
 import Menu from "@/components/ui/Menu";
 import Icon from "@/components/Icon";
-import GlassSurface from "@/components/GlassSurface";
 import Stage from "@/Stage";
 import type { LLMProvider } from "@/llm/provider";
 import { providers } from "@/llm/registry";
@@ -412,11 +411,9 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
                 {onRetry && <button type="button" onClick={onRetry} className="mt-3 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Try again</button>}</div>
             </div>}
             {canPlay && !playing && !buffering && !activeCp && <div className="absolute top-1/2 left-1/2 z-[5] -translate-x-1/2 -translate-y-1/2">
-              <GlassSurface width={72} height={72} borderRadius={36}>
-                <button type="button" aria-label="Play video" onClick={e => { e.stopPropagation(); play(); }}
-                  className="grid size-full place-items-center rounded-full text-fg transition-transform duration-150 ease-out hover:scale-105 active:scale-95">
-                  <Icon icon={PlayIcon} size={30} className="translate-x-0.5 fill-current" /></button>
-              </GlassSurface>
+              <button type="button" aria-label="Play video" onClick={e => { e.stopPropagation(); play(); }}
+                className="play-glass grid size-[72px] place-items-center rounded-full text-fg">
+                <Icon icon={PlayIcon} size={30} className="translate-x-0.5 fill-current" /></button>
             </div>}
             {activeCp && <CheckpointCard key={activeCp.id} checkpoint={activeCp} index={cpIndex} total={checkpoints.length} provider={provider} thumb={thumbs[activeCp.afterScene]}
               onResult={r => saveResult(activeCp.id, r)} onContinue={continueCp}
