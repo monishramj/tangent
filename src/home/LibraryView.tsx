@@ -34,6 +34,7 @@ export type LibraryViewProps = {
   onOpenSource: (id: string) => void; onOpenVideo: (video: VideoBundle) => void;
   onChoosePdf: () => void; onDropFiles: (files: File[]) => void;
   uploads?: IngestItem<unknown>[]; onRetryUpload?: (path: string) => void;
+  heldPhotos?: string[]; onTranscribe?: (path: string) => void;
   onCreateFolder: (name: string, emoji?: string) => Mutation;
   onRenameFolder: (id: string, name: string) => Mutation;
   onDeleteFolder: (id: string) => Mutation;
@@ -170,6 +171,7 @@ export default function LibraryView(props: LibraryViewProps) {
     if (!sources.length) return <p className="tl-empty">{folder ? 'No reading material yet. Drop in your first PDF below.' : 'No PDFs outside folders yet.'}</p>;
     return <ul className="tl-files" aria-label="Reading material">{sources.map((s, index) => { const upload = props.uploads?.find(item => item.path === s.pdfPath); return <li key={s.id} style={folder ? { '--row-delay': `${Math.min(index * 60, 300)}ms`, '--close-delay': `${Math.min((sources.length - 1 - index) * 60, 300)}ms` } as CSSProperties : undefined}>
       <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}<PreparationOverlay item={upload} /></span><span><strong>{s.name}</strong><small>{/\.pptx$/i.test(s.pdfPath) ? 'Slides' : isOfficeSource(s.pdfPath) ? 'Document' : isPhotoSource(s.pdfPath) ? 'Photo' : `PDF${s.pageCount ? ` · ${s.pageCount} pages` : ''}`}{upload && ` · ${preparationLabel(upload)}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
+      {props.heldPhotos?.includes(s.pdfPath) && !upload && <button className="tl-text-button" aria-label={`Transcribe ${s.name} again`} onClick={() => props.onTranscribe?.(s.pdfPath)}>Transcribe again</button>}
       {upload?.status === 'failed' && <button className="tl-text-button" aria-label={`Retry ${s.name}`} title={upload.error} onClick={() => props.onRetryUpload?.(s.pdfPath)}>Retry</button>}
       <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
     </li>; })}</ul>;

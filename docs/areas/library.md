@@ -14,6 +14,7 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+- 2026-11-16 Polish C. P1-3: photo sources restored at launch with no cached IR are no longer re-transcribed; the row shows "Transcribe again" (explicit action only). P1-9: un-skipped multi-drop test; root cause was asserting on queue/loadIr state the moment the row rendered, before the enqueue effect ran; now waits on state; 20 runs green. P1-11: no path deletes a bundle except user Delete (`videos.rs delete`); only overwrite path was a restarted stream reusing a bundle id, now refused in `save` (never shrinks or un-completes). Not verified: what removed `vmwid8qr99crtt` (likely the owner's concurrently running app).
 - 2026-11-15 Make a video shows "about N min" beside Overview, Standard, Detailed and Complete. Length follows the sections you pick and the detail (`estimateMinutesFor` × 6.92 s/beat). Proof: Home and SourceView tests; Orca screenshot of the picker. Not verified: estimate vs a newly generated video.
 - 2026-11-16 Default Sections now reuses the existing SectionPicker in browse mode; Make a video switches the same component into selection, preserving the approved white hairline braces and heading/page layout.
   Browse exposes no selection state and keeps clicks inert; keyboard movement and reduced-motion CSS are retained, alongside multi-source selection.

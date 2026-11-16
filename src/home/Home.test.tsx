@@ -259,8 +259,7 @@ it('opens a Settings screen, persists playback defaults, and returns to the libr
   expect((screen.getByLabelText(/^Speed/) as HTMLSelectElement).value).toBe('1.5');
 });
 
-// flaky on CI macos-15, quarantined 2026-11-15, see docs/areas/testing.md
-it.skip('multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO', async () => {
+it('multi-drops PDFs immediately, skips duplicates and rejects other files while continuing FIFO', async () => {
   let finish!: (value: typeof ir) => void;
   vi.mocked(loadIr).mockImplementationOnce((_path, report) => {
     report?.({ fraction: .4, label: 'Reading PDF' });
@@ -275,12 +274,14 @@ it.skip('multi-drops PDFs immediately, skips duplicates and rejects other files 
     { name: 'a.pdf', path: '/a.pdf' }, { name: 'notes.txt' }, { name: 'book.pdf', path: '/book.pdf' },
   ] } });
   await screen.findByText('b.PDF');
-  expect(screen.getByText(/Reading 40%/)).toBeTruthy();
+  // The row appears before the enqueue effect and the first read run; wait on queue state, not timing.
+  await waitFor(() => expect(screen.getByText(/Reading 40%/)).toBeTruthy());
   expect(screen.getAllByText(/Queued/).length).toBeGreaterThan(0);
   expect(screen.getByRole('alert').textContent).toContain("isn't a PDF");
   expect(vi.mocked(loadIr).mock.calls.map(call => call[0])).toEqual(['/a.pdf']);
   fireEvent.drop(screen.getByTestId('dropzone'), { dataTransfer: { files: [{ name: 'c.pdf', path: '/c.pdf' }, { name: 'b.PDF', path: '/b.PDF' }] } });
   await screen.findByText('c.pdf');
+  await waitFor(() => expect(screen.getAllByText(/Queued/).length).toBeGreaterThan(1));
   expect(screen.getByRole('button', { name: /Choose PDFs/ })).toBeTruthy();
   expect(screen.getByRole('list', { name: 'Recent videos' })).toBeTruthy();
   await act(async () => { finish(ir); });
@@ -427,4 +428,16 @@ it('counts unique photos before starting and cancels without saving or reading t
   await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(c => c[0])).toEqual(['/a.WEBP', '/b.HEIC']));
   expect(pdfPreview).not.toHaveBeenCalled();
   expect(provider.complete).not.toHaveBeenCalled();
+});
+
+it('does not re-transcribe a restored photo on launch; Transcribe again does it on request', async () => {
+  const photo = sourceFor('/notes.jpg');
+  const jsonStore = memoryJsonStore({ library: { folders: [], sources: [{ ...photo }] } });
+  setup({ jsonStore });
+  const again = await screen.findByRole('button', { name: 'Transcribe notes.jpg again' });
+  await new Promise(r => setTimeout(r, 20));
+  expect(vi.mocked(loadIr)).not.toHaveBeenCalled();
+  fireEvent.click(again);
+  await waitFor(() => expect(vi.mocked(loadIr).mock.calls.map(c => c[0])).toEqual(['/notes.jpg']));
+  expect(screen.queryByRole('button', { name: 'Transcribe notes.jpg again' })).toBeNull();
 });

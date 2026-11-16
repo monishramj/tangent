@@ -42,6 +42,8 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   const reserved = useRef(new Set<string>());
   const [photoImport, setPhotoImport] = useState<string[] | null>(null);
   const [over, setOver] = useState(false);
+  // Photo sources restored at launch without an IR: never re-call the cloud until the user asks.
+  const [held, setHeld] = useState<string[]>([]);
   const sourceId = route.s === 'source' ? route.sourceId : undefined;
   const source = library.sources.find(s => s.id === sourceId);
   const job = uploads.find(item => item.path === source?.pdfPath);
@@ -70,13 +72,14 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
       const next = bundles.reduce((all, video) => addSource(all, video.source.pdfPath), saved);
       if (next !== saved) await saveLibrary(jsonStore, next);
       for (const source of next.sources) await queue.restore(source).catch(() => {});
+      if (live) { setHeld(next.sources.filter(s => isPhotoSource(s.pdfPath) && !queue.snapshot().some(i => i.path === s.pdfPath)).map(s => s.pdfPath)); }
       if (live) { libraryRef.current = next; setLibrary(next); setVideos(recentVideos(bundles)); if (isDetailLevel(preference)) setDetail(preference); setReady(true); }
     }).catch(e => { if (live) setError(`Couldn't open the library: ${String(e)}`); });
     return () => { live = false; };
   }, [jsonStore, store, loadAttempt]);
   useEffect(() => {
-    if (ready) library.sources.forEach(source => queue.enqueue(source.pdfPath));
-  }, [ready, library.sources, queue]);
+    if (ready) library.sources.forEach(source => { if (!held.includes(source.pdfPath)) queue.enqueue(source.pdfPath); });
+  }, [ready, library.sources, queue, held]);
   const importPaths = async (paths: string[], confirmed = false) => {
     if (!ready) return;
     const fresh = [...new Set(paths)].filter(path => !reserved.current.has(path) && !libraryRef.current.sources.some(s => s.pdfPath === path));
@@ -159,6 +162,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'Documents and photos', extensions: ['pdf', 'pptx', 'docx', 'jpg', 'jpeg', 'png', 'heic', 'webp'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
     onDropFiles={files => { void importPaths(files.map(file => (file as File & { path?: string }).path ?? file.name)); }}
     uploads={uploads} onRetryUpload={path => { queue.enqueue(path, true); }}
+    heldPhotos={held} onTranscribe={path => { setHeld(h => h.filter(p => p !== path)); queue.enqueue(path, true); }}
     onCreateFolder={(name, emoji) => update(current => addFolder(current, name, emoji))}
     onRenameFolder={(id, name) => update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, name } : f) }))}
     onDeleteFolder={async id => { await update(current => deleteFolder(current, id)); home(); }}
