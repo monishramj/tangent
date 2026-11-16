@@ -1,0 +1,5 @@
+BEFORE SIGTERM
+26148     1 /Users/monishramj/Documents/Code/orca/workspaces/tangent/w7-smoke/src-tauri/target/release/bundle/macos/Tangent.app/Contents/MacOS/Tangent
+26569 26148 /Users/monishramj/Library/Application Support/com.tangent.app/runtime/env/bin/python -m tangent_sidecar
+AFTER SIGTERM
+(both PIDs absent)

@@ -66,6 +66,10 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 - Merged (2026-11-10, via `review/merge-all`): the audio fix, the Settings side panel + file-based secrets, PocketTTS replacing Kokoro, and the homepage dev design pages (`src/dev/home-design*`).
 
 ## Log
+- 2026-11-16 Step 25 recheck at `b9daaed` (#40 + #41): one arm64 release app built; ad-hoc `flags=0x2`, strict codesign verification, fresh setup → nonblank main, saved playback/WebAudio Playing, Textbook PDF pages, and SIGTERM sidecar cleanup PASS. Evidence: `docs/mac-smoke-2026-11.md` and adjacent screenshots/logs.
+  Build command exited 1 only at updater signing (private key absent); built `.app` retained in this worker's `src-tauri/target/release/bundle/macos/`, never installed over `/Applications`.
+  Owner to verify: audible sound, PPTX import and generation ring (native dialog focus blocked; coordinator deferred). Requested video disappeared; coordinator approved `vmwh7y0mfvjpz4` fallback. No code fix/rebuild; orphan cleanup ran.
+
 - 2026-11-16 Blank main window after first-run setup + SIGTERM orphan: SIGTERM/SIGINT now run the same sidecar cleanup as quit (self-pipe handler, `State_::kill_sidecars`, unit-tested); `open_main` now focuses the new window and a test pins config label to the `default` capability. Blank-window root cause NOT reproduced (dev skips setup, no release build run); set_focus is a hypothesis-level mitigation. Capabilities unchanged.
 
 - 2026-11-16: Mac smoke of the v1 tip (`docs/mac-smoke-2026-11.md`). The PR #37 fix was incomplete: Tauri defaults `hardenedRuntime` to true, so the built app still had `flags=0x10002(adhoc,runtime)` and PDFium page load failed; set `hardenedRuntime: false` (test updated), re-signed copy renders. Blank main window right after first setup, and SIGTERM leaves the sidecar running. Not verified: audio, rebuild with the fix.
