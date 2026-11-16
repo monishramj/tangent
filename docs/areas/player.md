@@ -42,6 +42,13 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
+- 2026-11-16 **Open issue: installed-build silence remains unexplained.** The owner heard no audio from `/Applications/Tangent.app` at `b9daaed` (ad-hoc, no hardened runtime), but confirmed audible old-bundle playback in instrumented current-v1 (`d86644f`) dev and release builds.
+  Native measurements for `vmwh7y0mfvjpz4` scene 1: running 48 kHz context; 1,176,000 decoded mono frames; peak 0.720925; direct two-channel destination routing; live analyser peak 0.428199; no CSP/decode errors.
+  Old/new-runtime saved WAVs are 24 kHz mono PCM16, peaks 0.720367/0.670654 and RMS 0.115406/0.109868; both runtime environments have matching TTS/audio package versions and identical `tts.py`. No new synthesis was run.
+  Player clock files and CSP/asset scope are unchanged since v0.1.3; release uses BufferClock, not the HTMLAudio fallback, and its signature has `flags=0x2` with no entitlements. Updater signing failed for the absent private key after the app bundle built.
+  Suspect a stale build or gesture-unlock edge case; neither is proven. Owner stopped investigation; probes (including the analyser branch) and test drafts were removed, with no playback-code change or new regression test.
+  Not verified: uninstrumented current-v1 release by ear, the original installed process's decoded buffers, or a reproducible cause. Do not treat advancing clocks/audio-session logs alone as proof of audible output.
+
 - 2026-11-15 Scene swap regression: clip each moving Pixi/DOM viewport before compositing; hide the outgoing layer at opacity zero.
   Root cause: PR #15 slid unbounded scene graphs, so camera zoom, edge objects and oversized backdrops crossed into the incoming scene.
   Evidence: renderer boundary regression fails before the fix; full motion/player suites + TypeScript; Orca before/after frames in `docs/ui-review/scene-transition/`.
