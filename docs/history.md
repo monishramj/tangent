@@ -7,6 +7,7 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-16 Step 19 review: topic merge is checked after it reorders, repairs keep passage and cite anchors, scene and checkpoint numbers use one source or fail closed, and a missing source shows a placeholder instead of the wrong page.
 - 2026-11-16 Step 19: one video from several sources — picker adds a second source, passages and cites carry the source id, grounding uses that source, the follow panel switches with the beat, and bundles store per-beat source ids (old bundles still open).
+- 2026-11-16 w6-blank: SIGTERM/SIGINT clean up the sidecar; main window focused after setup handoff (blank-window cause unverified).
 - 2026-11-16 Step 18: confirmed photo transcription into unverified IR passages and labelled source text; imported-only bounded native photo read, HEIC export fallback, labelled text follow-along during playback.
 
 2026-11-16 — PR #33 CI: `EqualSid` takes `*mut` SIDs, so the ACE check casts the SID that way.
