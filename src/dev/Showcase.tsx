@@ -1,4 +1,5 @@
 // Dev-only: ?showcase=<template>[&variant=..][&t=..][&beat=<json>][&data=<json>][&prev=<template>&tr=whip|push|cut] renders one templated beat with
+// &swap=1 makes prev a separate scene (prevBeat=<json> adds outgoing extras), exercising the player scene boundary.
 // fake word timings (no LLM/TTS). `prev` puts another template's beat first so the clear + transition are visible.
 // ?reel=1[&only=a,b] plays every template x variant (+ the Tangenter) back to back in real time for review:
 // label shows which beat; space pauses, ←/→ step beats, r restarts; stops at the end.
@@ -20,13 +21,16 @@ export default function Showcase() {
   const extra: Record<string, unknown> = JSON.parse(q.get("beat") ?? "{}"), data = q.get("data") ? JSON.parse(q.get("data")!) : sample.data;
   const beat: Record<string, unknown> & { say: string } = { say, template: name, variant: q.get("variant") ?? undefined, data, transition: q.get("tr") ?? undefined, ...extra };
   if (extra.template === null) delete beat.template; // raw objects only
-  const beats: { say: string }[] = prevSample ? [{ say: prevSample.say, template: prev, variant: q.get("pv") ?? undefined, data: prevSample.data }, beat] : [beat];
+  const previousBeat = prevSample ? { say: prevSample.say, template: prev, variant: q.get("pv") ?? undefined, data: prevSample.data, ...JSON.parse(q.get("prevBeat") ?? "{}") } : null;
+  const swap = q.has("swap") && !!previousBeat;
+  const previousScene = swap ? expandTemplates({ beats: [previousBeat] }).scene : null;
+  const beats: { say: string }[] = previousBeat && !swap ? [previousBeat, beat] : [beat];
   const { scene, errors } = expandTemplates({ beats });
   const drawRef = useRef<((t: number) => void) | null>(null);
-  const audio = beats.map((b) => {
-    const words = b.say.split(/\s+/).map((w, i) => ({ word: w, start: i * .3, end: i * .3 + .25 }));
-    return { words, duration: words.length * .3 };
-  });
+  const audio = beats.map(timing);
+  const previous = previousScene ? {
+    scene: Scene.parse(previousScene), timeline: compileOps(Scene.parse(previousScene), [timing(previousBeat!)], 0),
+  } : undefined;
   const tl = scene ? compileOps(Scene.parse(scene), audio, 0) : null;
   const t = Number(q.get("t") ?? (tl ? tl.totalSec + 2 : 0));
   const timeRef = useRef(t);
@@ -39,8 +43,13 @@ export default function Showcase() {
   }, [t, tl, beats.length]);
   if (!scene || !tl) return <pre className="p-4 text-fg">{JSON.stringify(errors, null, 2)}</pre>;
   return <div className="grid h-screen place-items-center bg-bg [container-type:size]">
-    <div className="relative aspect-video w-[min(100cqw,calc(100cqh*16/9))]"><Stage scene={Scene.parse(scene)} timeline={tl} drawRef={drawRef} timeRef={timeRef} /></div>
+    <div className="relative aspect-video w-[min(100cqw,calc(100cqh*16/9))]"><Stage previous={previous} scene={Scene.parse(scene)} timeline={tl} drawRef={drawRef} timeRef={timeRef} /></div>
   </div>;
+}
+
+function timing(b: { say: string }) {
+  const words = b.say.split(/\s+/).map((word, i) => ({ word, start: i * .3, end: i * .3 + .25 }));
+  return { words, duration: words.length * .3 };
 }
 
 function Reel({ only }: { only?: string[] }) {
@@ -50,10 +59,7 @@ function Reel({ only }: { only?: string[] }) {
   if (!only || only.includes("tangenter")) // the recurring presenter is a beat extra, shown over a stat beat
     reel.push({ say: SAMPLES.stat.say, template: "stat", variant: "center", data: SAMPLES.stat.data, tangenter: { pose: "point", says: "Watch this" } });
   const { scene, errors } = expandTemplates({ beats: reel });
-  const audio = reel.map((b) => {
-    const words = b.say.split(/\s+/).map((w, i) => ({ word: w, start: i * .3, end: i * .3 + .25 }));
-    return { words, duration: words.length * .3 };
-  });
+  const audio = reel.map(timing);
   const tl = scene ? compileOps(Scene.parse(scene), audio, 0) : null;
   const drawRef = useRef<((t: number) => void) | null>(null), timeRef = useRef(0), labelRef = useRef<HTMLDivElement>(null);
   const clock = useRef({ playing: true, base: 0, at: performance.now() }); // t = base + (now - at) while playing

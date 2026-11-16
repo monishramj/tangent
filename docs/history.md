@@ -2,6 +2,7 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-15 Fixed PR #15 scene-transition bleed with moving viewport masks for Pixi and DOM; deterministic timing/audio unchanged, renderer regression and Orca before/after frames.
 - 2026-11-15 Make a video estimates length from the selected sections and detail level (about N min; 6.92 s/beat from saved bundles).
 - 2026-11-16 Step 25: rebuilt v1 after #40/#41; ad-hoc/no runtime, fresh setup/nonblank main, saved WebAudio playback, Textbook rendering and SIGTERM sidecar cleanup pass; owner still to hear audio/check PPTX + ring; app retained, updater signing key absent (see docs/mac-smoke-2026-11.md).
 
