@@ -112,6 +112,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   thumbsRef.current = thumbs;
   const scrubResume = useRef(false);
   const idleTimer = useRef(0);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ x: number; t: number; label: string } | null>(null);
 
   /** Auto-pop the next checkpoint after a scene: not one already shown this session or answered in an earlier one. */
@@ -350,7 +351,10 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     idleTimer.current = window.setTimeout(() => setIdle(true), IDLE_MS);
   }, []);
   useEffect(() => { if (playing) poke(); }, [playing, poke]);
-  useEffect(() => () => window.clearTimeout(idleTimer.current), []);
+  useEffect(() => {
+    window.addEventListener("keydown", poke, true);
+    return () => { window.removeEventListener("keydown", poke, true); window.clearTimeout(idleTimer.current); };
+  }, [poke]);
   const chrome = !playing || !idle || overChrome || speedOpen || !!activeCp || buffering || !canPlay;
   const chromeHover = { onPointerEnter: () => setOverChrome(true), onPointerLeave: () => setOverChrome(false) };
 
@@ -384,7 +388,13 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   return (
     // overflow-clip, not hidden: a hidden box can still be scrolled by focus(), and the Ask box autofocusing while the panel
     // slid in scrolled the whole player sideways (the jagged jump on open).
-    <main onPointerMove={poke} onPointerDown={poke} className={`relative flex h-screen overflow-clip bg-bg ${chrome ? "" : "cursor-none"}`}>
+    <main onPointerMove={e => {
+      const previous = lastPointer.current;
+      lastPointer.current = { x: e.clientX, y: e.clientY };
+      // Content moving under a stationary cursor must not count as user activity.
+      if (!previous || previous.x !== e.clientX || previous.y !== e.clientY) poke();
+    }} onPointerDown={e => { lastPointer.current = { x: e.clientX, y: e.clientY }; poke(); }}
+      onWheelCapture={poke} onTouchMoveCapture={poke} className={`relative flex h-screen overflow-clip bg-bg ${chrome ? "" : "cursor-none"}`}>
       {/* Video column: the 16:9 box letterboxed in it; header and controls pinned to the column's top/bottom (the window's),
           not the video's. The side panel docks beside the column at lg+, floats over it below. */}
       <div className="relative grid min-w-0 flex-1 place-items-center [container-type:size]">
