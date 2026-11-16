@@ -15,9 +15,11 @@ Turn a textbook section into a narrated, animated video. Pause it any time and a
 
 </div>
 
-I built Tangent because I kept zoning out on dense textbook chapters, and I wanted something that explained them the way a good tutor would. You give it a PDF, slides, a Word file or a photo of notes and pick a section. It writes a script meant to be heard, reads it out loud, and animates it on screen. If something doesn't click, you pause and ask, and it answers about the scene you're on. Then you pick the video back up.
+Tangent takes a textbook PDF, slide deck, Word file or photo of notes and turns a section into a narrated, animated video. The script is written to be heard, the narration is generated locally, and the animation is timed to the spoken words.
 
-It's a beta. I've only tested it by hand on macOS. Windows and Linux installers get built, but nobody has run them yet, so expect rough edges there.
+Pause at any point to ask a question. The tutor answers about the scene on screen, then you resume the video.
+
+> **Beta.** Tested by hand on macOS only. Windows and Linux installers are built but have not been run on those systems.
 
 ## Install
 
@@ -31,13 +33,13 @@ Grab the installer for your system from [Releases](https://github.com/monishramj
 
 ## First launch
 
-The first time you open it, Tangent downloads its Python runtime, document tools and voice model. That's about 2 to 3 GB, and if you cancel or retry it keeps what it already got.
+On first launch Tangent downloads its Python runtime, document tools and voice model, about 2 to 3 GB. Cancelling or retrying reuses what has already downloaded.
 
-You also need [Claude Code](https://code.claude.com) installed and logged in. Tangent calls the `claude` command to write scripts and answer questions, so there's no API key to set up. A "Before you start" screen checks this for you.
+[Claude Code](https://code.claude.com) must be installed and logged in. Tangent calls the `claude` command to write scripts and answer questions, so no API key is needed. A "Before you start" screen checks this.
 
-There's no local-model option yet. I've sketched a provider interface for something like Ollama, but nothing works end to end, so the app doesn't offer it.
+Local models such as Ollama are not supported yet. A provider interface exists, but no local provider works end to end, so the app does not offer one.
 
-I'm still reading Anthropic's terms to make sure an app like this is fine to distribute. My notes are in [docs/open-source.md](docs/open-source.md).
+Whether distributing an app that runs on a user's Claude Code login is permitted is still being checked against Anthropic's terms. See [docs/open-source.md](docs/open-source.md).
 
 ## How it works
 
@@ -51,34 +53,34 @@ PDF / PPTX / DOCX / photo
   -> player on one audio clock, with the tutor for your questions
 ```
 
-Scenes stream in, so playback starts as soon as the first one is ready. Saved videos replay without calling the model again. Animations are tied to the spoken words, and things like arrays and trees are computed rather than drawn from memory. Typed questions stay as threads you can come back to, and a side panel shows the part of the book the narration is on. If you add a GIPHY key in Settings you get reaction GIFs, otherwise those show as text cards.
+Scenes stream in, so playback starts once the first is ready. Saved videos replay without further model calls. Visuals such as arrays and trees are computed rather than drawn from memory, a side panel follows the source text, and questions are kept as threads. Reaction GIFs need a GIPHY key in Settings; without one they show as text cards.
 
 ![Player](docs/readme/player.png)
 
-Under the hood it's a Tauri app (Rust) with a React and PixiJS front end and a Python sidecar run through `uv`. The animation engine is in `packages/motion`, and notes on each area are in [docs/areas](docs/areas/).
+Tangent is a Tauri (Rust) app with a React and PixiJS front end and a Python sidecar run through `uv`. The animation engine is in `packages/motion`. Area notes are in [docs/areas](docs/areas/).
 
 ## Privacy
 
-Parsing and narration run on your computer. The only thing that leaves it is the text the `claude` command needs to write a script or answer a question, and that goes through your own Claude account. No textbook or course material is included in this repo or the installers, so bring your own files. Tangent doesn't store API keys. If you add a GIPHY key, it's kept in a file only your user can read.
+Parsing and narration run on your computer. Only the text the `claude` command needs to write a script or answer a question leaves it, through your own Claude account. No textbook or course material is included in this repository or the installers. Tangent stores no API keys; an optional GIPHY key is kept in a file readable only by your user.
 
 ## Development
 
-You need [bun](https://bun.sh), [uv](https://docs.astral.sh/uv/), Rust, and a logged-in `claude`.
+Requires [bun](https://bun.sh), [uv](https://docs.astral.sh/uv/), Rust, and a logged-in `claude`.
 
 ```sh
 bun install
 bunx tauri dev
 ```
 
-Tests and how I check changes are in [docs/testing-and-ci.md](docs/testing-and-ci.md). Release steps are in [docs/release.md](docs/release.md), and my project notes are in [CLAUDE.md](CLAUDE.md).
+Testing is described in [docs/testing-and-ci.md](docs/testing-and-ci.md). Releases:  [docs/release.md](docs/release.md). Project notes: [CLAUDE.md](CLAUDE.md).
 
 ## Roadmap
 
-I'm still working toward a first public beta. After that I want MP4 export, an editor for tweaking videos, a usage meter, and Klipy GIFs.
+The first public beta is in progress. Planned for v2: MP4 export, a video editor, a usage meter and Klipy GIFs.
 
 ## Credits
 
-Tangent stands on [Docling](https://github.com/docling-project/docling), [PocketTTS](https://github.com/kyutai-labs/pocket-tts), [PDFium](https://pdfium.googlesource.com/pdfium/), [Tauri](https://tauri.app), [PixiJS](https://pixijs.com), [React Bits](https://reactbits.dev), [Hugeicons](https://hugeicons.com), [KaTeX](https://katex.org) and [Motion](https://motion.dev). Licences are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Built on [Docling](https://github.com/docling-project/docling), [PocketTTS](https://github.com/kyutai-labs/pocket-tts), [PDFium](https://pdfium.googlesource.com/pdfium/), [Tauri](https://tauri.app), [PixiJS](https://pixijs.com), [React Bits](https://reactbits.dev), [Hugeicons](https://hugeicons.com), [KaTeX](https://katex.org) and [Motion](https://motion.dev). Licences are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License
 
