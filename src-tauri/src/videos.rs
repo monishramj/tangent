@@ -19,6 +19,14 @@ fn resolve(dir: &Path, bundle: &mut Value) {
 pub fn save(base: &Path, mut bundle: Value) -> Result<Value, String> {
     let id = bundle["id"].as_str().ok_or("bundle.id missing")?.to_string();
     let dir = dir_of(base, &id)?;
+    // Saves only ever grow a bundle. A restarted generation reusing this id would otherwise replace a
+    // longer or complete saved video with its first scene; refuse and leave the stored one intact.
+    if let Ok(old) = fs::read(dir.join("bundle.json")).map_err(|e| e.to_string()).and_then(|b| serde_json::from_slice::<Value>(&b).map_err(|e| e.to_string())) {
+        let (old_n, new_n) = (old["scenes"].as_array().map_or(0, |a| a.len()), bundle["scenes"].as_array().map_or(0, |a| a.len()));
+        if new_n < old_n || (old["complete"] == true && bundle["complete"] != true) {
+            return Err(format!("refusing to overwrite saved video {id} ({old_n} scenes) with a shorter one ({new_n})"));
+        }
+    }
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     for s in bundle["scenes"].as_array_mut().ok_or("bundle.scenes missing")? {
         let name = format!("{}.wav", safe(s["sceneId"].as_str().ok_or("sceneId missing")?)?);
@@ -105,6 +113,22 @@ mod tests {
         delete(&base, "a").unwrap();
         assert!(load(&base, "a").is_err());
         assert_eq!(list(&base).len(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn save_never_shrinks_or_uncompletes_an_existing_bundle() {
+        let base = tmp("shrink");
+        let wav = base.join("w.wav");
+        fs::write(&wav, b"RIFF").unwrap();
+        let mut two = bundle("a", 1, &wav);
+        two["scenes"].as_array_mut().unwrap().push(json!({"sceneId": "scene-2", "scene": {}, "timeline": {}, "audioFile": wav.to_string_lossy(), "durationSec": 2.0}));
+        two["complete"] = json!(true);
+        save(&base, two).unwrap();
+        // A restarted generation with the same id starts from one scene, incomplete.
+        assert!(save(&base, bundle("a", 9, &wav)).unwrap_err().contains("refusing to overwrite"));
+        assert_eq!(load(&base, "a").unwrap()["scenes"].as_array().unwrap().len(), 2);
+        assert_eq!(load(&base, "a").unwrap()["complete"], true);
         let _ = fs::remove_dir_all(&base);
     }
 
