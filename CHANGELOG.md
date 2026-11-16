@@ -6,8 +6,25 @@ Historical seed: v0.1.2 is tagged; v0.1.1 and v0.1.3 are taken from version-bump
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
+First public beta for macOS, Windows and Linux.
+
 ### Added
-- Cross-platform fast CI, focused push checks, staged TypeScript checks, and a PR evidence checklist.
+- Slides, Word documents and photos of handwritten notes as sources; one video can combine sections from several sources.
+- Section picker with a brace hierarchy, always visible in the Sections view.
+- Video length estimate per detail level on Make a video.
+- Fact-checking of every beat against its source paragraphs; checkpoint questions written from the narration.
+- Real progress percent while a video generates, centered loading, and a generating indicator in the seek bar.
+- One-time first-launch setup (bundled uv and PDFium), Claude Code check, and automatic release builds.
+
+### Changed
+- Faster first scene (two-part script), everyday wording in scripts, plain error messages, frosted play button, cleaner scene transitions.
+- PDF ingest runs in chunks at low priority, pauses when the Mac is hot, and shows real progress.
+
+### Fixed
+- No sound and unloadable PDF pages in the installed macOS app (hardened runtime).
+- Long PDFs failing to load pages; previous scene showing through transitions; player controls waking during textbook auto-follow; failed scenes skipped silently; photo notes re-transcribed on launch; formula decoding errors.
 
 ## [0.1.3] - 2026-11-13
 
