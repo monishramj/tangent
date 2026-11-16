@@ -2,6 +2,7 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-16 Polish fixes B (P1-2, 5, 6, 8 non-stage, 12): plainError helper, neutral FirstLaunch with copy button, dev-CSP blob: for player fixture, shared prefersReducedMotion, grayscale folder emoji (see player/library notes).
 - 2026-11-16 Audio investigation: owner confirmed instrumented current-v1 dev/release playback audible; old/new WAVs and native decode/routing are non-silent, but installed b9daaed silence remains an open issue; probes removed, no playback-code fix (see docs/areas/player.md).
 - 2026-11-15 Fixed PR #15 scene-transition bleed with moving viewport masks for Pixi and DOM; deterministic timing/audio unchanged, renderer regression and Orca before/after frames.
 - 2026-11-16 Polish C (library): no photo re-transcribe on launch without "Transcribe again"; multi-drop flake fixed and un-skipped (20x green); video `save` refuses to shrink/un-complete an existing bundle (P1-3/9/11).

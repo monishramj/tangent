@@ -1,6 +1,7 @@
 'use client';
 // React Bits BlurText (TS + Tailwind): https://github.com/DavidHDev/react-bits/blob/main/src/ts-tailwind/TextAnimations/BlurText/BlurText.tsx
 
+import { prefersReducedMotion } from '@motion/reducedMotion';
 import { motion, MotionConfig, type Easing, type MotionStyle, type Transition } from 'motion/react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
@@ -393,7 +394,7 @@ const BlurText = ({
         style={style}
         initial={firstPhase === 'rest' ? false : fromSnapshot}
         animate={target}
-        transition={transition}
+        transition={prefersReducedMotion() ? { duration: 0 } : transition}
       >
         {piece.content}
       </motion.span>

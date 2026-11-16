@@ -16,6 +16,7 @@ import type { PipelineEvent, Progress } from "./pipeline/streamVideo";
 import type { LLMProvider } from "./llm/provider";
 import { giphyKey, giphySearch } from "./media/giphy";
 import { devlog } from "./devlog";
+import { plainError } from "./plainError";
 import FirstLaunch from "./firstLaunch/FirstLaunch";
 import { checksPassed, markChecksPassed } from "./firstLaunch/checks";
 
@@ -136,7 +137,7 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });
         setState({ markdown, passages, followSources, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { ...(rest.length ? { id: first.id } : {}), pdfPath: first.pdfPath, sectionId: first.sectionIds.join("+"), sectionTitle: meta.title, ...(rest.length ? { also: rest.map(p => ({ id: p.id, pdfPath: p.pdfPath, sectionId: p.sectionIds.join("+"), sectionTitle: p.name })) } : {}) } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
-      } catch (e) { if (!controller.signal.aborted) setState({ error: String(e) }); }
+      } catch (e) { if (!controller.signal.aborted) setState({ error: plainError(e) }); }
     })();
     return () => controller.abort();
   }, [args, provider, store, videoStore, videoId]);
@@ -146,5 +147,5 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
     kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} passages={state && "passages" in state ? state.passages : []} provider={provider} store={store}
     textbook={{ pdfPath: args.meta.pdfPath, pages: isOfficeSource(args.meta.pdfPath) ? [] : sectionPages(args.ir, args.sectionIds.join("+")) }}
     followSources={state && "followSources" in state ? state.followSources : undefined}
-    progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section: ${error}` : undefined} />;
+    progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section. ${error}` : undefined} />;
 }

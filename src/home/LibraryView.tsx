@@ -1,3 +1,5 @@
+import { prefersReducedMotion } from '@motion/reducedMotion';
+import { plainError } from '../plainError';
 import { isPhotoSource } from "../gen/transcribe";
 import useKeybinds from '@/hooks/useKeybinds';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
@@ -66,7 +68,7 @@ export function VideoList({ videos, onOpen, onDelete, label = 'Recent videos' }:
   const [error, setError] = useState('');
   const remove = async (id: string) => {
     setDeleting(true); setError('');
-    try { await onDelete?.(id); setConfirm(null); } catch (e) { setError(`Couldn't delete the video: ${String(e)}`); }
+    try { await onDelete?.(id); setConfirm(null); } catch (e) { setError(`Couldn't delete the video. ${plainError(e)}`); }
     finally { setDeleting(false); }
   };
   if (!videos.length) return <p className="tl-empty">{label === 'Recent videos' ? 'No recent videos yet.' : 'No videos from this PDF yet.'}</p>;
@@ -101,7 +103,7 @@ export default function LibraryView(props: LibraryViewProps) {
   const cancelOpening = () => { if (timer.current) clearTimeout(timer.current); setOpening(null); };
   const closeFolder = (done: () => void) => {
     cancelOpening();
-    if (!folder || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { done(); return; }
+    if (!folder || prefersReducedMotion()) { done(); return; }
     setClosing(true);
     timer.current = setTimeout(done, 180 + Math.min(Math.max(0, sources.length - 1) * 60, 300));
   };
@@ -111,11 +113,11 @@ export default function LibraryView(props: LibraryViewProps) {
     timer.current = setTimeout(() => {
       setOpening(null); onOpenFolder(id);
       document.querySelector('.tl-library')?.scrollTo?.({ top: 0 });
-    }, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 320);
+    }, prefersReducedMotion() ? 0 : 320);
   };
   const mutate = async (action: () => Mutation) => {
     setBusy(true); setError('');
-    try { await action(); setForm(null); } catch (e) { setError(String(e)); }
+    try { await action(); setForm(null); } catch (e) { setError(plainError(e)); }
     finally { setBusy(false); }
   };
   const startForm = (kind: 'create' | 'rename' | 'delete') => { setForm(kind); setName(kind === 'rename' ? folder?.name ?? '' : ''); setEmoji('📚'); setError(''); };

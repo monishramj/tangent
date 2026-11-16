@@ -19,6 +19,7 @@ import { ask, buildTutorContext, resumeTime } from "@/tutor/tutor";
 import { currentPassageIds } from "@/tutor/glue";
 import type { Passage } from "@/follow/types";
 import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration";
+import { plainError } from "@/plainError";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
 import { bufferClock, unlockAudioOnGesture } from "@motion/player/bufferClock";
@@ -162,7 +163,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
       setPlaying(queue.playing);
       setBuffering(queue.buffering);
     },
-    onError: e => { devlog(`queue error ${String(e)}`); setError(String(e)); },
+    onError: e => { setError(plainError(e)); },
   }));
 
   // Consume the stream: scenes go to the queue, checkpoints to state.
@@ -183,7 +184,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
           const ev = next.value;
           if (ev.type === "scene") { queue.enqueue(ev); setScenes(s => [...s, ev]); played = true; }
           else if (ev.type === "checkpoints") { rawCps.current = [...ev.items].sort((a, b) => a.afterScene - b.afterScene); applyCps(); }
-          else if (ev.scope === "script") { devlog(`script failed ${ev.sceneId}: ${ev.error.message}`); if (!played) setError(`Scene ${ev.sceneId}: ${ev.error.message}`); }
+          else if (ev.scope === "script") { devlog(`script failed ${ev.sceneId}: ${ev.error.message}`); if (!played) setError(plainError(ev.error)); }
           else {
             // Failed its retry too: a 2 s card takes the scene's place in the queue, so order and the audio clock stay consistent.
             devlog(`scene skipped ${ev.sceneId}: ${ev.error.message}`);
@@ -192,7 +193,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             queue.enqueue(card); setScenes(s => [...s, card]); applyCps();
           }
         }
-      } catch (e) { if (live) setError(String(e)); }
+      } catch (e) { if (live) setError(plainError(e)); }
       finally { if (live) { queue.finish(); setDone(true); if (!played) setError(s => s ?? "Couldn't build this video."); } }
     });
     return () => { live = false; queue.dispose(); void it?.return?.().catch(() => {}); };

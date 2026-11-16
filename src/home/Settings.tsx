@@ -1,3 +1,4 @@
+import { plainError } from '../plainError';
 import { useEffect, useState } from "react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
@@ -86,7 +87,7 @@ function Updates() {
     if (!desktop) return;
     let live = true;
     void getVersion().then(value => { if (live) setCurrentVersion(value); })
-      .catch(e => { if (live) setError(`Couldn't read the app version: ${String(e)}`); });
+      .catch(e => { if (live) setError(`Couldn't read the app version. ${plainError(e)}`); });
     return () => { live = false; };
   }, [desktop]);
   const check = async () => {
@@ -94,12 +95,12 @@ function Updates() {
     try {
       const update = await checkForUpdate();
       setAvailable(update?.version ?? ''); setState(update ? 'available' : 'current'); setLastChecked(new Date());
-    } catch (e) { setState('idle'); setError(`Couldn't check for updates: ${String(e)}`); }
+    } catch (e) { setState('idle'); setError(`Couldn't check for updates. ${plainError(e)}`); }
   };
   const install = async () => {
     setState('installing'); setError('');
     try { setState(await installUpdate() ? 'restarting' : 'available'); }
-    catch (e) { setState('available'); setError(`Couldn't install the update: ${String(e)}`); }
+    catch (e) { setState('available'); setError(`Couldn't install the update. ${plainError(e)}`); }
   };
   const busy = state === 'checking' || state === 'installing' || state === 'restarting';
   return <section aria-labelledby="updates-heading"><h2 id="updates-heading">Updates &amp; About</h2>

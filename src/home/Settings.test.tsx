@@ -75,10 +75,10 @@ it('reports check and installation failures and lets the user retry', async () =
   api.installUpdate.mockRejectedValueOnce(new Error('download failed'));
   openInstalled();
   fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
-  expect((await screen.findByRole('alert')).textContent).toContain('offline');
+  expect((await screen.findByRole('alert')).textContent).toContain('reach the network');
   fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Install and restart' }));
-  expect((await screen.findByRole('alert')).textContent).toContain('download failed');
+  expect((await screen.findByRole('alert')).textContent).toContain('install the update');
   expect((screen.getByRole('button', { name: 'Install and restart' }) as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Install and restart' }));
   await waitFor(() => expect(api.installUpdate).toHaveBeenCalledTimes(2));
@@ -87,7 +87,7 @@ it('reports check and installation failures and lets the user retry', async () =
 it('reports version lookup failures while retaining the update check', async () => {
   api.getVersion.mockRejectedValue(new Error('version unavailable'));
   openInstalled();
-  expect((await screen.findByRole('alert')).textContent).toContain('version unavailable');
+  expect((await screen.findByRole('alert')).textContent).toContain('read the app version');
   expect((screen.getByRole('button', { name: 'Check for updates' }) as HTMLButtonElement).disabled).toBe(false);
 });
 

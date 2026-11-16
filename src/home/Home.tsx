@@ -1,3 +1,4 @@
+import { plainError } from '../plainError';
 import { isPhotoSource } from "../gen/transcribe";
 import PhotoConfirm from "./PhotoConfirm";
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -74,7 +75,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
       for (const source of next.sources) await queue.restore(source).catch(() => {});
       if (live) { setHeld(next.sources.filter(s => isPhotoSource(s.pdfPath) && !queue.snapshot().some(i => i.path === s.pdfPath)).map(s => s.pdfPath)); }
       if (live) { libraryRef.current = next; setLibrary(next); setVideos(recentVideos(bundles)); if (isDetailLevel(preference)) setDetail(preference); setReady(true); }
-    }).catch(e => { if (live) setError(`Couldn't open the library: ${String(e)}`); });
+    }).catch(e => { if (live) setError(`Couldn't open the library. ${plainError(e)}`); });
     return () => { live = false; };
   }, [jsonStore, store, loadAttempt]);
   useEffect(() => {
@@ -95,7 +96,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     const target = folderId ?? null;
     try {
       await update(current => accepted.reduce((all, path) => addSource(all, path, target && current.folders.some(f => f.id === target) ? target : null), current));
-    } catch (e) { setError(`Couldn't add the PDFs: ${String(e)}`); }
+    } catch (e) { setError(`Couldn't add the PDFs. ${plainError(e)}`); }
     finally { accepted.forEach(path => reserved.current.delete(path)); }
   };
   const dropped = useRef(importPaths); dropped.current = active ? importPaths : async () => {};
@@ -106,11 +107,11 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
       setOver(value.type === 'enter' || value.type === 'over');
       if (value.type === 'drop' && value.paths.length) void dropped.current(value.paths);
     });
-    void unlisten.catch(e => setError(`Couldn't listen for dropped files: ${String(e)}`));
+    void unlisten.catch(e => setError(`Couldn't listen for dropped files. ${plainError(e)}`));
     return () => { void unlisten.then(fn => fn(), () => {}); };
   }, []);
   useEffect(() => {
-    if (active && ready) void store.list().then(bundles => setVideos(recentVideos(bundles))).catch(e => setError(String(e)));
+    if (active && ready) void store.list().then(bundles => setVideos(recentVideos(bundles))).catch(e => setError(plainError(e)));
   }, [active, ready, store]);
   const home = () => { setError(''); navigate({ s: 'home' }); };
   useKeybinds({
@@ -118,7 +119,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     settings: () => navigate({ s: 'settings' }),
   }, active);
   const openVideo = async (video: VideoBundle) => {
-    try { onOpenVideo(await store.load(video.id)); } catch (e) { setError(`Couldn't open the saved video: ${String(e)}`); }
+    try { onOpenVideo(await store.load(video.id)); } catch (e) { setError(`Couldn't open the saved video. ${plainError(e)}`); }
   };
   const removeVideo = async (id: string) => { await store.remove(id); setVideos(current => current.filter(v => v.id !== id)); };
   const folders = [...library.folders].sort((a, b) => b.openedAt - a.openedAt).map(f => {
@@ -128,7 +129,7 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   if (route.s === 'settings') return <Settings onBack={home} />;
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
     sections={content?.sections ?? []} videos={recentVideos(videos, new Set([source.pdfPath]))}
-    initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
+    initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(plainError(e))); }}
     sectionMarkdown={(id, sourceId) => {
       const ir = !sourceId || sourceId === source.id ? content?.ir : uploads.find(u => u.path === library.sources.find(s => s.id === sourceId)?.pdfPath)?.value?.ir;
       return ir ? cachedSectionText(ir, id) : "";
@@ -157,9 +158,9 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   return <>{photoImport && <PhotoConfirm count={photoImport.filter(isPhotoSource).length} onCancel={() => setPhotoImport(null)} onConfirm={() => { const paths = photoImport; setPhotoImport(null); void importPaths(paths, true); }} />}<LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}
-    onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(String(e))); }}
+    onBack={home} onHome={home} onSettings={() => navigate({ s: 'settings' })} onOpenFolder={id => { void update(current => ({ ...current, folders: current.folders.map(f => f.id === id ? { ...f, openedAt: Date.now() } : f) })).then(() => navigate({ s: 'folder', folderId: id })).catch(e => setError(plainError(e))); }}
     onOpenSource={id => { setError(''); navigate({ s: 'source', sourceId: id, folderId: folder?.id }); }} onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
-    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'Documents and photos', extensions: ['pdf', 'pptx', 'docx', 'jpg', 'jpeg', 'png', 'heic', 'webp'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(String(e))); }}
+    onChoosePdf={() => { void open({ multiple: true, filters: [{ name: 'Documents and photos', extensions: ['pdf', 'pptx', 'docx', 'jpg', 'jpeg', 'png', 'heic', 'webp'] }] }).then(path => { if (path) return importPaths(typeof path === 'string' ? [path] : path); }).catch(e => setError(plainError(e))); }}
     onDropFiles={files => { void importPaths(files.map(file => (file as File & { path?: string }).path ?? file.name)); }}
     uploads={uploads} onRetryUpload={path => { queue.enqueue(path, true); }}
     heldPhotos={held} onTranscribe={path => { setHeld(h => h.filter(p => p !== path)); queue.enqueue(path, true); }}
