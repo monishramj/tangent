@@ -148,3 +148,28 @@ it('labels the photo source and its text panel as transcription', () => {
   expect(screen.getByLabelText('Source text').textContent).toContain('[illegible]');
   expect(pdfInfo).not.toHaveBeenCalled();
 });
+
+it('keeps the same brace hierarchy when switching from browsing to selection and back', async () => {
+  const onGenerate = vi.fn();
+  const { container } = setup({ onGenerate, sections: [
+    { id: 'root', title: 'Foundations', level: 1, anchors: [{ page: 1 }, { page: 3 }] },
+    { id: 'child', title: 'Arrays', level: 2, anchors: [{ page: 2 }] },
+  ] });
+  const tree = screen.getByRole('tree', { name: 'Sections' });
+  const brace = container.querySelector('.pk-brace');
+  fireEvent.click(screen.getByText('Arrays'));
+  expect(onGenerate).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('treeitem').every(row => !row.hasAttribute('aria-selected'))).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
+  expect(screen.getByRole('tree')).toBe(tree);
+  expect(container.querySelector('.pk-brace')).toBe(brace);
+  fireEvent.click(brace!);
+  fireEvent.click(screen.getByRole('button', { name: 'Make video · 1 selected' }));
+  expect(onGenerate).toHaveBeenCalledWith(['root'], 'standard');
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('tree')).toBe(tree);
+  expect(screen.getAllByRole('treeitem').every(row => !row.hasAttribute('aria-selected'))).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
+  expect(screen.getAllByRole('treeitem').every(row => row.getAttribute('aria-selected') === 'false')).toBe(true);
+});

@@ -7,16 +7,20 @@ import '../index.css';
 import samplePage from './home-design-previews/placeholder.png';
 const renderPage = async () => ({ url: samplePage, width: 541, height: 700 });
 const sections = [
-  { id: 'parent', title: 'Foundations', level: 1, anchors: [{ page: 1 }] },
-  { id: 'child', title: 'Arrays', level: 2, anchors: [{ page: 2 }] },
-  { id: 'other', title: 'Trees', level: 1, anchors: [{ page: 4 }] },
+  { id: 'parent', title: 'Foundations of algorithms', level: 1, anchors: [{ page: 1 }, { page: 12 }] },
+  { id: 'child', title: 'Arrays and sequences', level: 2, anchors: [{ page: 2 }, { page: 6 }] },
+  { id: 'example', title: 'Finding an element', level: 3, anchors: [{ page: 3 }, { page: 4 }] },
+  { id: 'cost', title: 'The cost of a search', level: 3, anchors: [{ page: 5 }, { page: 6 }] },
+  { id: 'lists', title: 'Linked lists', level: 2, anchors: [{ page: 7 }, { page: 12 }] },
+  { id: 'other', title: 'Trees and traversal', level: 1, anchors: [{ page: 13 }, { page: 20 }] },
+  { id: 'binary', title: 'Binary trees', level: 2, anchors: [{ page: 14 }, { page: 20 }] },
 ];
 function Check() {
   const [folders, setFolders] = useState<FolderSummary[]>(Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `Class ${i + 1}`, emoji: '📚', sourceCount: i === 0 ? 1 : 0 })));
   const [sources, setSources] = useState<SourceSummary[]>([{ id: 'source', name: 'Algorithms.pdf', pdfPath: '/test.pdf', folderId: '0', pageCount: 4 }]);
   const [videos, setVideos] = useState<VideoBundle[]>([{ id: 'video', title: 'Arrays explained', createdAt: Date.now(), complete: true, source: { pdfPath: '/test.pdf', sectionId: 'child', sectionTitle: 'Arrays' }, scenes: [] }]);
   const [folderId, setFolderId] = useState<string | null>(null);
-  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(new URLSearchParams(location.search).has('source') ? 'source' : null);
   const [generated, setGenerated] = useState('');
   const home = () => { setFolderId(null); setSourceId(null); };
   const source = sources.find(s => s.id === sourceId);

@@ -31,3 +31,35 @@ it('selects a section from its title or brace, shows partial, and moves by keybo
   fireEvent.keyDown(document.activeElement!, { key: ' ' });
   expect(screen.getByRole('treeitem', { name: /Heapify/ }).getAttribute('aria-selected')).toBe('true');
 });
+
+it('browses the same hierarchy without selection state or selection gestures', () => {
+  const selected = new Set(rows.map(row => row.id));
+  const changes: Set<string>[] = [];
+  const onChange = (next: Set<string>) => changes.push(next);
+  const view = render(<SectionPicker rows={rows} selected={selected} onChange={onChange} browse />);
+  const tree = screen.getByRole('tree');
+  const items = screen.getAllByRole('treeitem');
+  const brace = view.container.querySelector('.pk-brace') as HTMLButtonElement;
+  expect(brace.disabled).toBe(true);
+  expect(tree.hasAttribute('aria-multiselectable')).toBe(false);
+  expect(items.every(item => !item.hasAttribute('aria-selected') && !item.hasAttribute('data-state'))).toBe(true);
+  fireEvent.click(items[0]);
+  fireEvent.pointerDown(items[0], { button: 0, buttons: 1 });
+  fireEvent.pointerEnter(items[1], { buttons: 1 });
+  fireEvent.keyDown(items[0], { key: 'ArrowRight', shiftKey: true });
+  expect(document.activeElement).toBe(items[1]);
+  fireEvent.keyDown(items[1], { key: ' ' });
+  fireEvent.keyDown(items[1], { key: 'Enter' });
+  fireEvent.keyDown(items[1], { key: 'End' });
+  expect(document.activeElement).toBe(items[2]);
+  fireEvent.keyDown(items[2], { key: 'Home' });
+  expect(document.activeElement).toBe(items[0]);
+  expect(changes).toHaveLength(0);
+  view.rerender(<SectionPicker rows={rows} selected={selected} onChange={onChange} />);
+  expect(screen.getByRole('tree')).toBe(tree);
+  expect(view.container.querySelector('.pk-brace')).toBe(brace);
+  expect(brace.disabled).toBe(false);
+  expect(items.every(item => item.getAttribute('aria-selected') === 'true')).toBe(true);
+  fireEvent.click(items[0]);
+  expect(changes).toHaveLength(1);
+});
