@@ -60,14 +60,19 @@ it('imports once into durable sources and displays sections without generating o
   expect((jsonStore.data.get('library') as { sources: unknown[] }).sources).toHaveLength(1);
 });
 it('selection mode deduplicates selected descendants and passes detail through onStart', async () => {
+  const words = Array.from({ length: 2400 }, () => 'word').join(' ');
+  const rich = { sections: [{ id: 's1', title: 'Heaps', level: 1, anchors: [], children: [{ id: 's2', title: 'Heapify', level: 2, anchors: [], children: [], markdown: words }], markdown: '' }] };
+  vi.mocked(loadIr).mockResolvedValue(rich);
   const { container, onStart, jsonStore } = setup();
   await upload(container);
   fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
   fireEvent.click(screen.getByRole('treeitem', { name: /Heaps/ }));
   expect(screen.getByRole('treeitem', { name: /Heapify/ }).getAttribute('aria-selected')).toBe('true');
-  fireEvent.change(screen.getByLabelText('Detail level'), { target: { value: 'complete' } });
+  expect(screen.getByRole('radio', { name: 'Standard, about 2 min' })).toBeTruthy();
+  expect(screen.getByText(/Sections and detail set the length/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio', { name: /^Complete/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Make video · 1 selected' }));
-  expect(onStart).toHaveBeenCalledWith(['s1'], ir, { pdfPath: '/book.pdf', title: 'Heaps', detail: 'complete' });
+  expect(onStart).toHaveBeenCalledWith(['s1'], rich, { pdfPath: '/book.pdf', title: 'Heaps', detail: 'complete' });
   await waitFor(() => expect(jsonStore.data.get('video-detail')).toBe('complete'));
 });
 it('Select all and cancel clear selection without starting generation', async () => {

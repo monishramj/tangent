@@ -7,7 +7,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import LibraryView from './LibraryView';
 import Settings from './Settings';
 import SourceView from './SourceView';
-import { multiTitle, sectionsPassages, type IR } from './api';
+import { cachedSectionText, multiTitle, sectionsPassages, type IR } from './api';
 import { tauriJsonStore, type JsonStore } from '../storage/store';
 import { addFolder, addSource, deleteFolder, emptyLibrary, isOfficeSource, isSourceFile, moveSource, readLibrary, recentVideos, saveLibrary, type Library } from '../storage/library';
 import { tauriVideoStore, type VideoBundle, type VideoStore } from '../storage/videos';
@@ -126,6 +126,10 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
   if (route.s === 'source' && source) return <SourceView key={source.id} source={source} folderName={folder?.name}
     sections={content?.sections ?? []} videos={recentVideos(videos, new Set([source.pdfPath]))}
     initialDetail={detail} onDetailChange={value => { setDetail(value); void jsonStore.write('video-detail', value).catch(e => setError(String(e))); }}
+    sectionMarkdown={(id, sourceId) => {
+      const ir = !sourceId || sourceId === source.id ? content?.ir : uploads.find(u => u.path === library.sources.find(s => s.id === sourceId)?.pdfPath)?.value?.ir;
+      return ir ? cachedSectionText(ir, id) : "";
+    }}
     loading={loading} progress={progress} error={error || (job?.status === 'failed' ? job.error : '')} cleanupPending={job?.status === 'tidying'} warning={job?.warning} onRetryCleanup={job?.status === 'failed' || job?.warning ? () => { queue.enqueue(source.pdfPath, true); } : undefined} preparation={job}
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}

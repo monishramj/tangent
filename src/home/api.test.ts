@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { ingestPdf, listSections, repairSections, sectionText, sectionsText, topSelected, multiTitle } from "./api";
+import { cachedSectionText, ingestPdf, listSections, repairSections, sectionText, sectionsText, topSelected, multiTitle } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("r"), convertFileSrc: (path: string) => `asset:${path}` }));
 vi.mock("@tauri-apps/api/path", () => ({ appDataDir: vi.fn().mockResolvedValue("/data"), join: vi.fn(async (...p: string[]) => p.join("/")) }));
@@ -13,6 +13,13 @@ it("wraps ingest_pdf and list_sections over sidecar_call", async () => {
   expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "repair_sections", params: { ir, path: "/a.pdf" } });
   await listSections(ir);
   expect(invoke).toHaveBeenCalledWith("sidecar_call", { method: "list_sections", params: { ir } });
+});
+
+it("reads cached section markdown including descendants", () => {
+  const ir = { sections: [{ id: "p", title: "p", level: 1, anchors: [], children: [{ id: "c", title: "c", level: 2, anchors: [], children: [], markdown: "child words" }], markdown: "parent words" }] };
+  expect(cachedSectionText(ir, "p")).toBe("parent words\n\nchild words");
+  expect(cachedSectionText(ir, "c")).toBe("child words");
+  expect(cachedSectionText(ir, "nope")).toBe("");
 });
 
 it("loads section markdown through section_text", async () => {

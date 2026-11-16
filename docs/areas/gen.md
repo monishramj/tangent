@@ -75,6 +75,7 @@ Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHEC
 
 ## Log
 
+- 2026-11-15 `SECONDS_PER_BEAT` is 6.92, pooled from five saved bundles (2721.36 s / 393 beats). `estimateMinutes` rounds that to whole minutes, minimum 1. Not verified: ratio after newer templates.
 - 2026-11-16 Step 12 measured with 52 real sequential cloud Haiku calls: original 2/41 false flags (4.9%), 6/6 catches (100%); one prompt tweak also 2/41, but only 5/6 catches, so retained original.
   Production `startSession` now sets `factCheck: true`; low-level `streamVideo` retains its explicit opt-in default. Added public-recording eval mode and counted correct wrong-anchor beats in false flags.
   Evidence: 21 bundled fixtures + all 26 final public OpenStax beats (PR #25), both prompts; detailed results and failure examples below. Offline checks: 17 affected/importer files, 266 tests passed; final eval/helper checks 12 passed (3 live/generation skips); TypeScript passed.
