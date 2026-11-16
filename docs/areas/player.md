@@ -43,6 +43,10 @@ Visuals are scheduled *to* the audio, never the reverse.
 ## Log
 
 - 2026-11-16 Polish B (P1-2/6/8): `plainError(e)` (src/plainError.ts) maps raw errors to plain text, raw detail to devlog; player error strings only. Shared `prefersReducedMotion` (packages/motion/src/reducedMotion.ts) used by Counter/BlurText/Stepper (BlurText now snaps instead of tweening opacity/blur). Dev CSP gets `blob:` in connect-src so the player fixture works. Tests added; not exercised in a real webview. TODO for scene-transition worker: use `prefersReducedMotion()` in the stage transition (snap instead of slide/fade).
+- 2026-11-16 Centered the drawn loading ring in the video frame: “Generating video · N%” / “Updating video · N%”, smaller stage line, house white opacities and tabular figures.
+  Percentage uses real Progress events: script 20%, remaining work per ready scene, narration 60% of a scene before animation; no timed increments. High-water mark survives loader unmounts, retries and expanding totals; 100 waits for stream completion.
+  Evidence: 49 focused Loading/PlayerScreen tests, TypeScript, production fixture build, Orca before/after screenshots in `docs/ui-review/player-percent/`.
+  First-scene queue/autoplay and reduced-motion ring behavior retained. Not verified: a real model generation or native WKWebView; weighted work is not elapsed time and can hold while totals grow.
 
 - 2026-11-16 **Open issue: installed-build silence remains unexplained.** The owner heard no audio from `/Applications/Tangent.app` at `b9daaed` (ad-hoc, no hardened runtime), but confirmed audible old-bundle playback in instrumented current-v1 (`d86644f`) dev and release builds.
   Native measurements for `vmwh7y0mfvjpz4` scene 1: running 48 kHz context; 1,176,000 decoded mono frames; peak 0.720925; direct two-channel destination routing; live analyser peak 0.428199; no CSP/decode errors.

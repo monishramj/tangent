@@ -24,7 +24,7 @@ import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
 import { bufferClock, unlockAudioOnGesture } from "@motion/player/bufferClock";
 import SidePanel, { type Tab } from "./SidePanel";
-import Loading from "./Loading";
+import Loading, { useGenerationPercent } from "./Loading";
 import Textbook from "./Textbook";
 import TextSource from "./TextSource";
 import SourceFollow, { type FollowSource } from "./SourceFollow";
@@ -83,6 +83,7 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
   const [buffering, setBuffering] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [done, setDone] = useState(false);
+  const generationPercent = useGenerationPercent(progress, done);
   const [tab, setTab] = useState<Tab | null>(null);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [activeCp, setActiveCp] = useState<Checkpoint | null>(null);
@@ -393,8 +394,8 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
             className={`relative aspect-video w-full overflow-hidden bg-bg ${canPlay && !activeCp ? "cursor-pointer" : ""}`}>
             {isSkip(current) && <SkipCard />}
             {current && !isSkip(current) && <Stage previous={scenes.slice(0, scenes.findIndex(s => s.sceneId === current.sceneId)).reverse().find(s => !isSkip(s))} scene={current.scene} timeline={current.timeline} drawRef={drawRef} annotateRef={annotateRef} timeRef={localTime} snapshotRef={snapshotRef} />}
-            {waiting && <Loading progress={progress} />}
-            {buffering && current && !activeCp && <Loading progress={progress} compact />}
+            {waiting && <Loading percent={generationPercent} progress={progress} />}
+            {buffering && current && !activeCp && <Loading percent={generationPercent} progress={progress} compact />}
             {error && <div className="absolute inset-0 grid place-items-center p-6 text-center">
               <div><p role="alert" className="text-muted">{error}</p>
                 {current && <button type="button" onClick={() => { setError(null); play(); }} className="mt-3 mr-2 rounded-lg border border-line px-4 py-2 hover:bg-fg/10">Resume</button>}

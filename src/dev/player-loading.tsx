@@ -21,16 +21,17 @@ const store = memoryJsonStore();
 const progress: Progress = { step: "animation", scene: 1, scenesReady: 1, scenesTotal: 4, beats: [] };
 
 function Fixture() {
-  const [mode, setMode] = useState("generating");
+  const [mode, setMode] = useState(new URLSearchParams(location.search).get("mode") ?? "generating");
   const stream = useMemo(() => (async function* (): AsyncIterable<PipelineEvent> {
+    if (mode === "waiting") await new Promise(() => {});
     yield { type: "scene", sceneId: "fixture", scene, timeline, wavPath, generationMs: 0 };
-    if (mode === "generating") await new Promise(() => {});
+    if (mode === "generating" || mode === "buffering") await new Promise(() => {});
   })(), [mode]);
   return <>
     <PlayerScreen key={mode} stream={stream} title="Building a heap" store={store}
-      progress={mode === "replay" ? undefined : { ...progress, scenesReady: mode === "done" ? 4 : 1 }} />
+      progress={mode === "replay" ? undefined : { ...progress, scenesReady: mode === "done" ? 4 : mode === "waiting" ? 0 : 1 }} />
     <div className="fixed top-20 left-3 z-50 flex gap-2 text-xs">
-      {["generating", "done", "replay"].map(m => <button key={m} className="rounded bg-surface-2 px-3 py-2" aria-pressed={m === mode} onClick={() => setMode(m)}>{m}</button>)}
+      {["waiting", "generating", "buffering", "done", "replay"].map(m => <button key={m} className="rounded bg-surface-2 px-3 py-2" aria-pressed={m === mode} onClick={() => setMode(m)}>{m}</button>)}
     </div>
   </>;
 }
