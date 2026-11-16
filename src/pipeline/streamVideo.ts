@@ -16,7 +16,7 @@ import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
 import { devlog } from "../devlog";
 
 export type PipelineEvent =
-  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][]; sourceIds?: string[] }
+  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; factCheck?: "checked" | "unchecked"; passages?: BeatBoxes; passageIds?: string[][]; sourceIds?: string[] }
   /** scope "scene": this scene failed its retry too, so the player shows a skip card in its place. "script": part 2 of the script failed (nothing to skip over). */
   | { type: "error"; sceneId: string; error: Error; scope?: "scene" | "script" }
   | { type: "checkpoints"; items: Checkpoint[] };
@@ -44,7 +44,7 @@ type Options = {
   figures?: Figure[];
   /** Source blocks with page boxes (textbook follow-along); beats name them and scenes carry their boxes. */
   passages?: Passage[];
-  /** Set for a video built from more than one source. Passage ids are `sourceId/passageId`. */
+  /** Source blocks; passage ids are `sourceId/passageId` only with multiple sources. */
   sources?: { id: string; markdown: string }[];
   exercises?: Exercise[];
   /** How much of the section the script covers (see DetailLevel). */
@@ -53,7 +53,7 @@ type Options = {
   onProgress?: (p: Progress) => void;
   signal?: AbortSignal;
   clock?: { now(): number };
-  /** Step 12 fact-check of each scene's beats against their source. OFF until the false-flag rate is measured <= 5%. */
+  /** Fact-check each scene against its source. Production sessions enable this; direct callers opt in. */
   factCheck?: boolean;
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
@@ -94,10 +94,26 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   const FACT_WAIT_MS = 20_000;
   async function build({ beats: initial, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
     let beats = initial;
-    // Runs beside TTS. Scene 1 never waits for it (flags are logged only); later scenes wait up to FACT_WAIT_MS.
-    let verdict: ReturnType<typeof factCheckBeats> | undefined = factCheck
-      ? factCheckBeats({ beats, sources: passages.length ? passages : [{ id: "section", markdown: sectionMarkdown }], provider: complete }) : undefined;
-    verdict?.then(r => r.log.length && devlog(`fact-check scene ${index + 1}: ${r.log.join("; ")}`), () => {});
+    // Bound the whole check (including repairs), rather than adding a fresh wait after TTS.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let verdict = factCheck ? Promise.race([
+      factCheckBeats({ beats, sources: passages.length ? passages : [{ id: "section", markdown: sectionMarkdown }], provider: complete }).catch(() => null),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), index === 0 ? 8_000 : FACT_WAIT_MS); }),
+      aborted,
+    ]).finally(() => clearTimeout(timer)) : undefined;
+    void verdict?.catch(() => {});
+    let checkStatus: "checked" | "unchecked" | undefined;
+    async function applyCheck() {
+      if (!verdict) return false;
+      const r = await verdict;
+      verdict = undefined;
+      checkStatus = r?.checked ? "checked" : "unchecked";
+      if (r) {
+        beats = r.beats;
+        if (r.log.length) devlog(`fact-check scene ${index + 1}: ${r.log.join("; ")}`);
+      } else devlog(`fact-check scene ${index + 1}: unchecked (timed out or failed; numeric gate only)`);
+      return r?.sayChanged ?? false;
+    }
     const sceneId = `scene-${index + 1}`;
     const start = clock.now();
     let error = new Error("Scene generation failed");
@@ -107,20 +123,17 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         checkAbort();
         onStatus?.("generating narration");
         progress("narration", index);
+        if (index > 0) await applyCheck();
         let spoken = beats.map(beat => mathToSpeech(beat.say));
         // One wav per scene, one segment per beat: the sidecar puts a pause after each beat and reports
         // where each beat starts, so clips are cut on real boundaries.
         // Audio survives a failed scene attempt; only the DSL is retried.
         audio ??= await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
-        if (verdict && index > 0) {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const r = await Promise.race([verdict.catch(() => null), new Promise<null>(res => { timer = setTimeout(() => res(null), FACT_WAIT_MS); }), aborted]);
-          clearTimeout(timer);
-          verdict = undefined;
-          if (r) {
-            beats = r.beats;
-            if (r.sayChanged) { spoken = beats.map(beat => mathToSpeech(beat.say)); audio = await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]); }
-          }
+        if (await applyCheck()) {
+          spoken = beats.map(beat => mathToSpeech(beat.say));
+          // Scene 1 overlaps checking and narration for TTFF; a rewrite needs matching audio.
+          audio = undefined;
+          audio = await Promise.race([ttsAlign(spoken, { sceneId, signal: controller.signal }), aborted]);
         }
         checkAbort();
         if (!audio.wavPath?.trim() || !Number.isFinite(audio.sec) || audio.sec <= 0 || !audio.words.length)
@@ -174,6 +187,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         if (index === 0) devlog(`generation: first-scene-ready +${clock.now() - started}ms`);
         const sourceIds = sceneSourceIds(beats, (sources ?? []).map(s => s.id));
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
+          ...(checkStatus ? { factCheck: checkStatus } : {}),
           // Aligned with scene.beats (like `spoken`); absent when the IR has no passages.
           ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)), passageIds: beats.map(b => b.passages ?? []) } : {}),
           ...(sourceIds ? { sourceIds } : {}) };

@@ -182,3 +182,14 @@ it("time-boxes a slow replay lookup to 1.5 seconds and ignores its late result",
     expect(vi.getTimerCount()).toBe(0);
   } finally { vi.useRealTimers(); }
 });
+
+it("persists and replays fact-check status, leaving legacy scenes unmarked", async () => {
+  const store = fakeVideoStore();
+  await drain(recordStream(of([{ ...ev(1), factCheck: "unchecked" }, { ...ev(2), factCheck: "checked" }, ev(3)] as PipelineEvent[]), { id: "checks", title: "Checks", source }, store));
+  await new Promise(r => setTimeout(r, 0));
+  const bundle = await store.load("checks");
+  expect(bundle.scenes.map(s => s.factCheck)).toEqual(["unchecked", "checked", undefined]);
+  const out = [];
+  for await (const e of replayStream(bundle)) if (e.type === "scene") out.push(e.factCheck);
+  expect(out).toEqual(["unchecked", "checked", undefined]);
+});

@@ -4,6 +4,8 @@ Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first
 
 - 2026-11-15 Fixed PR #15 scene-transition bleed with moving viewport masks for Pixi and DOM; deterministic timing/audio unchanged, renderer regression and Orca before/after frames.
 - 2026-11-16 Polish C (library): no photo re-transcribe on launch without "Transcribe again"; multi-drop flake fixed and un-skipped (20x green); video `save` refuses to shrink/un-complete an existing bundle (P1-3/9/11).
+- 2026-11-16 Polish generation P1-1/P1-10/P1-7: bounded scene-1 fact-check beside TTS, persisted unchecked status on unusable/timeouts, later-scene check before synthesis, and one App source-list preparation path; offline regressions/importer checks, no live TTFF measurement.
+
 - 2026-11-15 Make a video estimates length from the selected sections and detail level (about N min; 6.92 s/beat from saved bundles).
 - 2026-11-16 Default Sections shares the existing white-brace SectionPicker with selection mode; rebased onto current v1, preserving multi-source behavior, with affected tests, TypeScript and refreshed Orca fixture screenshots; native touch/WKWebView/screen reader unverified.
 - 2026-11-16 Step 25: rebuilt v1 after #40/#41; ad-hoc/no runtime, fresh setup/nonblank main, saved WebAudio playback, Textbook rendering and SIGTERM sidecar cleanup pass; owner still to hear audio/check PPTX + ring; app retained, updater signing key absent (see docs/mac-smoke-2026-11.md).
