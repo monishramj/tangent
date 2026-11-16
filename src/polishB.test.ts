@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
-const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+const read = (p: string) => readFileSync(`${process.cwd()}/${p}`, "utf8");
 
 it("folder emoji render grayscale", () => {
   const css = read("src/home/views.css");
