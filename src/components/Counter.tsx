@@ -1,6 +1,7 @@
 'use client';
 // React Bits Counter (TS + Tailwind): https://github.com/DavidHDev/react-bits/blob/main/src/ts-tailwind/Components/Counter/Counter.tsx
 
+import { prefersReducedMotion } from '@motion/reducedMotion';
 import {
   useEffect,
   useId,
@@ -114,8 +115,7 @@ const mod = (value: number, base: number) => ((value % base) + base) % base;
 
 const wrap = (offset: number) => mod(offset + 5, 10) - 5;
 
-const prefersReduced = () =>
-  typeof window !== 'undefined' && (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+const prefersReduced = prefersReducedMotion;
 
 const stepBetween = (from: number, to: number, direction: string) => {
   const up = mod(to - from, 10);

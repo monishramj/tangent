@@ -129,7 +129,7 @@ it("a script failure (scope script) before any scene shows the alert with its re
   const s = setup();
   await settle();
   await s.push({ type: "error", sceneId: "scene-1", error: new Error("boom"), scope: "script" } as PipelineEvent);
-  expect(screen.getByRole("alert").textContent).toContain("boom");
+  expect(screen.getByRole("alert").textContent).toContain("Something went wrong");
 });
 
 const failed = (id: string) => ({ type: "error", sceneId: id, error: new Error("twice"), scope: "scene" }) as PipelineEvent;

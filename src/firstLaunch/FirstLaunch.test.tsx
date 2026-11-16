@@ -69,3 +69,16 @@ it("keeps the last result and shows an alert when a re-check throws", async () =
   expect((await screen.findByRole("alert")).textContent).toContain("still working");
   expect(screen.getByText(/You're logged in/)).toBeTruthy();
 });
+
+it("uses no green/red, shows pending login as not checked, and copies the install command", async () => {
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  const { container } = render(<FirstLaunch check={() => Promise.resolve(states.missing)} onContinue={vi.fn()} />);
+  await screen.findByText("Claude Code isn't installed.");
+  expect(container.innerHTML).not.toMatch(/#3dd68c|#ff6b6b/i);
+  expect(screen.getAllByRole("listitem").map(r => r.getAttribute("data-status"))).toEqual(["fail", "pending"]);
+  expect(screen.getByText(/Not checked yet\. We'll check the login/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  expect(writeText).toHaveBeenCalledWith("curl -fsSL https://claude.ai/install.sh | bash");
+  expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+});

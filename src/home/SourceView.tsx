@@ -1,3 +1,4 @@
+import { plainError } from '../plainError';
 import { isPhotoSource, TRANSCRIPTION_LABEL } from "../gen/transcribe";
 import { useEffect, useRef, useState } from 'react';
 import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
@@ -67,7 +68,7 @@ export default function SourceView(props: SourceViewProps) {
     if (!count || generating) return;
     setGenerating(true); setError('');
     const also = [...extras.reduce((m, e) => m.set(e.sourceId, [...(m.get(e.sourceId) ?? []), e.sectionId]), new Map<string, string[]>())].map(([sourceId, sectionIds]) => ({ sourceId, sectionIds }));
-    try { if (also.length) await props.onGenerate(ids, detail, also); else await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video: ${String(e)}`); }
+    try { if (also.length) await props.onGenerate(ids, detail, also); else await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video. ${plainError(e)}`); }
     finally { setGenerating(false); }
   };
   return <LibraryShell onHome={props.onHome ?? props.onBack} onSettings={props.onSettings} wide>

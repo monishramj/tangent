@@ -9,9 +9,10 @@ const host = process.env.TAURI_DEV_HOST;
 // Tauri applies app.security.csp only to the built app (tauri:// assets). `tauri dev` on desktop loads this server directly,
 // so serve the same policy as a header here. Dev-only additions: HMR websocket, and inline scripts for React Fast Refresh's
 // preamble (production stays 'self' only).
+// blob: in connect-src is dev-only too: the player fixture (src/dev/player-loading.tsx) fetches a generated silent WAV.
 const csp: Record<string, string> = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "src-tauri/tauri.conf.json"), "utf8")).app.security.csp;
 const hmr = host ? `ws://${host}:1421` : "ws://localhost:1420";
-const devCsp = Object.entries({ ...csp, "script-src": `${csp["script-src"]} 'unsafe-inline'`, "connect-src": `${csp["connect-src"]} ${hmr}` })
+const devCsp = Object.entries({ ...csp, "script-src": `${csp["script-src"]} 'unsafe-inline'`, "connect-src": `${csp["connect-src"]} ${hmr} blob:` })
   .map(([k, v]) => `${k} ${v}`).join("; ");
 
 export default defineConfig({
