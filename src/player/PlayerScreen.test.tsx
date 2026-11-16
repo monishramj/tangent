@@ -68,7 +68,7 @@ it("shows progress Loading before the first scene, then the title and a 16:9 vid
   expect(screen.getByRole("heading", { name: "Heapify" })).toBeTruthy();
   const waiting = screen.getByRole("status");
   expect(waiting.getAttribute("aria-live")).toBe("polite");
-  expect(waiting.textContent).toBe("Preparing your explanation");
+  expect(waiting.textContent).toBe("Generating video");
   expect(screen.getByTestId("player-ring")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Play video" })).toBeNull();
   expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);
@@ -85,10 +85,23 @@ it("hides the loader while playing and shows it when the scene buffers", async (
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   expect(screen.queryByRole("status")).toBeNull();
   await act(async () => { s.audios[0].dispatchEvent(new Event("waiting")); });
-  expect(screen.getByRole("status").textContent).toBe("Buffering");
+  expect(screen.getByRole("status").textContent).toBe("Updating video");
   expect(screen.getByTestId("player-ring")).toBeTruthy();
   await act(async () => { s.audios[0].dispatchEvent(new Event("canplay")); });
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("keeps generation percent between playback and a later wait", async () => {
+  const progress: Progress = { step: "animation", scene: 1, scenesReady: 1, scenesTotal: 4, beats: [] };
+  const s = setup({ progress });
+  expect(screen.getByText("Generating video · 52%")).toBeTruthy();
+  await startWithScene(s);
+  expect(screen.queryByRole("status")).toBeNull();
+  s.view.rerender(<PlayerScreen {...s} progress={{ ...progress, step: "narration", scenesTotal: 8 }} />);
+  fireEvent.click(screen.getByRole("button", { name: "Play" }));
+  await act(async () => { s.audios[0].dispatchEvent(new Event("waiting")); });
+  expect(screen.getByText("Updating video · 52%")).toBeTruthy();
+  expect(screen.getByText("Narrating scene 2 of 8")).toBeTruthy();
 });
 
 it("play and pause buttons drive the audio", async () => {
