@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import useKeybinds from "./hooks/useKeybinds";
 import { startMenuBridge, syncMenu } from "./menu";
-import Home, { type StartMeta, type LibraryRoute } from "./home/Home";
+import Home, { type ExtraSource, type StartMeta, type LibraryRoute } from "./home/Home";
 import PlayerScreen from "./player/PlayerScreen";
+import type { FollowSource } from "./player/SourceFollow";
+import { tagPassages } from "./gen/sources";
 import { sectionPages, sectionsPassages, sectionsExercises, sectionsFigures, sectionsText, type IR, type Passage } from "./home/api";
 import { stripWatermarks } from "./gen/sanitize";
 import { startSession } from "./pipeline/session";
@@ -17,7 +19,7 @@ import { devlog } from "./devlog";
 import FirstLaunch from "./firstLaunch/FirstLaunch";
 import { checksPassed, markChecksPassed } from "./firstLaunch/checks";
 
-type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta };
+type GenerateArgs = { sectionIds: string[]; ir: IR; meta: StartMeta; extras?: ExtraSource[] };
 type Screen =
   | LibraryRoute
   | { s: "generate"; args: GenerateArgs; attempt: number; back?: LibraryRoute }
@@ -36,7 +38,7 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
   if (!ready) return <FirstLaunch onContinue={() => { try { markChecksPassed(); } catch { /* this session still continues */ } setReady(true); }} />;
   return <>
     <div hidden={!inLibrary}><Home store={videoStore} jsonStore={store} provider={provider} route={libraryRoute} active={inLibrary} onNavigate={setScreen}
-      onStart={(sectionIds, ir, meta) => setScreen({ s: "generate", args: { sectionIds, ir, meta }, attempt: 0, back: libraryRoute })}
+      onStart={(sectionIds, ir, meta, extras) => setScreen({ s: "generate", args: { sectionIds, ir, meta, ...(extras?.length ? { extras } : {}) }, attempt: 0, back: libraryRoute })}
       onOpenVideo={video => setScreen({ s: "watch", video, back: libraryRoute })} /></div>
     {screen.s === 'watch' && <Watch video={screen.video} provider={provider} store={store} onBack={() => setScreen(libraryRoute)} />}
     {screen.s === 'generate' && <Generate key={screen.attempt} args={screen.args} provider={provider} store={store} videoStore={videoStore}
@@ -47,12 +49,34 @@ export default function App({ provider, store = tauriJsonStore, videoStore = tau
 function Watch({ video, provider, store, onBack }: { video: VideoBundle; provider?: LLMProvider; store: JsonStore; onBack: () => void }) {
   const stream = useMemo(() => replayStream(video), [video]);
   const [pages, setPages] = useState<number[]>([]);
+  const [followSources, setFollowSources] = useState<FollowSource[] | undefined>();
   const [source, setSource] = useState<{ markdown: string; passages: Passage[] }>({ markdown: video.title, passages: [] });
   useEffect(() => {
     let live = true;
     const path = video.source.pdfPath;
     setPages([]);
+    setFollowSources(undefined);
     setSource({ markdown: video.title, passages: [] });
+    const parts = video.source.also?.length
+      ? [{ id: video.source.id ?? sourceFor(path).id, pdfPath: path, sectionId: video.source.sectionId }, ...video.source.also]
+      : null;
+    if (parts) {
+      void (async () => {
+        const loaded: FollowSource[] = [];
+        let markdown = "";
+        for (const p of parts) {
+          const ir = await irCache(store).get(p.id).catch(() => null);
+          if (!ir || !Array.isArray(ir.sections)) { loaded.push({ id: p.id, pdfPath: p.pdfPath, pages: [], passages: [], missing: true }); continue; }
+          const ids = p.sectionId.split("+").filter(Boolean);
+          const passages = sectionsPassages(ir, ids).map(x => ({ ...x, id: `${p.id}/${x.id}` }));
+          loaded.push({ id: p.id, pdfPath: p.pdfPath, pages: isOfficeSource(p.pdfPath) ? [] : sectionPages(ir, p.sectionId), passages });
+          const text = stripWatermarks(await sectionsText(ir, ids));
+          markdown += (markdown && text ? "\n\n" : "") + text;
+        }
+        if (live) { setFollowSources(loaded); setPages([]); setSource({ markdown: markdown || video.title, passages: loaded.flatMap(s => s.passages) }); }
+      })();
+      return () => { live = false; };
+    }
     void irCache(store).get(sourceFor(path).id).then(async ir => {
       if (!ir || !Array.isArray(ir.sections)) return;
       const ids = video.source.sectionId.split("+");
@@ -67,7 +91,7 @@ function Watch({ video, provider, store, onBack }: { video: VideoBundle; provide
     return () => { live = false; };
   }, [video, store]);
   return <PlayerScreen stream={stream} title={video.title} kicker={video.source.sectionTitle !== video.title ? video.source.sectionTitle : "Tangent"}
-    textbook={{ pdfPath: video.source.pdfPath, pages }} videoId={video.id} section={source.markdown} passages={source.passages} provider={provider} store={store} autoPlay onBack={onBack} />;
+    textbook={{ pdfPath: video.source.pdfPath, pages }} followSources={followSources} videoId={video.id} section={source.markdown} passages={source.passages} provider={provider} store={store} autoPlay onBack={onBack} />;
 }
 
 /** Read the section, start the pipeline, record it into a bundle, and play it as it streams. */
@@ -76,13 +100,45 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
 }) {
   const [videoId] = useState(() => newId("v"));
   const [progress, setProgress] = useState<Progress>();
-  const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string; passages: Passage[] } | { error: string } | null>(null);
+  const [state, setState] = useState<{ stream: AsyncIterable<PipelineEvent>; markdown: string; passages: Passage[]; followSources?: FollowSource[] } | { error: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     const { sectionIds, meta } = args;
     const sectionId = sectionIds.join("+");
     void (async () => {
       try {
+        if (args.extras?.length) {
+          const parts = [{ pdfPath: meta.pdfPath, ir: args.ir, sectionIds, name: meta.title }, ...args.extras].filter(p => p.sectionIds.length);
+          const prepared = [];
+          for (const p of parts) {
+            const ir = await withFormulas(p.pdfPath, p.ir, p.sectionIds, store,
+              n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
+            if (controller.signal.aborted) return;
+            const id = sourceFor(p.pdfPath).id;
+            prepared.push({
+              id, pdfPath: p.pdfPath, name: p.name, sectionIds: p.sectionIds,
+              markdown: stripWatermarks(await sectionsText(ir, p.sectionIds)),
+              passages: sectionsPassages(ir, p.sectionIds),
+              figures: sectionsFigures(ir, p.sectionIds),
+              exercises: sectionsExercises(ir, p.sectionIds),
+              pages: isOfficeSource(p.pdfPath) ? [] : sectionPages(ir, p.sectionIds.join("+")),
+            });
+          }
+          if (controller.signal.aborted || !prepared.length) return;
+          const passages = tagPassages(prepared);
+          const markdown = prepared.map(p => p.markdown).filter(Boolean).join("\n\n");
+          const followSources = prepared.map(p => ({ id: p.id, pdfPath: p.pdfPath, pages: p.pages, passages: passages.filter(x => x.id.startsWith(`${p.id}/`)) }));
+          const key = await giphyKey();
+          const [first, ...rest] = prepared;
+          const stream = startSession({
+            irSection: { markdown, passages, figures: prepared.flatMap(p => p.figures), exercises: prepared.flatMap(p => p.exercises) },
+            sources: prepared.map(p => ({ id: p.id, markdown: p.markdown })),
+            provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
+            onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
+          });
+          setState({ markdown, passages, followSources, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { id: first.id, pdfPath: first.pdfPath, sectionId: first.sectionIds.join("+"), sectionTitle: meta.title, also: rest.map(p => ({ id: p.id, pdfPath: p.pdfPath, sectionId: p.sectionIds.join("+"), sectionTitle: p.name })) } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
+          return;
+        }
         const ir = await withFormulas(meta.pdfPath, args.ir, sectionIds, store,
           n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
         if (controller.signal.aborted) return;
@@ -105,5 +161,6 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
     kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} passages={state && "passages" in state ? state.passages : []} provider={provider} store={store}
     textbook={{ pdfPath: args.meta.pdfPath, pages: isOfficeSource(args.meta.pdfPath) ? [] : sectionPages(args.ir, args.sectionIds.join("+")) }}
+    followSources={state && "followSources" in state ? state.followSources : undefined}
     progress={progress} onRetry={onRetry} onBack={onBack} autoPlay initialError={error ? `Couldn't start this section: ${error}` : undefined} />;
 }

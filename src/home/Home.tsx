@@ -17,11 +17,12 @@ import { sourceQueue, preparationLabel, isPreparing } from './ingestQueue';
 import { isDetailLevel, type DetailLevel } from '../gen/script';
 
 export type StartMeta = { pdfPath: string; title: string; detail: DetailLevel };
+export type ExtraSource = { pdfPath: string; sectionIds: string[]; ir: IR; name: string };
 export type LibraryRoute = { s: 'settings' } | { s: 'home' } | { s: 'folder'; folderId: string } | { s: 'source'; sourceId: string; folderId?: string };
 const isTauri = () => '__TAURI_INTERNALS__' in window;
 
 export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store = tauriVideoStore, jsonStore = tauriJsonStore, provider = providers.claude, route: controlledRoute, onNavigate, active = true }: {
-  onStart?: (ids: string[], ir: IR, meta: StartMeta) => void; onOpenVideo?: (video: VideoBundle) => void;
+  onStart?: (ids: string[], ir: IR, meta: StartMeta, extras?: ExtraSource[]) => void; onOpenVideo?: (video: VideoBundle) => void;
   store?: VideoStore; jsonStore?: JsonStore; provider?: LLMProvider; route?: LibraryRoute; onNavigate?: (route: LibraryRoute) => void; active?: boolean;
 }) {
   const [localRoute, setLocalRoute] = useState<LibraryRoute>({ s: 'home' });
@@ -129,7 +130,23 @@ export default function Home({ onStart = () => {}, onOpenVideo = () => {}, store
     onBack={() => { setError(''); navigate(folder ? { s: 'folder', folderId: folder.id } : { s: 'home' }); }} onHome={home} onSettings={() => navigate({ s: 'settings' })}
     onOpenVideo={v => void openVideo(v)} onDeleteVideo={removeVideo}
     passages={content && (isOfficeSource(source.pdfPath) || isPhotoSource(source.pdfPath)) ? sectionsPassages(content.ir, content.sections.map(s => s.id)) : undefined}
-    onGenerate={(ids, detail) => { if (!content) return; onStart(ids, content.ir, { pdfPath: source.pdfPath, title: multiTitle(ids.map(id => content.sections.find(s => s.id === id)!.title)), detail }); }} />;
+    otherSources={library.sources.filter(s => s.id !== source.id).map(s => ({ id: s.id, name: s.name, sections: uploads.find(u => u.path === s.pdfPath)?.value?.sections }))}
+    onGenerate={(ids, detail, also) => {
+      if (!content) return;
+      const extras = (also ?? []).flatMap(a => {
+        const src = library.sources.find(s => s.id === a.sourceId);
+        const value = uploads.find(u => u.path === src?.pdfPath)?.value;
+        return src && value ? [{ pdfPath: src.pdfPath, sectionIds: a.sectionIds, ir: value.ir, name: src.name }] : [];
+      });
+      const titles = [
+        ...ids.map(id => content.sections.find(s => s.id === id)?.title ?? id),
+        ...extras.flatMap(p => p.sectionIds.map(id => uploads.find(u => u.path === p.pdfPath)?.value?.sections.find(s => s.id === id)?.title ?? id)),
+      ];
+      const meta = { pdfPath: source.pdfPath, title: multiTitle(titles), detail };
+      if (!extras.length) onStart(ids, content.ir, meta);
+      else if (!ids.length) { const [first, ...rest] = extras; onStart(first.sectionIds, first.ir, { ...meta, pdfPath: first.pdfPath }, rest.length ? rest : undefined); }
+      else onStart(ids, content.ir, meta, extras);
+    }} />;
   return <>{photoImport && <PhotoConfirm count={photoImport.filter(isPhotoSource).length} onCancel={() => setPhotoImport(null)} onConfirm={() => { const paths = photoImport; setPhotoImport(null); void importPaths(paths, true); }} />}<LibraryView shortcutsActive={active} folders={folders} folder={folder ? folders.find(f => f.id === folder.id) : undefined}
     sources={library.sources.filter(s => folder ? s.folderId === folder.id : !s.folderId)}
     videos={recentVideos(videos, folder ? new Set(library.sources.filter(s => s.folderId === folder.id).map(s => s.pdfPath)) : undefined)}

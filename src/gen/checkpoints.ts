@@ -140,13 +140,19 @@ function capQuestions(items: Checkpoint[], scenes: number): Checkpoint[] {
 }
 
 /** Missing/unknown citations, unsupported numbers and missing/invalid judge verdicts all fail closed. */
-async function groundQuestions(items: Checkpoint[], paragraphs: SourceParagraph[], scenes: string[], provider: LLMProvider): Promise<Checkpoint[]> {
+async function groundQuestions(items: Checkpoint[], paragraphs: SourceParagraph[], scenes: string[], provider: LLMProvider, sceneSources?: string[][]): Promise<Checkpoint[]> {
   const candidates = items.flatMap(c => {
     if (c.source === "textbook") return [];
     const ids = c.cite?.match(/\[[^\[\]]+\]/g) ?? [];
     if (!ids.length || c.cite!.replace(/\[[^\[\]]+\]/g, "").replace(/[,\s]/g, "")) return [];
     const cited = ids.map(id => paragraphs.find(p => `[${p.id}]` === id));
     if (cited.some(p => !p)) return [];
+    if (sceneSources) {
+      const allowed = sceneSources[c.afterScene] ?? [];
+      const citedIds = ids.map(id => id.slice(1, -1));
+      const fromOne = allowed.length === 1 && citedIds.every(id => id.startsWith(`${allowed[0]}/`));
+      if (!fromOne) return [];
+    }
     const source = (cited as SourceParagraph[]).map(p => p.markdown).join("\n\n");
     if (unsupportedNumbers(`${c.answer}\n${c.explanation}`, supportSet(source)).length) return [];
     return [{ id: c.id, question: c, narration: c.afterScene === scenes.length - 1 ? scenes.join(" ") : scenes[c.afterScene], source }];
@@ -169,8 +175,10 @@ ${dataReminder(tags)}`, { model: "haiku" })));
   return items.filter(c => c.source === "textbook" || supported.has(c.id));
 }
 
-export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, figures = [], passages = [], provider }: {
+export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, figures = [], passages = [], provider, sceneSources }: {
   sectionMarkdown: string; exercises: Exercise[]; scenes: string[]; figures?: CheckpointFigure[]; passages?: SourceParagraph[]; provider: LLMProvider;
+  /** When set, a generated question may cite only that scene's single source. Empty means fail closed. */
+  sceneSources?: string[][];
 }): Promise<Checkpoint[]> {
   if (!scenes.length) return [];
   // Older sources have no IR passage ids; give their paragraphs local anchors for this check only.
@@ -187,7 +195,7 @@ export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, 
       if (second.kept.length >= first.kept.length) selected = second;
     } catch { /* Keep the individually valid first-pass questions. */ }
   }
-  return capQuestions(await groundQuestions(capQuestions(selected.kept, scenes.length), paragraphs, scenes, provider), scenes.length);
+  return capQuestions(await groundQuestions(capQuestions(selected.kept, scenes.length), paragraphs, scenes, provider, sceneSources), scenes.length);
 }
 
 export type Grade = { correct: boolean; feedback: string };

@@ -19,7 +19,9 @@ import SectionPicker from './SectionPicker';
 export type SourceViewProps = {
   source: SourceSummary; folderName?: string; sections: SectionRef[]; videos: VideoBundle[];
   onBack: () => void; onHome?: () => void; onSettings?: () => void; onOpenVideo: (video: VideoBundle) => void;
-  onGenerate: (ids: string[], detail: DetailLevel) => void | Promise<void>;
+  onGenerate: (ids: string[], detail: DetailLevel, also?: { sourceId: string; sectionIds: string[] }[]) => void | Promise<void>;
+  /** Other library sources the user can add sections from. Only those with sections are offered. */
+  otherSources?: { id: string; name: string; sections?: SectionRef[] }[];
   /** Open already choosing sections (dev proof page). */
   seedSelection?: string[];
   renderPage?: RenderPage;
@@ -48,14 +50,19 @@ export default function SourceView(props: SourceViewProps) {
   const [detail, setDetail] = useState<DetailLevel>(props.initialDetail ?? 'standard');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [extras, setExtras] = useState<{ sourceId: string; name: string; sectionId: string; title: string }[]>([]);
+  const [add, setAdd] = useState<null | { pick?: string; selected: Set<string> }>(null);
   const makeButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => { setTab('sections'); setSelecting(props.seedSelection != null); setSelected(new Set(props.seedSelection ?? [])); setError(''); }, [source.id, props.seedSelection]);
+  const others = (props.otherSources ?? []).filter(s => s.sections?.length);
+  useEffect(() => { setTab('sections'); setSelecting(props.seedSelection != null); setSelected(new Set(props.seedSelection ?? [])); setExtras([]); setAdd(null); setError(''); }, [source.id, props.seedSelection]);
   const ids = topSelected(sections, selected);
-  const cancel = () => { setSelecting(false); setSelected(new Set()); requestAnimationFrame(() => makeButton.current?.focus()); };
+  const count = ids.length + extras.length;
+  const cancel = () => { setSelecting(false); setSelected(new Set()); setExtras([]); setAdd(null); requestAnimationFrame(() => makeButton.current?.focus()); };
   const generate = async () => {
-    if (!ids.length || generating) return;
+    if (!count || generating) return;
     setGenerating(true); setError('');
-    try { await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video: ${String(e)}`); }
+    const also = [...extras.reduce((m, e) => m.set(e.sourceId, [...(m.get(e.sourceId) ?? []), e.sectionId]), new Map<string, string[]>())].map(([sourceId, sectionIds]) => ({ sourceId, sectionIds }));
+    try { if (also.length) await props.onGenerate(ids, detail, also); else await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video: ${String(e)}`); }
     finally { setGenerating(false); }
   };
   return <LibraryShell onHome={props.onHome ?? props.onBack} onSettings={props.onSettings} wide>
@@ -73,14 +80,30 @@ export default function SourceView(props: SourceViewProps) {
           {props.cleanupPending && <p className="tl-status" role="status">Tidying section titles…</p>}
           {!props.cleanupPending && props.warning && <p className="tl-status" role="status">{props.warning}</p>}
           {props.onRetryCleanup && !props.cleanupPending && <button className="tl-text-button" onClick={props.onRetryCleanup}>{props.sections.length ? 'Retry section titles' : 'Retry PDF'}</button>}
-          {selecting && <div className="tl-selection-head"><span>Choose sections<small>{ids.length ? `${ids.length} selected` : 'Click a title or its brace'}</small></span><button className="tl-text-button" onClick={() => setSelected(selected.size === sections.length ? new Set() : new Set(sections.map(s => s.id)))}>{selected.size === sections.length ? 'Clear selection' : 'Select all'}</button></div>}
+          {selecting && !add && <div className="tl-selection-head"><span>Choose sections<small>{count ? `${count} selected` : 'Click a title or its brace'}</small></span><button className="tl-text-button" onClick={() => setSelected(selected.size === sections.length ? new Set() : new Set(sections.map(s => s.id)))}>{selected.size === sections.length ? 'Clear selection' : 'Select all'}</button>{others.length > 0 && <button className="tl-text-button" type="button" onClick={() => setAdd({ selected: new Set() })}>Add another source</button>}</div>}
+          {extras.length > 0 && !add && <ul aria-label="Selected sections" className="tl-sections">{[
+            ...ids.map(id => ({ key: id, name: source.name, title: sections.find(s => s.id === id)?.title ?? id })),
+            ...extras.map(e => ({ key: `${e.sourceId}/${e.sectionId}`, name: e.name, title: e.title })),
+          ].map(row => <li className="tl-section-row" key={row.key}><span>{row.name}</span><small>{row.title}</small></li>)}</ul>}
           {!sections.length && <p className="tl-empty">No sections found in this PDF. You can still view the original.</p>}
-          {selecting ? <SectionPicker rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />
-            : <div className="tl-sections" aria-label="Sections">{sections.map(section => <div className="tl-section-row" key={section.id}>
+          {selecting && add && !add.pick && <div aria-label="Add another source"><p className="tl-status">Add another source</p>{others.map(s => <button key={s.id} type="button" className="tl-section-row" onClick={() => setAdd({ pick: s.id, selected: new Set(extras.filter(e => e.sourceId === s.id).map(e => e.sectionId)) })}>{s.name}</button>)}<button type="button" className="tl-text-button" onClick={() => setAdd(null)}>Back</button></div>}
+          {selecting && add?.pick && (() => {
+            const other = others.find(s => s.id === add.pick);
+            if (!other?.sections) return null;
+            const rows = other.sections;
+            return <><SectionPicker label={other.name} rows={rows.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={add.selected} onChange={selected => setAdd({ pick: other.id, selected })} />
+              <div className="tl-generation-bottom"><button type="button" className="tl-text-button" onClick={() => setAdd({ selected: new Set() })}>Back</button><button type="button" className="tl-primary" disabled={!add.selected.size} onClick={() => {
+                const chosen = topSelected(rows, add.selected);
+                setExtras(prev => [...prev.filter(e => e.sourceId !== other.id), ...chosen.map(id => ({ sourceId: other.id, name: other.name, sectionId: id, title: rows.find(r => r.id === id)?.title ?? id }))]);
+                setAdd(null);
+              }}>Add sections</button></div></>;
+          })()}
+          {selecting && !add ? <SectionPicker rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />
+            : !selecting ? <div className="tl-sections" aria-label="Sections">{sections.map(section => <div className="tl-section-row" key={section.id}>
               <span style={{ paddingLeft: Math.min(4, Math.max(0, section.level - 1)) * 16 }}>{section.title}</span><small>{pages(section)}</small>
-            </div>)}</div>}
-          {selecting && <div className="tl-generation"><div className="tl-generation-top"><label htmlFor="video-detail">Detail level</label><Select id="video-detail" value={detail} onChange={e => { const value = e.target.value; if (!isDetailLevel(value)) return; setDetail(value); props.onDetailChange?.(value); }}>{DETAIL_LEVELS.map(d => <option value={d} key={d}>{detailLabel[d]}</option>)}</Select></div>
-            <p>{detailHint[detail]}</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!ids.length || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${ids.length ? ` · ${ids.length} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
+            </div>)}</div> : null}
+          {selecting && !add && <div className="tl-generation"><div className="tl-generation-top"><label htmlFor="video-detail">Detail level</label><Select id="video-detail" value={detail} onChange={e => { const value = e.target.value; if (!isDetailLevel(value)) return; setDetail(value); props.onDetailChange?.(value); }}>{DETAIL_LEVELS.map(d => <option value={d} key={d}>{detailLabel[d]}</option>)}</Select></div>
+            <p>{detailHint[detail]}</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!count || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${count ? ` · ${count} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
           </div>}
         </>}
       </div> : <div role="tabpanel" id="source-panel-pdf" aria-labelledby="source-tab-pdf" className="tl-pdf-panel">

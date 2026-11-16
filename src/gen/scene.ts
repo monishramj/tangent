@@ -26,11 +26,12 @@ export const recentFor = (plans: ScenePlan[], n = 8): Used[] => plans.flatMap(p 
 const err = (path: string, message: string, beat?: number): DslError => ({ path, code: "schema", message, beat });
 
 /** Deterministic quality gate on the model's template answer: narration intact, variety, sparing gifs. */
-export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], figures: Figure[] = [], recent: Used[] = [], source?: string): DslError[] {
+export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], figures: Figure[] = [], recent: Used[] = [], source?: string, perBeatSource?: string[]): DslError[] {
   const errs: DslError[] = [];
   // On-screen numbers are claims too (principle 7): each must be spoken in this scene or stated in the source.
   // Only checked when the source is known; illustrative/computed templates (array, tree, ...) are exempt.
-  const support = source === undefined ? null : supportSet(source, ...beats.map(b => b.say));
+  // Several sources: each beat is checked against that beat's source text only. Empty text fails closed.
+  const support = perBeatSource || source === undefined ? null : supportSet(source, ...beats.map(b => b.say));
   const used = raw.beats.map((b, i) => b.template ? `${b.template}/${resolveVariant(b.template as TemplateName, b.variant, i)}` : "");
   const last2 = new Set(recent.slice(-2).map(u => `${u.template}/${u.variant}`));
   if (raw.beats.length !== beats.length) errs.push(err("beats", `need exactly ${beats.length} beats, got ${raw.beats.length}`));
@@ -42,8 +43,9 @@ export function checkTemplateScene(raw: TemplateSceneT, beats: ScriptBeat[], fig
     if (prev && b.template && !b.keep && b.template === prev.template && b.variant === prev.variant)
       errs.push(err(`beats[${i}].template`, `same template and variant as the previous beat (${b.template}/${b.variant ?? "default"}); vary it`, i));
     if (used[i] && last2.has(used[i])) errs.push(err(`beats[${i}].template`, `${used[i]} was just used at the end of the previous scene; pick a different template or variant`, i));
-    if (support) {
-      const bad = [...new Set(screenText(b.template, b.data).flatMap(t => unsupportedNumbers(t, support)))];
+    const beatSupport = perBeatSource ? supportSet(perBeatSource[i] ?? "", beats[i]?.say ?? "") : support;
+    if (beatSupport) {
+      const bad = [...new Set(screenText(b.template, b.data).flatMap(t => unsupportedNumbers(t, beatSupport)))];
       if (bad.length) errs.push(err(`beats[${i}].data`, `on-screen number ${bad.map(x => `"${x}"`).join(", ")} is not in the narration or the source; show only numbers the narration says, or pick a template without numbers`, i));
     }
     const d = b.data as { src?: unknown } | undefined;
@@ -94,10 +96,12 @@ ${dataReminder(TAGS)} Return only the scene JSON.`;
 const parseJson = (text: string) => JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1").trim());
 
 /** One model call per scene group; one retry with the previous answer and every error. */
-export async function generateGroupScene({ beats, plan, figures = [], provider, sceneNo = 1, recent = [], source }: {
+export async function generateGroupScene({ beats, plan, figures = [], provider, sceneNo = 1, recent = [], source, perBeatSource }: {
   beats: ScriptBeat[]; plan: ScenePlan; figures?: Figure[]; provider: LLMProvider; sceneNo?: number; recent?: Used[];
   /** Section text that on-screen numbers are checked against (not sent to the model). */
   source?: string;
+  /** One source text per beat. When set, a number must be in that beat's source or its narration. */
+  perBeatSource?: string[];
 }): Promise<GenerationResult> {
   let text = "", ask = prompt(beats, plan, figures, sceneNo, recent);
   const errors: DslError[][] = [];
@@ -108,7 +112,7 @@ export async function generateGroupScene({ beats, plan, figures = [], provider, 
     try {
       const raw = TemplateScene.parse(parseJson(text));
       // Cross-scene variety is enforced on the first answer only: a repeat must never cost the whole scene.
-      issues = checkTemplateScene(raw, beats, figures, attempts === 1 ? recent : [], source);
+      issues = checkTemplateScene(raw, beats, figures, attempts === 1 ? recent : [], perBeatSource ? undefined : source, perBeatSource);
       if (!issues.length) {
         const expanded = expandTemplates(raw);
         issues = expanded.errors.map(e => err(e.path, e.message, e.beat));

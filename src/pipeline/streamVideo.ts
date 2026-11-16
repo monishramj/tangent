@@ -9,13 +9,14 @@ import { mathToSpeech } from "../speech/mathToSpeech";
 import { compileOps } from "@motion/dsl/ops";
 import { resolveAnchor, type Timeline, type Word } from "@motion/dsl/compile";
 import { boxesFor } from "../follow/passages";
+import { citedSources, oneSourceText, sceneSourceIds } from "../gen/sources";
 import type { BeatBoxes, Passage } from "../follow/types";
 import type { LLMProvider } from "../llm/provider";
 import { FRACTION_ANCHOR, type Scene } from "@motion/dsl/schema";
 import { devlog } from "../devlog";
 
 export type PipelineEvent =
-  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][] }
+  | { type: "scene"; sceneId: string; scene: Scene; timeline: Timeline; wavPath: string; generationMs: number; passages?: BeatBoxes; passageIds?: string[][]; sourceIds?: string[] }
   /** scope "scene": this scene failed its retry too, so the player shows a skip card in its place. "script": part 2 of the script failed (nothing to skip over). */
   | { type: "error"; sceneId: string; error: Error; scope?: "scene" | "script" }
   | { type: "checkpoints"; items: Checkpoint[] };
@@ -43,6 +44,8 @@ type Options = {
   figures?: Figure[];
   /** Source blocks with page boxes (textbook follow-along); beats name them and scenes carry their boxes. */
   passages?: Passage[];
+  /** Set for a video built from more than one source. Passage ids are `sourceId/passageId`. */
+  sources?: { id: string; markdown: string }[];
   exercises?: Exercise[];
   /** How much of the section the script covers (see DetailLevel). */
   detail?: DetailLevel;
@@ -55,7 +58,7 @@ type Options = {
 };
 type Status = "idle" | "buffering" | "ready" | "done" | "aborted";
 
-export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], passages = [], exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() }, factCheck = false }: Options) {
+export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency = 3, lookahead = 3, figures = [], passages = [], sources, exercises = [], detail = "standard", gifSearch = null, onProgress, signal, onStatus, clock = { now: () => Date.now() }, factCheck = false }: Options) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const controller = new AbortController();
   let state: Status = "idle";
@@ -139,7 +142,9 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         const clips = splitBeatAudio(spoken, audio);
         onStatus?.("building scenes");
         progress("animation", index);
-        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)), source: sectionMarkdown });
+        const sourceIdsKnown = new Set((sources ?? []).map(s => s.id));
+        const perBeatSource = sourceIdsKnown.size > 1 ? beats.map(b => oneSourceText(b, passages, sourceIdsKnown)) : undefined;
+        const result = await generateGroupScene({ beats, plan, figures, provider: complete, sceneNo: index + 1, recent: recentFor(groups.slice(0, index).map(g => g.plan)), source: perBeatSource ? undefined : sectionMarkdown, perBeatSource });
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
@@ -167,9 +172,11 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         groups[index].beats = beats;
         ready_++; progress("ready", index);
         if (index === 0) devlog(`generation: first-scene-ready +${clock.now() - started}ms`);
+        const sourceIds = sceneSourceIds(beats, (sources ?? []).map(s => s.id));
         return { type: "scene", sceneId, scene, timeline, wavPath: audio.wavPath, generationMs: clock.now() - start,
           // Aligned with scene.beats (like `spoken`); absent when the IR has no passages.
-          ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)), passageIds: beats.map(b => b.passages ?? []) } : {}) };
+          ...(passages.length ? { passages: beats.map(b => boxesFor(b.passages ?? [], passages)), passageIds: beats.map(b => b.passages ?? []) } : {}),
+          ...(sourceIds ? { sourceIds } : {}) };
       } catch (cause) {
         checkAbort();
         error = cause instanceof Error ? cause : new Error(String(cause));
@@ -206,7 +213,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         if (!script.beats || script.violations.length) throw new Error("Invalid script: " + script.violations.slice(0, 5).map(v => `beat ${v.beat} ${v.rule}: ${v.message}`).join(" | "));
         return script.beats;
       };
-      const opening = await generateScript({ sectionMarkdown, provider: complete, detail, passages, part: "opening" });
+      const opening = await generateScript({ sectionMarkdown, provider: complete, detail, passages, sources, part: "opening" });
       const beats = valid(opening);
       devlog(`generation: script-part-1-ready +${clock.now() - started}ms`);
       says = beats.map(b => b.say);
@@ -220,7 +227,7 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         let script: ScriptResult | undefined;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            script = await generateScript({ sectionMarkdown, provider: complete, detail, passages, part: { previous: beats, outline: opening.outline! } });
+            script = await generateScript({ sectionMarkdown, provider: complete, detail, passages, sources, part: { previous: beats, outline: opening.outline! } });
             break;
           } catch (error) {
             checkAbort();
@@ -242,9 +249,15 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
       // With fact checking enabled, wait for repairs/cuts so checks use the narration that actually shipped.
       let releaseChecks = () => {};
       const narrationReady = factCheck ? new Promise<void>(resolve => { releaseChecks = resolve; }) : Promise.resolve();
+      const knownSources = new Set((sources ?? []).map(s => s.id));
       const pending = continuation.then(() => narrationReady).then(() => generateCheckpoints({ sectionMarkdown, exercises, figures,
         scenes: groups.map(g => g.beats.map(b => b.say).join(" ")),
-        passages: passages.filter(p => groups.some(g => g.beats.some(b => b.passages?.includes(p.id)))), provider: complete }))
+        passages: passages.filter(p => groups.some(g => g.beats.some(b => b.passages?.includes(p.id)))),
+        sceneSources: knownSources.size > 1 ? groups.map(g => {
+          const ids = g.beats.map(b => citedSources(b, knownSources));
+          return ids.length && ids.every(x => x.length === 1 && x[0] === ids[0][0]) ? [ids[0][0]] : [];
+        }) : undefined,
+        provider: complete }))
         .then(items => { checkpoints = items; }, () => { checkpoints = []; });
       while (cursor < groups.length || !scriptDone) {
         if (cursor === groups.length) {
