@@ -21,6 +21,7 @@ type Drawer = (s: ObjState, w: number, h: number, all: Map<string, ObjState>) =>
 
 export class SceneRenderer {
   private frame = new Container();
+  private frameClip = new Graphics();
   private root = new Container();
   private composition: SceneFrame = { x: 0, opacity: 1 };
   private bgLayer = new Container(); // textures: under everything, connectors included
@@ -60,6 +61,8 @@ export class SceneRenderer {
     this.root.addChild(this.reaction);
     if (over) { this.overlay = new Sprite(over); this.frame.addChild(this.overlay); }
     this.frame.addChild(this.annG); // above root so transitions don't move marks
+    this.frame.addChild(this.frameClip);
+    this.frame.mask = this.frameClip;
   }
 
   /** Replace the tutor's marks; they paint on the next draw(). [] clears. */
@@ -438,6 +441,9 @@ export class SceneRenderer {
     this.lastState = state;
     const { width: w, height: h } = this.app.screen;
     this.frame.x = frame.x * w; this.frame.alpha = frame.opacity;
+    this.frame.visible = frame.opacity > 0;
+    // Clip before sliding: zoomed content and oversized backdrops must never enter the neighbouring scene.
+    this.frameClip.clear().rect(0, 0, w, h).fill(0xffffff);
     this.relayout(w, h);
     const st = { ...state, objects: this.placed(state) };
     for (const [id, d] of this.draws) {
@@ -473,6 +479,10 @@ export class SceneRenderer {
     this.mathLayer.style.transformOrigin = "0 0";
     this.mathLayer.style.transform = `translateX(${frame.x * w}px) matrix(${sx},0,0,${camera.zoom},${tx},${ty})`;
     this.mathLayer.style.opacity = String(frame.opacity * this.root.alpha);
+    this.mathLayer.style.visibility = frame.opacity > 0 ? "visible" : "hidden";
+    // The DOM layer already carries the camera matrix, so express the same viewport in its local coordinates.
+    const left = -tx / sx, right = (w - tx) / sx, top = -ty / camera.zoom, bottom = (h - ty) / camera.zoom;
+    this.mathLayer.style.clipPath = `polygon(${left}px ${top}px, ${right}px ${top}px, ${right}px ${bottom}px, ${left}px ${bottom}px)`;
     for (const [key] of this.pts) if (!st.objects.get(key.split(".")[0])?.visible) this.pts.delete(key);
     for (const pt of this.pts.values()) { pt.x = pt.x*sx+tx; pt.y = pt.y*camera.zoom+ty; pt.r *= camera.zoom; }
     this.paintAnnotations(w, h);
@@ -510,6 +520,8 @@ export class SceneRenderer {
     this.lastState = undefined;
     this.annG.destroy(); this.backdrop?.destroy(); this.overlay?.destroy();
     this.mathLayer.style.transform = ""; this.mathLayer.style.opacity = "";
+    this.mathLayer.style.clipPath = ""; this.mathLayer.style.visibility = "";
+    this.frame.mask = null; this.frameClip.destroy();
     this.root.destroy({ children: true });
     this.frame.destroy();
   }

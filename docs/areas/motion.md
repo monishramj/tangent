@@ -77,6 +77,11 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 
 ## Log
 
+- 2026-11-15 Scene swap regression: clip each moving Pixi/DOM viewport before compositing; hide the outgoing layer at opacity zero.
+  Root cause: PR #15 slid unbounded scene graphs, so camera zoom, edge objects and oversized backdrops crossed into the incoming scene.
+  Evidence: renderer boundary regression fails before the fix; full motion/player suites + TypeScript; Orca before/after frames in `docs/ui-review/scene-transition/`.
+  Audio clock, deterministic slide timing and SceneQueue's 0.6 s hold unchanged. Not verified: native Tauri/WKWebView playback.
+
 - 2026-11-15 Step 16: oldest objects above 8 visible fade over 0.3 s after their final narration/action; Tangenter stays.
   Compiler stores aligned phrase ends; legacy timelines preserve targets through their spoken beat; validator rules unchanged.
   Evidence: retirement/anchor/seek tests, renderer canvas+DOM composition tests, affected suite and TypeScript check.

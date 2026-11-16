@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { Assets, CanvasTextMetrics, Container, Text, Texture, type Application } from "pixi.js";
+import { Assets, CanvasTextMetrics, Container, Graphics, Text, Texture, type Application } from "pixi.js";
 import { Scene } from "../dsl/schema";
 import { SceneRenderer } from "./renderer";
 import { applyEventsAt } from "./scene";
+import { sceneTransition, SCENE_TRANSITION_SEC } from "./transition";
 
 afterEach(() => vi.restoreAllMocks());
 it("smoke draws every visual, resizes, seeks and cleans up without a ticker", async () => {
@@ -106,4 +107,60 @@ it("composes canvas and DOM with the same slide/fade and resets on seek", () => 
   expect(app.render).not.toHaveBeenCalled();
   r.destroy();
   expect(app.stage.children).toHaveLength(0);
+});
+
+
+it("clips both scene viewports across the boundary, including zoom, DOM, resize and backward seek", () => {
+  vi.spyOn(CanvasTextMetrics, "measureText").mockImplementation((text, style) => ({ width: text.length * Number(style.fontSize) * .6 }) as ReturnType<typeof CanvasTextMetrics.measureText>);
+  const scene = Scene.parse({ scene: "edge", objects: [
+    { id: "edge", type: "shape", shape: "rect", x: 1.05, y: .5, width: .8, height: .4 },
+    { id: "math", type: "Math", tex: "OLD", x: 1.05, y: .7 },
+  ], beats: [] });
+  const timeline = { totalSec: 2, insertedSilences: [], events: scene.objects.map(o => ({ start: 0, end: .01, verb: "create" as const, target: o.id, args: {}, beat: 0 })) };
+  const state = applyEventsAt(scene, timeline, timeline.totalSec);
+  state.camera = { x: .5, y: .5, zoom: 1.5, shake: .02, shakeY: .01 };
+  const app = { stage: new Container(), screen: { width: 1000, height: 600 }, render: vi.fn() };
+  const layers = [document.createElement("div"), document.createElement("div")];
+  const renderers = layers.map(layer => new SceneRenderer(app as unknown as Application, scene, layer, n => n === "--bg" ? "#000000" : "#ffffff"));
+  const [old, incoming] = app.stage.children as Container[];
+  for (const width of [1000, 640]) {
+    app.screen.width = width;
+    for (const t of [.05, .1, .2, .3, .39, SCENE_TRANSITION_SEC, 1, 0, .2, .2]) {
+      const frames = sceneTransition(t);
+      renderers[0].draw(state, frames.outgoing, false);
+      renderers[1].draw(state, frames.incoming, false);
+      app.render();
+      const seam = frames.incoming.x * width;
+      if (t > 0 && t < SCENE_TRANSITION_SEC) {
+        // Actual drawn bounds (the fixture overflows the original viewport), restricted by the moving masks.
+        expect(old.getBounds().maxX).toBeLessThanOrEqual(seam + 1e-6);
+        expect(incoming.getBounds().minX).toBeGreaterThanOrEqual(seam - 1e-6);
+      }
+      for (const [i, frame] of [old, incoming].entries()) {
+        const mask = frame.mask as Graphics;
+        expect(mask).toBeTruthy();
+        const local = mask.bounds;
+        expect(local.width).toBeCloseTo(width);
+        expect(local.height).toBeCloseTo(app.screen.height);
+        const min = mask.toGlobal({ x: local.minX, y: local.minY });
+        const max = mask.toGlobal({ x: local.maxX, y: local.maxY });
+        const root = frame.children[0];
+        const points = layers[i].style.clipPath.match(/-?[\d.]+(?=px)/g)!.map(Number);
+        // CSS clips before its camera transform; transformed corners must match the Pixi viewport exactly.
+        expect(points[0] * root.scale.x + root.x + frame.x).toBeCloseTo(min.x);
+        expect(points[2] * root.scale.x + root.x + frame.x).toBeCloseTo(max.x);
+        expect(points[1] * root.scale.y + root.y).toBeCloseTo(min.y);
+        expect(points[5] * root.scale.y + root.y).toBeCloseTo(max.y);
+      }
+      if (t >= SCENE_TRANSITION_SEC) {
+        expect(old.visible).toBe(false);
+        expect(old.alpha).toBe(0);
+        expect(layers[0].style.visibility).toBe("hidden");
+        expect(layers[0].style.opacity).toBe("0");
+      } else expect(old.visible).toBe(true);
+    }
+  }
+  renderers.forEach(r => r.destroy());
+  expect(app.stage.children).toHaveLength(0);
+  expect(layers.every(layer => !layer.style.clipPath && !layer.style.visibility && !layer.children.length)).toBe(true);
 });
