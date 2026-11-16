@@ -1,0 +1,25 @@
+Executable=/Users/monishramj/Documents/Code/orca/workspaces/tangent/w7-smoke/src-tauri/target/release/bundle/macos/Tangent.app/Contents/MacOS/Tangent
+Identifier=com.tangent.app
+Format=app bundle with Mach-O thin (arm64)
+CodeDirectory v=20400 size=17480 flags=0x2(adhoc) hashes=540+3 location=embedded
+VersionPlatform=1
+VersionMin=720896
+VersionSDK=1769984
+Hash type=sha256 size=32
+CandidateCDHash sha256=d3f1230c55e1673ad9afa2565d94cd735c5a8b76
+CandidateCDHashFull sha256=d3f1230c55e1673ad9afa2565d94cd735c5a8b76b12284c15e4f3f757f152dcb
+Hash choices=sha256
+CMSDigest=d3f1230c55e1673ad9afa2565d94cd735c5a8b76b12284c15e4f3f757f152dcb
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=8601600
+Executable Segment flags=0x1
+Page size=16384
+CDHash=d3f1230c55e1673ad9afa2565d94cd735c5a8b76
+Signature=adhoc
+Info.plist entries=14
+TeamIdentifier=not set
+Sealed Resources version=2 rules=13 files=34
+Internal requirements count=0 size=12
+Total signatures=1
+Chosen signature=1

@@ -1,0 +1,5 @@
+2026-11-15 21:49:35.684 Df Tangent[26148:475add] [com.apple.WebKit:Media] WebContent[26471] BaseAudioContext::startRendering(B7573F3CB0E4256C)
+2026-11-15 21:49:35.684 Df Tangent[26148:475add] [com.apple.WebKit:Media] WebContent[26471] BaseAudioContext::willBeginPlayback(B7573F3CB0E4256C) returning true
+2026-11-15 21:49:35.773 Df Tangent[26148:475a2a] [com.apple.WebKit:ProcessSuspension] 0x125130180 - [PID=26471, throttler=0x1250f0cd0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'View is playing audio'
+2026-11-15 21:49:40.685 Df Tangent[26148:475add] [com.apple.WebKit:Media] WebContent[26471] MediaSessionManagerCocoa::dumpSessionStates(0)  Sessions:
+(B7573F3CB0E4256C): WebAudio, Playing
