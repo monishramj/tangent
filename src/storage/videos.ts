@@ -7,7 +7,7 @@ import type { BeatBoxes } from "../follow/types";
 import type { DetailLevel } from "../gen/script";
 import { giphyKey, giphySearch, resolveGifs, type GifSearch } from "../media/giphy";
 
-export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number; passages?: BeatBoxes; passageIds?: string[][]; sourceIds?: string[] };
+export type StoredScene = { sceneId: string; scene: Scene; timeline: Timeline; audioFile: string; durationSec: number; factCheck?: "checked" | "unchecked"; passages?: BeatBoxes; passageIds?: string[][]; sourceIds?: string[] };
 export type VideoBundle = {
   id: string; title: string; createdAt: number; complete: boolean;
   source: {
@@ -67,7 +67,7 @@ export function recordStream(stream: AsyncIterable<PipelineEvent>, meta: { id?: 
       for await (const ev of stream) {
         if (ev.type === "scene") {
           const e: SceneEvent = ev;
-          bundle.scenes.push({ sceneId: e.sceneId, scene: e.scene, timeline: e.timeline, audioFile: e.wavPath, durationSec: e.timeline.totalSec, ...(e.passages ? { passages: e.passages } : {}), ...(e.passageIds ? { passageIds: e.passageIds } : {}), ...(e.sourceIds?.length ? { sourceIds: e.sourceIds } : {}) });
+          bundle.scenes.push({ sceneId: e.sceneId, scene: e.scene, timeline: e.timeline, audioFile: e.wavPath, durationSec: e.timeline.totalSec, ...(e.factCheck ? { factCheck: e.factCheck } : {}), ...(e.passages ? { passages: e.passages } : {}), ...(e.passageIds ? { passageIds: e.passageIds } : {}), ...(e.sourceIds?.length ? { sourceIds: e.sourceIds } : {}) });
           void persist();
         } else if (ev.type === "checkpoints") { bundle.checkpoints = ev.items; void persist(); }
         else clean = false;
@@ -97,7 +97,7 @@ export async function* replayStream(b: VideoBundle, gifSearch?: GifSearch | null
         ]);
       } finally { clearTimeout(timer); }
     }
-    yield { type: "scene", sceneId: s.sceneId, scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0, ...(s.passages ? { passages: s.passages } : {}), ...(s.passageIds ? { passageIds: s.passageIds } : {}), ...(s.sourceIds?.length ? { sourceIds: s.sourceIds } : {}) };
+    yield { type: "scene", sceneId: s.sceneId, scene, timeline: s.timeline, wavPath: s.audioFile, generationMs: 0, ...(s.factCheck ? { factCheck: s.factCheck } : {}), ...(s.passages ? { passages: s.passages } : {}), ...(s.passageIds ? { passageIds: s.passageIds } : {}), ...(s.sourceIds?.length ? { sourceIds: s.sourceIds } : {}) };
   }
   if (b.checkpoints?.length) yield { type: "checkpoints", items: b.checkpoints };
 }

@@ -22,7 +22,7 @@ ${dataBlock("narration", JSON.stringify(rows))}
 ${dataReminder(["source", "narration"])} Return only the JSON array.`;
 }
 
-/** One cheap haiku call for a group of beats. Any failure is "unclear" for every beat: the check fails open. */
+/** One cheap haiku call for a group of beats. Any failure is "unclear" for every beat: the caller must mark the scene unchecked. */
 export async function checkBeats(beats: Beat[], sources: Source[], provider: LLMProvider): Promise<BeatCheck[]> {
   const out: BeatCheck[] = beats.map(() => ({ verdict: "unclear" }));
   try {
@@ -39,7 +39,7 @@ export async function checkBeats(beats: Beat[], sources: Source[], provider: LLM
  * one targeted repair, is re-checked, and is cut if still unsupported (never all beats). `sayChanged` = narration
  * differs from the input, so the caller must redo that scene's audio.
  */
-export async function factCheckBeats({ beats, sources, provider }: { beats: Beat[]; sources: Source[]; provider: LLMProvider }): Promise<{ beats: Beat[]; sayChanged: boolean; log: string[] }> {
+export async function factCheckBeats({ beats, sources, provider }: { beats: Beat[]; sources: Source[]; provider: LLMProvider }): Promise<{ beats: Beat[]; sayChanged: boolean; checked: boolean; log: string[] }> {
   const log: string[] = [];
   const known = new Set(sources.map(s => s.id));
   const checks = await checkBeats(beats, sources, provider);
@@ -61,7 +61,7 @@ export async function factCheckBeats({ beats, sources, provider }: { beats: Beat
       const all = sources.map(s => s.markdown).join("\n");
       bad.forEach((i, k) => {
         if (repaired[k].say !== out[i].say && again[k].verdict !== "unsupported" && !checkScript([repaired[k]]).length && !checkGrounding([repaired[k]], all).length) {
-          out[i] = repaired[k]; cut.delete(i); log.push(`beat ${i}: repaired`);
+          out[i] = repaired[k]; checks[i] = again[k]; cut.delete(i); log.push(`beat ${i}: repaired`);
         }
       });
     }
@@ -69,7 +69,9 @@ export async function factCheckBeats({ beats, sources, provider }: { beats: Beat
   if (cut.size >= out.length) { log.push("all beats unsupported; kept"); cut = new Set(); }
   if (cut.size) log.push(`cut beats ${[...cut].join(", ")}`);
   const sayChanged = cut.size > 0 || out.some((b, i) => b.say !== beats[i].say);
-  return { beats: out.filter((_, i) => !cut.has(i)), sayChanged, log };
+  const unchecked = checks.flatMap((c, i) => !cut.has(i) && c.verdict !== "supported" ? [i] : []);
+  if (unchecked.length) log.push(`unchecked beats ${unchecked.join(", ")}`);
+  return { beats: out.filter((_, i) => !cut.has(i)), sayChanged, checked: !unchecked.length, log };
 }
 
 /** Share of factually correct beats (including wrong-anchor cases) flagged unsupported. */

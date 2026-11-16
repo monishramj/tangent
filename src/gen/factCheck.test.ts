@@ -21,17 +21,17 @@ const run = (beats: Beat[], p: LLMProvider) => factCheckBeats({ beats, sources, 
 it("supported beats pass untouched", async () => {
   const beats = [beat("Heaps are trees."), beat("A heap has 7 nodes.")];
   const r = await run(beats, fake([[{ beat: 0, verdict: "supported", anchor: "p1" }, { beat: 1, verdict: "supported", anchor: "p1" }]]));
-  expect(r).toMatchObject({ beats, sayChanged: false, log: [] });
+  expect(r).toMatchObject({ beats, sayChanged: false, checked: true, log: [] });
 });
 
-it("unclear and unusable answers keep every beat (fail open)", async () => {
+it("unclear and unusable answers keep every beat but mark the scene unchecked", async () => {
   const beats = [beat("Heaps are trees."), beat("Trees are neat.")];
   const p = fake([[{ beat: 0, verdict: "unclear" }]]);
-  expect((await run(beats, p)).beats).toEqual(beats);
+  expect(await run(beats, p)).toMatchObject({ beats, checked: false, log: ["unchecked beats 0, 1"] });
   const bad: LLMProvider = { complete: async () => "nope" };
   expect(await checkBeats(beats, sources, bad)).toEqual([{ verdict: "unclear" }, { verdict: "unclear" }]);
   const down: LLMProvider = { complete: async () => { throw new Error("offline"); } };
-  expect((await run(beats, down)).sayChanged).toBe(false);
+  expect(await run(beats, down)).toMatchObject({ sayChanged: false, checked: false });
 });
 
 it("corrects a wrong anchor when another paragraph supports the beat", async () => {
@@ -49,7 +49,7 @@ it("repairs an unsupported beat once, keeping its anchor", async () => {
   const r = await run(beats, p);
   expect(r.beats.map(b => b.say)).toEqual(["Heaps are trees.", "A heap has 7 nodes."]);
   expect(r.beats[1].passages).toEqual(["p1"]);
-  expect(r).toMatchObject({ sayChanged: true });
+  expect(r).toMatchObject({ sayChanged: true, checked: true });
   expect(p.complete).toHaveBeenCalledTimes(3); // check, one repair, re-check
 });
 
@@ -67,6 +67,7 @@ it("never cuts every beat", async () => {
   const r = await run([beat("A heap has 9 nodes.")], fake([[{ beat: 0, verdict: "unsupported" }]]));
   expect(r.beats).toHaveLength(1);
   expect(r.log).toContain("all beats unsupported; kept");
+  expect(r.checked).toBe(false);
 });
 
 it("fixtures: 6+ cases, every kind present, rate maths", () => {
@@ -81,4 +82,9 @@ it("fixtures: 6+ cases, every kind present, rate maths", () => {
 it("production sessions enable the measured fact-check by default", () => {
   startSession({ irSection: { markdown: "Heaps are trees." } });
   expect(streamVideo).toHaveBeenCalledWith(expect.objectContaining({ factCheck: true }));
+});
+
+it("an unclear repair never marks the scene checked", async () => {
+  const r = await run([beat("A heap has 9 nodes.")], fake([[{ beat: 0, verdict: "unsupported" }], [{ beat: 0, verdict: "unclear" }]], JSON.stringify({ 0: { say: "A heap has 7 nodes.", visualIntent: "x" } })));
+  expect(r).toMatchObject({ sayChanged: true, checked: false });
 });

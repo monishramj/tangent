@@ -60,7 +60,7 @@ Failure examples (fixture indices and public beat indices are zero-based):
 - Tweaked `definitions/3`: the final recorded mean/class-proportion example (86, 75, 92 -> 84.3; 40 students, 22 men, 18 women) plus its descriptive/inferential recap was flagged unsupported.
 - Tweaked `claim-not-in-source`: “Quicksort always runs in linear time, so it beats every other sort” received `unclear` rather than `unsupported`. The original caught it. No explanations are requested by this checker, so these are observed verdict mismatches, not inferred model reasoning.
 
-Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHECK_PUBLIC=1` for the public run. Both use `TANGENT_HEAVY_SLOTS=1 taskpolicy -b bash scripts/heavy.sh node_modules/.bin/vitest run src/gen/factCheck.eval --maxWorkers=2 --silent=false`. The public mode reads only the committed PR #25 answers and applies its two recorded targeted repairs by their stable recording keys, avoiding today's changed script prompts and private recording stores. It asserts five sections / 26 beats, with an offline test for both repairs. Production sessions enable the existing gate; direct `streamVideo` callers retain the explicit flag. Scene 1 still logs only, later checks still have the existing 20-second wait, and unusable answers still fail open.
+Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHECK_PUBLIC=1` for the public run. Both use `TANGENT_HEAVY_SLOTS=1 taskpolicy -b bash scripts/heavy.sh node_modules/.bin/vitest run src/gen/factCheck.eval --maxWorkers=2 --silent=false`. The public mode reads only the committed PR #25 answers and applies its two recorded targeted repairs by their stable recording keys, avoiding today's changed script prompts and private recording stores. It asserts five sections / 26 beats, with an offline test for both repairs. Production sessions enable the existing gate; direct `streamVideo` callers retain the explicit flag. The polish fixes below now apply scene 1 verdicts with an eight-second cap beside TTS; later scenes check before TTS with a 20-second cap. Timed-out or unusable checks retain the numeric-gated narration but log and persist the scene as unchecked.
 
 ### Correctness & grounding
 - **Computed visuals:** algorithm traces and numeric results come from real code, not the LLM (`op` actions on components). LLMs botch hand-traced states.
@@ -74,6 +74,12 @@ Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHEC
 - The scene retry sends the previous JSON along with the validator errors, and TTS audio is reused across DSL retries.
 
 ## Log
+
+- 2026-11-16 Polish P1-1/P1-10/P1-7: apply scene 1 fact-check verdicts beside TTS (eight-second total check cap); later scenes check before TTS (20-second cap), synthesizing accepted rewrites/cuts once.
+  Timeouts, missing/malformed/unclear verdicts and retained unsupported beats log + mark the scene unchecked; status survives recording/replay and old bundles remain unmarked.
+  App now prepares a list of sources for every generation; one source retains original passage ids, saved metadata and textbook follow behavior.
+  Evidence: 175 tests passed across 13 full affected/importer files (three existing skips), TypeScript clean; regression coverage for opening/later caps, applied cuts, rewrite-before-TTS, status persistence, and single/multi-source preparation.
+  Limits: no real model/TTS/playback or TTFF measurement; scene 1 still needs a second scene WAV if its concurrent check changes narration; a late timed-out check can finish in the background.
 
 - 2026-11-15 `SECONDS_PER_BEAT` is 6.92, pooled from five saved bundles (2721.36 s / 393 beats). `estimateMinutes` rounds that to whole minutes, minimum 1. Not verified: ratio after newer templates.
 - 2026-11-16 Step 12 measured with 52 real sequential cloud Haiku calls: original 2/41 false flags (4.9%), 6/6 catches (100%); one prompt tweak also 2/41, but only 5/6 catches, so retained original.

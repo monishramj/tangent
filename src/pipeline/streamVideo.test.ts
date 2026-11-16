@@ -510,7 +510,7 @@ it("aborts while waiting for the continuation after scene 1 has played", async (
   expect(stream.status()).toBe("aborted");
 });
 
-// Step 12: fact-check flag. Off = no extra model calls; on = never blocks scene 1; later scenes redo audio if a beat is cut.
+// Fact-check the opening beside TTS; later scenes check before synthesizing.
 const withCheck = (base: ReturnType<typeof setup>, check: (prompt: string) => Promise<string>) => {
   const inner = base.provider;
   const provider: LLMProvider = { complete: vi.fn((prompt, opts) => prompt.startsWith("Fact-check") ? check(prompt) : inner.complete(prompt, opts)) };
@@ -525,22 +525,27 @@ it("fact-check flag off: no fact-check calls, same scenes", async () => {
   expect((s.provider.complete as ReturnType<typeof vi.fn>).mock.calls.some(c => String(c[0]).startsWith("Fact-check"))).toBe(false);
 });
 
-it("fact-check on: a hanging check never delays scene 1; a cut beat in a later scene re-synthesizes its audio", async () => {
+it("fact-check on: bounds scene 1 at eight seconds and checks later scenes before TTS", async () => {
   const s = withCheck(setup(3), prompt => {
     if (prompt.includes("SceneAA")) return new Promise<string>(() => {}); // scene 1's check never answers
     return Promise.resolve(JSON.stringify(prompt.includes("SceneAD") ? [{ beat: 0, verdict: "unsupported" }] : []));
   });
   const stream = streamVideo({ ...s.options, provider: s.provider, factCheck: true });
   const first = stream.next();
-  await vi.advanceTimersByTimeAsync(400);
-  expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1" });
+  let ready = false;
+  void first.then(() => { ready = true; });
+  await vi.advanceTimersByTimeAsync(8_000);
+  expect(ready).toBe(false);
+  await vi.advanceTimersByTimeAsync(300);
+  expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1", factCheck: "unchecked" });
+  expect(devlog).toHaveBeenCalledWith(expect.stringContaining("scene 1: unchecked"));
   const rest = collect(stream);
   await vi.runAllTimersAsync();
   const [second] = sceneEvents(await rest);
   expect(second).toMatchObject({ type: "scene", sceneId: "scene-2" });
   if (second.type === "scene") expect(second.scene.beats).toHaveLength(3); // 4 beats, first one cut
   const scene2Tts = s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2");
-  expect(scene2Tts.map(c => c[0].length)).toEqual([4, 3]);
+  expect(scene2Tts.map(c => c[0].length)).toEqual([3]);
   const prompt = vi.mocked(s.provider.complete).mock.calls.find(c => c[0].startsWith("Write checkpoint questions"))![0];
   expect(prompt).toContain("SceneAE grows. SceneAF grows. SceneAG grows.");
   expect(prompt).not.toContain("SceneAD grows.");
@@ -579,4 +584,62 @@ it("an ungrounded on-screen number fails closed (error event, never a scene)", a
   const results = sceneEvents(await events);
   expect(results.map(e => e.type)).toEqual(["error"]);
   expect(stream.failedScenes()).toBe(1);
+});
+
+// Scene 1 must apply a verdict even though its initial audio starts immediately.
+it("applies a first-scene cut and keeps TTS aligned with the accepted beats", async () => {
+  const s = withCheck(setup(2), async () => JSON.stringify([
+    { beat: 0, verdict: "unsupported" }, { beat: 1, verdict: "supported" },
+    { beat: 2, verdict: "supported" }, { beat: 3, verdict: "supported" },
+  ]));
+  const stream = streamVideo({ ...s.options, provider: s.provider, factCheck: true });
+  const first = stream.next();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect((await first).value).toMatchObject({ type: "scene", factCheck: "checked", scene: { beats: [{ say: "SceneAB grows." }, { say: "SceneAC grows." }] } });
+  expect(s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-1").map(c => c[0])).toEqual([
+    ["SceneAA grows.", "SceneAB grows.", "SceneAC grows."], ["SceneAB grows.", "SceneAC grows."],
+  ]);
+  await stream.return();
+});
+
+it.each(["supported", "unusable"])("marks a %s first-scene check and overlaps it with TTS", async kind => {
+  const s = withCheck(setup(2), async () => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return kind === "supported" ? JSON.stringify([0, 1, 2, 3].map(beat => ({ beat, verdict: "supported" }))) : "nope";
+  });
+  const stream = streamVideo({ ...s.options, provider: s.provider, factCheck: true });
+  const first = stream.next();
+  await vi.advanceTimersByTimeAsync(400);
+  expect((await first).value).toMatchObject({ type: "scene", factCheck: kind === "supported" ? "checked" : "unchecked", generationMs: 350 });
+  expect(s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-1")).toHaveLength(1);
+  await stream.return();
+});
+
+it("synthesizes a later scene rewrite once, after the repair passes its check", async () => {
+  const s = setup(2);
+  const provider: LLMProvider = { complete: vi.fn(async (prompt, opts) => {
+    if (prompt.startsWith("Fact-check")) return JSON.stringify([0, 1, 2, 3].map(beat => ({ beat, verdict: beat === 0 && prompt.includes("SceneAD") ? "unsupported" : "supported" })));
+    if (prompt.startsWith("These narration beats")) return JSON.stringify({ 0: { say: "Arrays grow.", visualIntent: "Show an array" } });
+    return s.provider.complete(prompt, opts);
+  }) };
+  const events = collect(streamVideo({ ...s.options, provider, factCheck: true }));
+  await vi.runAllTimersAsync();
+  expect(sceneEvents(await events)[1]).toMatchObject({ type: "scene", factCheck: "checked", scene: { beats: [{ say: "Arrays grow." }, {}, {}, {}] } });
+  expect(s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2").map(c => c[0])).toEqual([
+    ["Arrays grow.", "SceneAE grows.", "SceneAF grows.", "SceneAG grows."],
+  ]);
+});
+
+it("bounds a later hanging check at twenty seconds before starting TTS", async () => {
+  const s = withCheck(setup(2), async prompt => prompt.includes("SceneAD") ? new Promise<string>(() => {}) : JSON.stringify([0, 1, 2].map(beat => ({ beat, verdict: "supported" }))));
+  const stream = streamVideo({ ...s.options, provider: s.provider, factCheck: true });
+  const first = stream.next();
+  await vi.advanceTimersByTimeAsync(400);
+  expect((await first).value).toMatchObject({ type: "scene", factCheck: "checked" });
+  expect(s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2")).toHaveLength(0);
+  const second = stream.next();
+  await vi.runAllTimersAsync();
+  expect((await second).value).toMatchObject({ type: "scene", factCheck: "unchecked" });
+  expect(s.ttsAlign.mock.calls.filter(c => c[1]?.sceneId === "scene-2")).toHaveLength(1);
+  await stream.return();
 });

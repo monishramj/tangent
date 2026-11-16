@@ -104,54 +104,38 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
   useEffect(() => {
     const controller = new AbortController();
     const { sectionIds, meta } = args;
-    const sectionId = sectionIds.join("+");
     void (async () => {
       try {
-        if (args.extras?.length) {
-          const parts = [{ pdfPath: meta.pdfPath, ir: args.ir, sectionIds, name: meta.title }, ...args.extras].filter(p => p.sectionIds.length);
-          const prepared = [];
-          for (const p of parts) {
-            const ir = await withFormulas(p.pdfPath, p.ir, p.sectionIds, store,
-              n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
-            if (controller.signal.aborted) return;
-            const id = sourceFor(p.pdfPath).id;
-            prepared.push({
-              id, pdfPath: p.pdfPath, name: p.name, sectionIds: p.sectionIds,
-              markdown: stripWatermarks(await sectionsText(ir, p.sectionIds)),
-              passages: sectionsPassages(ir, p.sectionIds),
-              figures: sectionsFigures(ir, p.sectionIds),
-              exercises: sectionsExercises(ir, p.sectionIds),
-              pages: isOfficeSource(p.pdfPath) ? [] : sectionPages(ir, p.sectionIds.join("+")),
-            });
-          }
-          if (controller.signal.aborted || !prepared.length) return;
-          const passages = tagPassages(prepared);
-          const markdown = prepared.map(p => p.markdown).filter(Boolean).join("\n\n");
-          const followSources = prepared.map(p => ({ id: p.id, pdfPath: p.pdfPath, pages: p.pages, passages: passages.filter(x => x.id.startsWith(`${p.id}/`)) }));
-          const key = await giphyKey();
-          const [first, ...rest] = prepared;
-          const stream = startSession({
-            irSection: { markdown, passages, figures: prepared.flatMap(p => p.figures), exercises: prepared.flatMap(p => p.exercises) },
-            sources: prepared.map(p => ({ id: p.id, markdown: p.markdown })),
-            provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
-            onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
+        const parts = [{ pdfPath: meta.pdfPath, ir: args.ir, sectionIds, name: meta.title }, ...(args.extras ?? [])].filter(p => p.sectionIds.length);
+        const prepared = [];
+        for (const p of parts) {
+          const ir = await withFormulas(p.pdfPath, p.ir, p.sectionIds, store,
+            n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
+          if (controller.signal.aborted) return;
+          const id = sourceFor(p.pdfPath).id;
+          prepared.push({
+            id, pdfPath: p.pdfPath, name: p.name, sectionIds: p.sectionIds,
+            markdown: stripWatermarks(await sectionsText(ir, p.sectionIds)),
+            passages: sectionsPassages(ir, p.sectionIds),
+            figures: sectionsFigures(ir, p.sectionIds),
+            exercises: sectionsExercises(ir, p.sectionIds),
+            pages: isOfficeSource(p.pdfPath) ? [] : sectionPages(ir, p.sectionIds.join("+")),
           });
-          setState({ markdown, passages, followSources, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { id: first.id, pdfPath: first.pdfPath, sectionId: first.sectionIds.join("+"), sectionTitle: meta.title, also: rest.map(p => ({ id: p.id, pdfPath: p.pdfPath, sectionId: p.sectionIds.join("+"), sectionTitle: p.name })) } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
-          return;
         }
-        const ir = await withFormulas(meta.pdfPath, args.ir, sectionIds, store,
-          n => { if (n && !controller.signal.aborted) setProgress({ step: "formulas", formulas: n, scene: 0, scenesReady: 0, scenesTotal: 0, beats: [] }); });
-        if (controller.signal.aborted) return;
-        const markdown = stripWatermarks(await sectionsText(ir, sectionIds));
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !prepared.length) return;
+        const passages = tagPassages(prepared);
+        const markdown = prepared.map(p => p.markdown).filter(Boolean).join("\n\n");
+        const followSources = prepared.length > 1 ? prepared.map(p => ({ id: p.id, pdfPath: p.pdfPath, pages: p.pages, passages: passages.filter(x => x.id.startsWith(`${p.id}/`)) })) : undefined;
         const key = await giphyKey();
-        const passages = sectionsPassages(ir, sectionIds);
+        if (controller.signal.aborted) return;
+        const [first, ...rest] = prepared;
         const stream = startSession({
-          irSection: { markdown, passages, figures: sectionsFigures(ir, sectionIds), exercises: sectionsExercises(ir, sectionIds) },
+          irSection: { markdown, passages, figures: prepared.flatMap(p => p.figures), exercises: prepared.flatMap(p => p.exercises) },
+          sources: prepared.map(p => ({ id: p.id, markdown: p.markdown })),
           provider, signal: controller.signal, gifSearch: key ? giphySearch(key) : null, detail: meta.detail,
           onStatus: s => devlog(`status ${s}`), onProgress: p => { if (!controller.signal.aborted) setProgress(p); },
         });
-        setState({ markdown, passages, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { pdfPath: meta.pdfPath, sectionId, sectionTitle: meta.title } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
+        setState({ markdown, passages, followSources, stream: recordStream(stream, { id: videoId, title: meta.title, detail: meta.detail, source: { ...(rest.length ? { id: first.id } : {}), pdfPath: first.pdfPath, sectionId: first.sectionIds.join("+"), sectionTitle: meta.title, ...(rest.length ? { also: rest.map(p => ({ id: p.id, pdfPath: p.pdfPath, sectionId: p.sectionIds.join("+"), sectionTitle: p.name })) } : {}) } }, videoStore, e => devlog(`video save failed ${String(e)}`)) });
       } catch (e) { if (!controller.signal.aborted) setState({ error: String(e) }); }
     })();
     return () => controller.abort();
