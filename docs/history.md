@@ -3,6 +3,8 @@
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
 
+- 2026-11-16 Player no longer shows "Couldn't build this video." while a video is still preparing (formula decode); the waiting placeholder stream now stays open. Test in App.generation.test.tsx.
+
 - 2026-11-16 Merged-chapter PDF outline fix: "8." after 7.x starts a chapter; parent page spans from own passages (no more whole-book sections).
 
 - 2026-11-16 Version 0.2.0 (first public beta): versions bumped, CHANGELOG entry; tagged for the 3-OS release workflow.

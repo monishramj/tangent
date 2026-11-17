@@ -44,6 +44,7 @@ Visuals are scheduled *to* the audio, never the reverse.
 
 ## Log
 
+- 2026-11-16: Generate passed PlayerScreen an empty stream while preparing; it ended at once, so any slow prepare (big selection, busy sidecar) showed "Couldn't build this video." while the build ran on. Placeholder now never ends. Evidence: new App.generation test fails before, passes after; reproduced with the 621-page STAT PDF in tauri dev. Not verified: installed build.
 - 2026-11-16 Polish B (P1-2/6/8): `plainError(e)` (src/plainError.ts) maps raw errors to plain text, raw detail to devlog; player error strings only. Shared `prefersReducedMotion` (packages/motion/src/reducedMotion.ts) used by Counter/BlurText/Stepper (BlurText now snaps instead of tweening opacity/blur). Dev CSP gets `blob:` in connect-src so the player fixture works. Tests added; not exercised in a real webview. TODO for scene-transition worker: use `prefersReducedMotion()` in the stage transition (snap instead of slide/fade).
 - 2026-11-16 Centered the drawn loading ring in the video frame: “Generating video · N%” / “Updating video · N%”, smaller stage line, house white opacities and tabular figures.
   Percentage uses real Progress events: script 20%, remaining work per ready scene, narration 60% of a scene before animation; no timed increments. High-water mark survives loader unmounts, retries and expanding totals; 100 waits for stream completion.

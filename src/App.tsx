@@ -141,9 +141,10 @@ function Generate({ args, provider, store, videoStore, onRetry, onBack }: {
     })();
     return () => controller.abort();
   }, [args, provider, store, videoStore, videoId]);
-  const empty = useMemo(() => (async function* () {})(), []);
+  // Still preparing (formulas, section text): a stream that never ends, so the player shows loading, not "Couldn't build".
+  const waiting = useMemo(() => (async function* () { await new Promise<never>(() => {}); })(), []);
   const error = state && "error" in state ? state.error : null;
-  return <PlayerScreen stream={state && "stream" in state ? state.stream : empty} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
+  return <PlayerScreen stream={state && "stream" in state ? state.stream : waiting} key={state && "stream" in state ? "live" : "wait"} title={args.meta.title}
     kicker={args.meta.pdfPath.split(/[\\/]/).pop()} videoId={videoId} section={state && "markdown" in state ? state.markdown : ""} passages={state && "passages" in state ? state.passages : []} provider={provider} store={store}
     textbook={{ pdfPath: args.meta.pdfPath, pages: isOfficeSource(args.meta.pdfPath) ? [] : sectionPages(args.ir, args.sectionIds.join("+")) }}
     followSources={state && "followSources" in state ? state.followSources : undefined}

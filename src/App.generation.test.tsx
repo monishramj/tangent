@@ -58,3 +58,13 @@ it.each([false, true])("prepares, records and follows sources through one path (
     expect(player.mock.calls[player.mock.calls.length - 1][0].followSources).toBeUndefined();
   }
 });
+
+it("while formulas decode, the placeholder stream stays open (no premature \"Couldn't build\")", async () => {
+  vi.mocked(withFormulas).mockImplementationOnce(() => new Promise(() => {}));
+  render(<App store={memoryJsonStore()} videoStore={fakeVideoStore()} initial={{ s: "generate", attempt: 0, args: {
+    sectionIds: ["s1"], ir: ir("Arrays grow."), meta: { pdfPath: "/a.pdf", title: "Topic", detail: "standard" } } }} />);
+  await waitFor(() => expect(player).toHaveBeenCalled());
+  const it = player.mock.calls[0][0].stream[Symbol.asyncIterator]();
+  const ended = await Promise.race([it.next().then(() => true), new Promise(r => setTimeout(() => r(false), 50))]);
+  expect(ended).toBe(false);
+});
