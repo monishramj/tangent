@@ -770,7 +770,7 @@ it("keeps the generating remainder static and dim under reduced motion", async (
   expect(screen.getByTestId("seek-generating").getAttribute("aria-hidden")).toBe("true");
   expect(screen.getByTitle("Generating… 1 of 4 scenes")).toBeTruthy();
   // jsdom does not evaluate media queries or pseudo-element animations.
-  const css = readFileSync("src/player/seek.css", "utf8");
+  const css = readFileSync("src/player/seek.css", "utf8").replace(/\r\n/g, "\n");
   expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*{\s*\.seek-generating::before\s*{ animation: none; opacity: 0\.4; }/);
   expect(css.match(/@keyframes seek-stripes\s*{[\s\S]*?\n}/)?.[0]).toBe(`@keyframes seek-stripes {
   from { transform: translateX(-24px); }

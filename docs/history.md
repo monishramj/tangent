@@ -325,3 +325,5 @@ Read `README.md` for how to run, test and debug. In dev, the `[webview]` lines i
 - Scenes are **templates first** (2026-11-04): reliability and layout quality over free-form DSL. Characters = Hugeicons + stick figures + emoji. Home = sources first with optional emoji folders; videos belong to their PDF. Checkpoints = textbook-first, mixed MCQ (local grading) / short answer (LLM-graded). GIPHY key via Settings (gear in the Home header; dedicated screen as of 2026-11-12), not a Home button.
 - 2026-11-16 Step 22: tag-triggered draft-release workflow for macOS/Windows/Linux + `docs/release.md`; unverified until a real tag/dry run.
 - 2026-11-16 P0 audio: removed Entitlements.plist/hardened runtime from the ad-hoc macOS bundle (it silenced audio in v0.1.3); static test scripts/macos-signing.test.ts guards it.
+
+- 2026-11-16 PlayerScreen test normalizes CRLF when reading seek.css (Windows CI checkout).
