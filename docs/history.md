@@ -1,6 +1,9 @@
 # Tangent history
+- 2026-11-16: Added a music-led Tangent demo film and isolated recording source in `demo/`; real saved lesson/Q&A replay, shortened generation wait, CC BY 4.0 music credit. No production behavior changed.
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
+
+- 2026-11-16 Merged-chapter PDF outline fix: "8." after 7.x starts a chapter; parent page spans from own passages (no more whole-book sections).
 
 - 2026-11-16 Version 0.2.0 (first public beta): versions bumped, CHANGELOG entry; tagged for the 3-OS release workflow.
 
