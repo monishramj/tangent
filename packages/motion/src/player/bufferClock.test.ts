@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { BufferClock, RESUME_TIMEOUT_MS, unlockAudioOnGesture } from "./bufferClock";
+import { BufferClock, RESUME_TIMEOUT_MS, retireAudio, unlockAudioOnGesture } from "./bufferClock";
 
 function fakeCtx() {
   const sources: { offset: number; stopped: boolean; playbackRate: { value: number }; buffer: unknown; onended: (() => void) | null }[] = [];
@@ -88,14 +88,35 @@ it("a failed fetch/decode is kept on .error with its reason", async () => {
 
 it("the first click or keypress creates and resumes the shared context", async () => {
   const resume = vi.fn(function (this: { state: string }) { this.state = "running"; return Promise.resolve(); });
-  vi.stubGlobal("AudioContext", class { state = "suspended"; resume = resume; });
+  vi.stubGlobal("AudioContext", class { state = "suspended"; resume = resume; close = () => Promise.resolve(); });
   try {
     const target = new EventTarget();
     unlockAudioOnGesture(target as unknown as Window);
     target.dispatchEvent(new Event("pointerdown"));
     expect(resume).toHaveBeenCalledTimes(1);
     await Promise.resolve(); await Promise.resolve();
-    target.dispatchEvent(new Event("keydown")); // running: listeners removed
+    target.dispatchEvent(new Event("keydown")); // running: nothing to do
     expect(resume).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("a retired context is closed and replaced on the next gesture", () => {
+  const made: { state: string; close: ReturnType<typeof vi.fn> }[] = [];
+  vi.stubGlobal("AudioContext", class {
+    state = "running"; close = vi.fn(() => Promise.resolve()); resume = () => Promise.resolve();
+    constructor() { made.push(this); }
+  });
+  try {
+    const target = new EventTarget();
+    unlockAudioOnGesture(target as unknown as Window);
+    retireAudio(); // drop whatever an earlier test left as the shared context
+    target.dispatchEvent(new Event("pointerdown"));
+    expect(made.length).toBe(1);
+    target.dispatchEvent(new Event("pointerdown")); // not retired: same context
+    expect(made.length).toBe(1);
+    retireAudio();
+    target.dispatchEvent(new Event("pointerdown"));
+    expect(made.length).toBe(2);
+    expect(made[0].close).toHaveBeenCalledTimes(1);
   } finally { vi.unstubAllGlobals(); }
 });

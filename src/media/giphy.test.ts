@@ -22,6 +22,19 @@ it("skips banned queries and survives failures", async () => {
   expect((scene.objects[0] as { src?: string }).src).toBeUndefined();
 });
 
+it("passes generation cancellation to a running GIF fetch", async () => {
+  const controller = new AbortController();
+  const fetchFn = vi.fn<typeof fetch>((_, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+  }));
+  const scene = { scene: "s", beats: [], objects: [{ id: "g", type: "gif", query: "wow" }] } as unknown as Scene;
+  const pending = resolveGifs(scene, giphySearch("KEY", fetchFn), controller.signal);
+  expect(fetchFn).toHaveBeenCalledWith(expect.any(String), { signal: controller.signal });
+  controller.abort();
+  await pending;
+  expect((scene.objects[0] as { src?: string }).src).toBeUndefined();
+});
+
 it("without the flag, finds a key saved before the flag existed and sets the flag", async () => {
   expect(hasGiphyKey()).toBe(false);
   vi.mocked(invoke).mockResolvedValue("OLD");

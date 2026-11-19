@@ -11,16 +11,24 @@ const sharedCtx = () => (shared ??= new AudioContext());
 
 /**
  * WebKit only lets an AudioContext start inside a user gesture. Scenes arrive minutes after the "Make video" click, so a
- * context created then stays "suspended": silent, frozen clock, and resume() never settles. Create + resume it on the
- * first click/keypress anywhere instead; once running it stays running.
+ * context created then stays "suspended": silent, frozen clock, and resume() never settles. Create + resume it on a
+ * click/keypress instead. Listeners stay attached: a retired context is swapped for a fresh one on the next gesture.
  */
-export function unlockAudioOnGesture(target: Pick<Window, "addEventListener" | "removeEventListener"> = window) {
+export function unlockAudioOnGesture(target: Pick<Window, "addEventListener"> = window) {
   const unlock = () => {
+    if (retired && shared) { void shared.close().catch(() => {}); shared = null; }
+    retired = false;
     const ctx = sharedCtx();
-    void ctx.resume().then(() => { if (ctx.state === "running") ["pointerdown", "keydown"].forEach(t => target.removeEventListener(t, unlock, true)); }, () => {});
+    if (ctx.state !== "running") void ctx.resume().catch(() => {});
   };
   ["pointerdown", "keydown"].forEach(t => target.addEventListener(t, unlock, true));
 }
+let retired = false;
+/**
+ * A long-lived context was seen playing into nothing (clock ticking, no sound, no error) after hours of uptime.
+ * The player retires it on unmount (and un-retires on mount, for StrictMode) so each video gets a fresh one.
+ */
+export function retireAudio(value = true) { retired = value; }
 /** How long play() waits for a suspended context to run before calling it blocked (WebKit leaves resume() pending). */
 export const RESUME_TIMEOUT_MS = 1500;
 

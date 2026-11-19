@@ -377,7 +377,7 @@ it("fills gif src from an injected gifSearch", async () => {
   const [event] = await events;
   expect(event.type).toBe("scene");
   if (event.type !== "scene") return;
-  expect(gifSearch).toHaveBeenCalledWith("mind blown");
+  expect(gifSearch).toHaveBeenCalledWith("mind blown", expect.any(AbortSignal));
   expect(event.scene.objects.find(o => o.type === "gif")).toMatchObject({ src: "https://gifs.test/mind%20blown.gif" });
 });
 
@@ -525,7 +525,7 @@ it("fact-check flag off: no fact-check calls, same scenes", async () => {
   expect((s.provider.complete as ReturnType<typeof vi.fn>).mock.calls.some(c => String(c[0]).startsWith("Fact-check"))).toBe(false);
 });
 
-it("fact-check on: bounds scene 1 at eight seconds and checks later scenes before TTS", async () => {
+it("fact-check on: cancels scene 1 at eight seconds and checks later scenes before TTS", async () => {
   const s = withCheck(setup(3), prompt => {
     if (prompt.includes("SceneAA")) return new Promise<string>(() => {}); // scene 1's check never answers
     return Promise.resolve(JSON.stringify(prompt.includes("SceneAD") ? [{ beat: 0, verdict: "unsupported" }] : []));
@@ -538,6 +538,8 @@ it("fact-check on: bounds scene 1 at eight seconds and checks later scenes befor
   expect(ready).toBe(false);
   await vi.advanceTimersByTimeAsync(300);
   expect((await first).value).toMatchObject({ type: "scene", sceneId: "scene-1", factCheck: "unchecked" });
+  const openingCheck = vi.mocked(s.provider.complete).mock.calls.find(([p]) => p.startsWith("Fact-check") && p.includes("SceneAA"));
+  expect(openingCheck?.[1]?.signal?.aborted).toBe(true);
   expect(devlog).toHaveBeenCalledWith(expect.stringContaining("scene 1: unchecked"));
   const rest = collect(stream);
   await vi.runAllTimersAsync();

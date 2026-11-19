@@ -74,12 +74,14 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   signal?.addEventListener("abort", onAbort, { once: true });
   if (signal?.aborted) onAbort();
   const checkAbort = () => { if (controller.signal.aborted) throw abortError(); };
-  const complete: LLMProvider = {
+  const providerWithSignal = (signal: AbortSignal): LLMProvider => ({
     complete(prompt, opts) {
       checkAbort();
-      return Promise.race([provider.complete(prompt, { ...opts, signal: controller.signal }), aborted]);
+      signal.throwIfAborted();
+      return Promise.race([provider.complete(prompt, { ...opts, signal }), aborted]);
     },
-  };
+  });
+  const complete = providerWithSignal(controller.signal);
   const jobs = new Map<number, Promise<PipelineEvent>>();
   const ready = new Map<number, PipelineEvent>();
   let started = 0;
@@ -92,15 +94,27 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
   const progress = (step: Progress["step"], scene: number) => onProgress?.({ step, scene, scenesReady: ready_, scenesTotal: groups.length, beats: says });
 
   const FACT_WAIT_MS = 20_000;
+  async function checkScene(beats: Beat[], index: number) {
+    const check = new AbortController();
+    const abort = () => check.abort();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    controller.signal.addEventListener("abort", abort, { once: true });
+    try {
+      return await Promise.race([
+        factCheckBeats({ beats, sources: passages.length ? passages : [{ id: "section", markdown: sectionMarkdown }], provider: providerWithSignal(check.signal) }).catch(() => null),
+        new Promise<null>(resolve => { timer = setTimeout(() => { resolve(null); abort(); }, index === 0 ? 8_000 : FACT_WAIT_MS); }),
+        aborted,
+      ]);
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", abort);
+    }
+  }
+
   async function build({ beats: initial, plan }: { beats: Beat[]; plan: ScenePlan }, index: number): Promise<PipelineEvent> {
     let beats = initial;
     // Bound the whole check (including repairs), rather than adding a fresh wait after TTS.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let verdict = factCheck ? Promise.race([
-      factCheckBeats({ beats, sources: passages.length ? passages : [{ id: "section", markdown: sectionMarkdown }], provider: complete }).catch(() => null),
-      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), index === 0 ? 8_000 : FACT_WAIT_MS); }),
-      aborted,
-    ]).finally(() => clearTimeout(timer)) : undefined;
+    let verdict = factCheck ? checkScene(beats, index) : undefined;
     void verdict?.catch(() => {});
     let checkStatus: "checked" | "unchecked" | undefined;
     async function applyCheck() {
@@ -161,7 +175,8 @@ export function streamVideo({ sectionMarkdown, provider, ttsAlign, concurrency =
         checkAbort();
         const scene = result.scene;
         if (!scene) throw new Error(`Invalid scene DSL: ${result.errors[result.errors.length - 1]?.[0]?.message ?? "unknown"}`);
-        await resolveGifs(scene, gifSearch);
+        await Promise.race([resolveGifs(scene, gifSearch, controller.signal), aborted]);
+        checkAbort();
         scene.scene = sceneId;
         scene.beats.forEach((beat, i) => {
           if (!("say" in beat)) return;

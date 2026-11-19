@@ -33,11 +33,11 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Wrong answer → same branch machinery as an interrupt (app-initiated).
 
 ### Inference providers
-- **Primary: reuse my subscriptions via Claude Code headless (`claude -p`).** Fine for batch stages that buffer ahead (outline, script, scene DSL).
-- **Model: `haiku` by default, `sonnet` for the script stage** (`SCRIPT_OPTS` in `src/gen/script.ts`; Haiku scripts broke the speech-first rules). `CompleteOpts.model` picks the tier; `src-tauri/src/llm.rs` allowlists `haiku|sonnet` and `src/llm/claudeCli.ts` mirrors it; keep both in sync.
+- **Desktop inference uses the selected CLI.** Claude Code is the default, and Settings → General also offers Codex. Both use the CLI’s existing login.
+- **Model tiers:** `CompleteOpts.model` picks `haiku` (default) or `sonnet` (script). Rust maps these to Haiku/Sonnet for Claude and GPT-6.2 Sol/Astra for Codex. Keep the Claude allowlist in sync with `src/llm/claudeCli.ts`.
 - Caveats: cold-start latency (unsuitable for the instant tutor), it eats the 5-hr Pro limit, and the ToS for driving it from my own app must be re-checked **before the OSS release** defaults to it.
 - **Provider interface from day one:** `ClaudeCodeCLI` (backend #1), `Ollama` (local fallback + tutor fast path), API-key providers (Claude/Gemini/OpenAI) for other users and later.
-- **Ollama (open):** the first-launch screen does not offer it. `src/llm/registry.ts` is still claude and codex only, so there is no end-to-end check that can pass. Add the row when a real local `complete()` works.
+- **Ollama (open):** the first-launch screen does not offer it. Add the row when a real local `complete()` works.
 - Budget constraint: nothing beyond Claude Pro should cost money by default.
 - **API keys (deferred):** none are needed yet, so no storage is built. When the first provider needs one (GIPHY/Klipy, Anthropic or other API-key providers), store it behind `get_secret`/`set_secret` Tauri commands (now an owner-only file `<appData>/secrets/<name>`, 0600; the Keychain was dropped 2026-11-10 because unsigned dev builds prompted for the login password on every read; revisit Keychain/encryption once builds are signed). `get_secret` only returns allowlisted names (`WEBVIEW_READABLE` in `store.rs`, just `giphy`: GIPHY keys are designed for client-side use); any other key is write-only from the webview and read only in Rust. Pass keys to the sidecar at spawn. Never put keys in the repo, `.env` files, or plain app settings. `.env*` is gitignored only as a safety net. The Claude Pro path (`claude -p`) needs no key.
 
@@ -74,6 +74,18 @@ Reproduce the bundled run with `TANGENT_FACTCHECK_EVAL=1`; add `TANGENT_FACTCHEC
 - The scene retry sends the previous JSON along with the validator errors, and TTS audio is reused across DSL retries.
 
 ## Log
+- 2026-11-18 Antigravity is selectable as **experimental**. agy 1.5.9 print mode always has tools (run_command, write_file, search_web, ...) and runs them unasked; no flag/session setting disables them (`disabledTools`, `pluginsDisabled` rejected; `--mode plan` ignored), and `write_file` ignores `--sandbox` (wrote to ~ in a probe). Tangent runs `agy --sandbox --disable-slash-commands` with stream-json stdin in an empty temp dir, and `collect` kills the tree on any step other than user_input/agent_response (beat write_file 3/3 live). Models gemini-3.8-flash-medium/high; no photos; no login probe. Calls are saved in agy history. Not verified: a full generation on agy (it may reach for tools and get killed).
+- 2026-11-18 Checkpoint generate + grounding calls get a 300 s timeout (was the 120 s default); a 7-PDF, 67-scene video timed out and shipped with no checkpoints (dev.log 03:35:05). Not verified: a long run after the change.
+- 2026-11-18 Claude remains the default. Codex uses GPT-6.2 Sol for fast calls and GPT-6.2 Astra for scripts.
+  Claude attaches images with stream JSON; Codex stages bounded base64 attachments as private temporary files for `--image`.
+  Antigravity remains unavailable because the headless CLI lacks documented isolation from user extensions and saved conversations.
+  TypeScript and 1,123 Vitest tests passed. Claude and Codex both returned `OK` (exit 0) for the exact text argv. Live images and the packaged app were unverified.
+
+
+- 2026-11-17 Duplicate starts reuse the open video, and navigation or retry cancels its work and closes the preparation stream.
+  Identical formula requests share one decode, different selections serialize by PDF, and finished batches stay cached on cancellation.
+  Fact-check deadlines cancel inference, and leaving generation cancels GIF lookups.
+  TypeScript passed and Vitest passed 1,115 tests with three skips. Live generation remains unverified.
 
 - 2026-11-16 Polish P1-1/P1-10/P1-7: apply scene 1 fact-check verdicts beside TTS (eight-second total check cap); later scenes check before TTS (20-second cap), synthesizing accepted rewrites/cuts once.
   Timeouts, missing/malformed/unclear verdicts and retained unsupported beats log + mark the scene unchecked; status survives recording/replay and old bundles remain unmarked.

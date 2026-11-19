@@ -7,7 +7,7 @@ import Menu from "@/components/ui/Menu";
 import Icon from "@/components/Icon";
 import Stage from "@/Stage";
 import type { LLMProvider } from "@/llm/provider";
-import { providers } from "@/llm/registry";
+import { selectedProvider } from "@/llm/registry";
 import type { PipelineEvent, Progress } from "@/pipeline/streamVideo";
 import type { Checkpoint } from "@/gen/checkpoints";
 import { tauriJsonStore, threads as threadStore, newId, type JsonStore, type Thread } from "@/storage/store";
@@ -21,7 +21,7 @@ import { narrationLines, nowSayingAt, transcriptUntil } from "@/tutor/narration"
 import { plainError } from "@/plainError";
 import { devlog } from "@/devlog";
 import { SceneQueue } from "@motion/player/queue";
-import { bufferClock, unlockAudioOnGesture } from "@motion/player/bufferClock";
+import { bufferClock, retireAudio, unlockAudioOnGesture } from "@motion/player/bufferClock";
 import SidePanel, { type Tab } from "./SidePanel";
 import Loading, { useGenerationPercent } from "./Loading";
 import Textbook from "./Textbook";
@@ -73,7 +73,7 @@ export type PlayerProps = {
   followSources?: FollowSource[];
 };
 
-export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", passages = [], provider = providers.claude, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError, textbook, followSources }: PlayerProps) {
+export default function PlayerScreen({ stream, title, kicker = "Tangent", videoId, section = "", passages = [], provider = selectedProvider, store = tauriJsonStore, progress, onRetry, onBack, autoPlay = false, initialError, textbook, followSources }: PlayerProps) {
   const [scenes, setScenes] = useState<StreamedScene[]>([]);
   const [current, setCurrent] = useState<StreamedScene | null>(null);
   const [time, setTime] = useState(0);
@@ -166,6 +166,9 @@ export default function PlayerScreen({ stream, title, kicker = "Tangent", videoI
     },
     onError: e => { setError(plainError(e)); },
   }));
+
+  // Each video gets a fresh AudioContext (swapped on the next click after this player closes).
+  useEffect(() => { retireAudio(false); return () => retireAudio(); }, []);
 
   // Consume the stream: scenes go to the queue, checkpoints to state.
   useEffect(() => {

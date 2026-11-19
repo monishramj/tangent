@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { traced } from "../devlog";
 import { join, tempDir } from "@tauri-apps/api/path";
 import { z } from "zod";
 
@@ -26,11 +26,11 @@ export async function sidecarTts(segments: string[], options?: { signal?: AbortS
   if (!segments.length || segments.some(s => !s.trim())) throw new Error("TTS segments must not be empty");
   const outPath = await join(await tempDir(), `tangent-${crypto.randomUUID()}.wav`);
   checkAbort();
-  const response = await invoke<unknown>("sidecar_call", {
+  const response = await traced<unknown>("sidecar_call", "tts_align", {
     method: "tts_align",
     params: { segments, out_path: outPath, voice: "alba", gap_sec: options?.gapSec ?? BEAT_GAP_SEC },
     timeoutMs: 300_000,
-  });
+  }, options?.signal);
   checkAbort();
   const audio = alignment.parse(response);
   if (audio.wav_path !== outPath) throw new Error("TTS returned an unexpected WAV path");

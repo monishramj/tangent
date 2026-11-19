@@ -66,6 +66,17 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
 - Merged (2026-11-10, via `review/merge-all`): the audio fix, the Settings side panel + file-based secrets, PocketTTS replacing Kokoro, and the homepage dev design pages (`src/dev/home-design*`).
 
 ## Log
+- 2026-11-18 First launch and Settings check the selected CLI without model calls. Claude uses `auth status --json`; Codex uses `login status`.
+  Claude uses empty tools/settings, strict MCP, disabled slash commands and no session persistence in an empty cwd.
+  Codex exec uses read-only and no approvals, ignores user config/rules, disables shell, file-image tools, hooks, MCP, plugins, apps, web and agent features, and uses ephemeral sessions.
+  Codex still uses its existing auth and can create internal diagnostics. Antigravity’s [headless permissions](https://antigravity.google/docs/cli/headless/) govern tool approval and headless mode can load user settings/extensions and resume conversations.
+  Tangent reports Antigravity installation but refuses prompts before spawning it. `agy models` reported signed out, and 67 Rust library tests passed.
+
+- 2026-11-17 Generation cancellation reaps LLM children and skips queued Python work before it reaches the sidecar.
+  Timeouts cover blocked sidecar writes and LLM pipes held open by child processes.
+  Rust passed 64 library tests with one ignored. Active Python RPCs can finish within their existing timeout. Windows cleanup remains unverified.
+
+- 2026-11-17 Developer mode (Settings → Developer, flag file `<app log dir>/dev-mode`): devlog lines, every sidecar/LLM call (duration, error) and sidecar stderr (after relaunch) append to `~/Library/Logs/com.tangent.app/dev.log` in installed builds. `ingest_pdf` no longer takes the shared job lock: a 600-page ingest (with thermal pauses) blocked section text, formulas and TTS for every video. Evidence: cargo test (60), vitest 1105. Not verified: real app run; foreground + background sidecars may now run concurrently (~2x30% cores).
 - 2026-11-16 Step 25 recheck at `b9daaed` (#40 + #41): one arm64 release app built; ad-hoc `flags=0x2`, strict codesign verification, fresh setup → nonblank main, saved playback/WebAudio Playing, Textbook PDF pages, and SIGTERM sidecar cleanup PASS. Evidence: `docs/mac-smoke-2026-11.md` and adjacent screenshots/logs.
   Build command exited 1 only at updater signing (private key absent); built `.app` retained in this worker's `src-tauri/target/release/bundle/macos/`, never installed over `/Applications`.
   Owner to verify: audible sound, PPTX import and generation ring (native dialog focus blocked; coordinator deferred). Requested video disappeared; coordinator approved `vmwh7y0mfvjpz4` fallback. No code fix/rebuild; orphan cleanup ran.

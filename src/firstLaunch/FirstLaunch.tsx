@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getChoice, setChoice, type ProviderName } from "@/llm/registry";
+import ProviderSelect from "./ProviderSelect";
 import { checkRows, requiredOk, runLaunchChecks, type LaunchChecks } from "./checks";
 
 function CopyCommand({ command }: { command: string }) {
@@ -13,21 +15,35 @@ function CopyCommand({ command }: { command: string }) {
 }
 
 export default function FirstLaunch({ check = runLaunchChecks, onContinue, heading = "h1" }: {
-  check?: () => Promise<LaunchChecks>; onContinue: () => void; heading?: "h1" | "h2";
+  check?: (provider: ProviderName) => Promise<LaunchChecks>; onContinue: () => void; heading?: "h1" | "h2";
 }) {
   const checkRef = useRef(check);
   checkRef.current = check;
-  const [result, setResult] = useState<LaunchChecks | null>(null);
+  const [provider, setProvider] = useState(getChoice);
+  const [checked, setChecked] = useState<{ provider: ProviderName; result: LaunchChecks }>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
+  const request = useRef(0);
   const run = useCallback(async () => {
+    const id = ++request.current;
     setBusy(true); setError("");
-    try { setResult(await checkRef.current()); }
-    catch (e) { setError(e instanceof Error ? e.message : "Couldn't run the checks."); }
-    finally { setBusy(false); }
-  }, []);
-  useEffect(() => { void run(); }, [run]);
-  const rows = result ? checkRows(result) : [];
+    try {
+      const result = await checkRef.current(provider);
+      if (id === request.current) setChecked({ provider, result });
+    }
+    catch (e) { if (id === request.current) setError(e instanceof Error ? e.message : "Couldn't run the checks."); }
+    finally { if (id === request.current) setBusy(false); }
+  }, [provider]);
+  useEffect(() => {
+    void run();
+    return () => { request.current++; };
+  }, [run]);
+  const selectProvider = (name: ProviderName) => {
+    try { setChoice(name); setBusy(true); setProvider(name); }
+    catch { setError("Couldn't save the AI provider on this computer."); }
+  };
+  const result = checked?.provider === provider ? checked.result : null;
+  const rows = result ? checkRows(result, provider) : [];
   const ready = !!result && requiredOk(result);
   const Title = heading;
   return (
@@ -35,8 +51,9 @@ export default function FirstLaunch({ check = runLaunchChecks, onContinue, headi
       <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-16">
         <div>
           <Title className="text-3xl font-medium tracking-tight">Before you start</Title>
-          <p className="mt-2 text-sm text-muted">Tangent writes the video with Claude Code on this computer. These checks don't send a prompt.</p>
+          <p className="mt-2 text-sm text-muted">Choose the AI provider Tangent uses to write your videos. These checks don't send a prompt.</p>
         </div>
+        {heading === "h1" && <ProviderSelect value={provider} onChange={selectProvider} installations={checked?.result.installations} />}
         <ul aria-label="Setup checks" className="flex flex-col gap-3">
           {busy && !result && <li className="text-sm text-subtle">Checking…</li>}
           {rows.map(row => (

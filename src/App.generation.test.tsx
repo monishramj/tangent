@@ -1,7 +1,8 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { useEffect } from "react";
+import { StrictMode, useEffect } from "react";
 import App from "./App";
+import type Home from "./home/Home";
 import type PlayerScreen from "./player/PlayerScreen";
 import { startSession } from "./pipeline/session";
 import { withFormulas } from "./library";
@@ -9,8 +10,8 @@ import { sectionsText, type IR } from "./home/api";
 import { memoryJsonStore, sourceFor } from "./storage/store";
 import { fakeVideoStore } from "./storage/videos";
 
-const player = vi.hoisted(() => vi.fn());
-vi.mock("./home/Home", () => ({ default: () => null }));
+const { player, home } = vi.hoisted(() => ({ player: vi.fn(), home: vi.fn() }));
+vi.mock("./home/Home", () => ({ default: (props: React.ComponentProps<typeof Home>) => { home(props); return null; } }));
 vi.mock("./menu", () => ({ startMenuBridge: () => {}, syncMenu: () => {} }));
 vi.mock("./media/giphy", () => ({ giphyKey: async () => null }));
 vi.mock("./devlog", () => ({ devlog: vi.fn() }));
@@ -57,4 +58,73 @@ it.each([false, true])("prepares, records and follows sources through one path (
     expect(source.also).toBeUndefined();
     expect(player.mock.calls[player.mock.calls.length - 1][0].followSources).toBeUndefined();
   }
+});
+
+it("keeps the preparation placeholder open until its consumer closes it", async () => {
+  vi.mocked(withFormulas).mockImplementationOnce(() => new Promise(() => {}));
+  render(<App store={memoryJsonStore()} videoStore={fakeVideoStore()} initial={{ s: "generate", attempt: 0, args: {
+    sectionIds: ["s1"], ir: ir("Arrays grow."), meta: { pdfPath: "/a.pdf", title: "Topic", detail: "standard" } } }} />);
+  await waitFor(() => expect(player).toHaveBeenCalled());
+  const it = player.mock.calls[0][0].stream[Symbol.asyncIterator]();
+  const pending = it.next();
+  const ended = await Promise.race([pending.then(() => true), new Promise(r => setTimeout(() => r(false), 50))]);
+  expect(ended).toBe(false);
+  await it.return();
+  expect((await pending).done).toBe(true);
+});
+
+it("a preparation failure shows its error instead of loading forever", async () => {
+  vi.mocked(withFormulas).mockRejectedValueOnce(new Error("sidecar timed out"));
+  render(<App store={memoryJsonStore()} videoStore={fakeVideoStore()} initial={{ s: "generate", attempt: 0, args: {
+    sectionIds: ["s1"], ir: ir("Arrays grow."), meta: { pdfPath: "/a.pdf", title: "Topic", detail: "standard" } } }} />);
+  await waitFor(() => expect(player.mock.calls.slice(-1)[0]?.[0].initialError).toMatch(/Couldn't start this section/));
+  const it = player.mock.calls.slice(-1)[0][0].stream[Symbol.asyncIterator]();
+  expect((await it.next()).done).toBe(true);
+});
+
+const args = () => ({ sectionIds: ["s1"], ir: ir("Arrays grow."), meta: { pdfPath: "/a.pdf", title: "Topic", detail: "standard" as const } });
+const start = () => {
+  const { sectionIds, ir, meta } = args();
+  home.mock.calls.slice(-1)[0][0].onStart(sectionIds, ir, meta);
+};
+
+it("reuses the active generation for a duplicate start", async () => {
+  let finish!: (ir: IR) => void;
+  vi.mocked(withFormulas).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  render(<App store={memoryJsonStore()} videoStore={fakeVideoStore()} />);
+  act(start);
+  await waitFor(() => expect(withFormulas).toHaveBeenCalledTimes(1));
+  await act(async () => { start(); });
+  expect(withFormulas).toHaveBeenCalledTimes(1);
+  finish(args().ir);
+  await waitFor(() => expect(startSession).toHaveBeenCalledTimes(1));
+});
+
+it("in StrictMode starts preparation once and aborts pending section text on leaving", async () => {
+  let finish!: (text: string) => void;
+  vi.mocked(sectionsText).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const view = render(<StrictMode><App store={memoryJsonStore()} videoStore={fakeVideoStore()}
+    initial={{ s: "generate", attempt: 0, args: args() }} /></StrictMode>);
+  await waitFor(() => expect(sectionsText).toHaveBeenCalledTimes(1));
+  expect(withFormulas).toHaveBeenCalledTimes(1);
+  const signal = vi.mocked(sectionsText).mock.calls[0][2];
+  expect(signal?.aborted).toBe(false);
+  view.unmount();
+  expect(signal?.aborted).toBe(true);
+  await act(async () => { finish("Late text"); });
+  expect(startSession).not.toHaveBeenCalled();
+});
+
+it("retry aborts the previous generation and ignores a stale retry callback", async () => {
+  render(<App store={memoryJsonStore()} videoStore={fakeVideoStore()} initial={{ s: "generate", attempt: 0, args: args() }} />);
+  await waitFor(() => expect(startSession).toHaveBeenCalledTimes(1));
+  const old = vi.mocked(startSession).mock.calls[0][0].signal;
+  const retry = player.mock.calls.slice(-1)[0][0].onRetry;
+  act(retry);
+  await waitFor(() => expect(startSession).toHaveBeenCalledTimes(2));
+  expect(old?.aborted).toBe(true);
+  const latest = vi.mocked(startSession).mock.calls[1][0].signal;
+  await act(async () => { retry(); });
+  expect(latest?.aborted).toBe(false);
+  expect(startSession).toHaveBeenCalledTimes(2);
 });

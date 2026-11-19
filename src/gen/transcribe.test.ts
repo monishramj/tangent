@@ -25,3 +25,17 @@ it('rejects malformed or empty transcription before it can enter the cache', asy
   await expect(transcribePhoto('secret.txt', read)).rejects.toThrow();
   expect(read).not.toHaveBeenCalled();
 });
+
+it('reads a scanned PDF page by page into one anchored section per page, skipping blank pages', async () => {
+  const { transcribePdf } = await import('./transcribe');
+  const pages: Record<number, string> = { 1: '["Bayes: $P(A|B)$", "[illegible]"]', 2: '[]', 3: '```json\n["Prior times likelihood"]\n```' };
+  const seen: number[] = [], progress = vi.fn();
+  const ir = await transcribePdf('/notes.pdf', 3, progress, async (_path, page, prompt) => { expect(prompt).toBe(TRANSCRIPTION_PROMPT); seen.push(page); return pages[page]; });
+  expect(seen).toEqual([1, 2, 3]);
+  expect(ir.transcribed).toBe(true);
+  expect(ir.sections.map(s => [s.id, s.title, s.anchors])).toEqual([['page-1', 'Page 1', [{ page: 1 }]], ['page-3', 'Page 3', [{ page: 3 }]]]);
+  expect(ir.sections[0].markdown).toContain('[illegible]');
+  expect(progress).toHaveBeenLastCalledWith(3, 3);
+  await expect(transcribePdf('/big.pdf', 61, undefined, async () => '[]')).rejects.toThrow(/up to 60 pages/);
+  await expect(transcribePdf('/blank.pdf', 1, undefined, async () => '[]')).rejects.toThrow(/No text found/);
+});

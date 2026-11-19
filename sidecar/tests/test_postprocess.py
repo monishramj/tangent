@@ -190,3 +190,20 @@ def test_outline_upgrade_leaves_existing_tree_intact(monkeypatch):
     parent["children"] = [node("Nested", level=2, md="nested body")]
     ir = {"sections": [parent]}
     assert repair_sections({"ir": ir, "path": "book.pdf"}) == {**ir, "outline_version": 1}
+
+
+def test_merged_chapters_start_new_top_level():
+    ir = {"sections": [node("7. Sampling"), node("7.4.8 Practice"), node("4. A list item"), node("8. Design"),
+                       node("8.1 Basics")]}
+    out = postprocess(ir)["sections"]
+    assert [n["title"] for n in out] == ["7. Sampling", "8. Design"]
+    assert [n["level"] for n in flat(out)] == [1, 3, 4, 1, 2]
+
+
+def test_parent_pages_come_from_own_passages_and_children():
+    box = lambda p: {"id": f"p{p}", "markdown": "x", "boxes": [{"bbox": [0, 0, 1, 1], "page": p}]}
+    ir = {"sections": [node("7. Sampling", pages=range(1, 30), passages=[box(1)]),
+                       node("7.1 Intro", pages=(2, 3), passages=[box(2), box(3)]),
+                       node("8. Design", pages=(10, 11), passages=[box(10), box(11)])]}
+    out = postprocess(ir)["sections"]
+    assert [[a["page"] for a in n["anchors"]] for n in out] == [[1, 2, 3], [10, 11]]

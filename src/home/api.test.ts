@@ -83,6 +83,18 @@ it("sectionsText: single id is untouched; several get ## titles in order", async
   expect(await sectionsText(ir, ["a", "a1"])).toBe("## A\n\nbody a\n\n## A1\n\nbody a1");
 });
 
+it("skips section text when canceled during native request registration", async () => {
+  const abort = new AbortController();
+  let register!: (id: number) => void;
+  vi.mocked(invoke).mockClear().mockImplementationOnce(() => new Promise(resolve => { register = resolve; }));
+  vi.mocked(invoke).mockResolvedValueOnce(null);
+  const result = sectionsText({ sections: [] }, ["a"], abort.signal);
+  abort.abort();
+  register(41);
+  await expect(result).rejects.toMatchObject({ name: "AbortError" });
+  expect(vi.mocked(invoke).mock.calls).toEqual([["begin_request"], ["cancel_request", { requestId: 41 }]]);
+});
+
 // Textbook follow-along (docs/textbook-follow.md).
 describe("sectionsPassages / sectionPages / pdfPage", () => {
   const box = (page: number) => ({ page, bbox: [0, 0, 1, 1] as [number, number, number, number] });

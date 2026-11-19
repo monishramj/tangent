@@ -20,6 +20,7 @@ window.matchMedia ??= ((query: string) => ({ matches: true, media: query, addEve
 const ir = { sections: [] };
 const flat = [{ id: 's1', title: 'Heaps', level: 1, anchors: [{ page: 3 }, { page: 5 }] }, { id: 's2', title: 'Heapify', level: 2, anchors: [{ page: 4 }] }];
 const video = { id: 'v1', title: 'Saved heaps', createdAt: 5, complete: false, source: { pdfPath: '/book.pdf', sectionId: 's1', sectionTitle: 'Heaps' }, scenes: [{ durationSec: 75 }] } as VideoBundle;
+const bundle = (pdfPath: string, id: string) => ({ ...video, id, source: { ...video.source, pdfPath } }) as VideoBundle;
 const provider = { complete: vi.fn() };
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear();
@@ -168,10 +169,22 @@ it('move-to-folder persists the chosen folder', async () => {
   const source = sourceFor('/book.pdf');
   const store = memoryJsonStore({ library: { folders: [{ id: 'f1', name: 'Course', emoji: '📚', openedAt: 1 }], sources: [source] } });
   setup({ jsonStore: store });
-  fireEvent.click(await screen.findByRole('button', { name: 'Move book.pdf' }));
-  const select = screen.getByLabelText('Folder for book.pdf');
-  fireEvent.change(select, { target: { value: 'f1' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Actions for book.pdf' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'Course' }));
   await waitFor(() => expect((store.data.get('library') as { sources: { folderId: string }[] }).sources[0].folderId).toBe('f1'));
+});
+it('deleting a source asks first, then removes it, its cached IR and its videos', async () => {
+  const source = sourceFor('/book.pdf'), other = sourceFor('/notes.pdf');
+  const store = memoryJsonStore({ library: { folders: [], sources: [source, other] }, [`ir-${source.id}`]: { sections: [] } });
+  const videos = fakeVideoStore([bundle('/book.pdf', 'v1'), bundle('/notes.pdf', 'v2')]);
+  setup({ jsonStore: store, store: videos });
+  fireEvent.click(await screen.findByRole('button', { name: 'Actions for book.pdf' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }));
+  expect((store.data.get('library') as { sources: unknown[] }).sources).toHaveLength(2); // nothing until confirmed
+  fireEvent.click(within(screen.getByRole('group', { name: 'Delete book.pdf' })).getByRole('button', { name: 'Delete' }));
+  await waitFor(() => expect((store.data.get('library') as { sources: { pdfPath: string }[] }).sources.map(s => s.pdfPath)).toEqual(['/notes.pdf']));
+  expect(store.data.has(`ir-${source.id}`)).toBe(false);
+  expect((await videos.list()).map(v => v.id)).toEqual(['v2']);
 });
 it('does not overwrite durable sources when the library read fails', async () => {
   const store = memoryJsonStore();

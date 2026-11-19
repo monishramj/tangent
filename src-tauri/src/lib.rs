@@ -1,11 +1,14 @@
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 mod bootstrap;
 mod checks;
+mod devmode;
 mod llm;
 mod menu;
 mod pages;
@@ -15,31 +18,45 @@ use tauri::{Emitter, Manager, RunEvent, State};
 
 struct Process {
     child: Child,
-    stdin: Option<ChildStdin>,
+    input: Option<mpsc::Sender<String>>,
     lines: mpsc::Receiver<Result<String, String>>,
     // Dropping the job kills uv and the python grandchild if the graceful close did not.
     #[cfg(windows)]
     job: Option<WindowsJob>,
 }
 
+const SIDECAR_EXITED: &str = "sidecar exited unexpectedly; retry to restart it";
+
 impl Process {
     fn new(mut child: Child) -> Self {
-        let stdin = child.stdin.take().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         let (tx, lines) = mpsc::channel();
+        let (input, writes) = mpsc::channel::<String>();
+        let errors = tx.clone();
+        // Writing a large IR to a stalled child must stay inside the same timeout as reading its response.
         std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                if tx.send(line.map_err(|e| e.to_string())).is_err() { break; }
+            for line in writes {
+                if let Err(e) = writeln!(stdin, "{line}").and_then(|()| stdin.flush()) {
+                    let _ = errors.send(Err(e.to_string()));
+                    break;
+                }
             }
         });
-        Self { child, stdin: Some(stdin), lines, #[cfg(windows)] job: None }
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if tx.send(line.map_err(|e| e.to_string())).is_err() { return; }
+            }
+            let _ = tx.send(Err(SIDECAR_EXITED.into()));
+        });
+        Self { child, input: Some(input), lines, #[cfg(windows)] job: None }
     }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
         // Closing stdin lets the RPC loop finish. The job/process group covers a stuck grandchild.
-        self.stdin.take();
+        self.input.take();
         let deadline = std::time::Instant::now() + Duration::from_millis(300);
         loop {
             match self.child.try_wait() {
@@ -111,11 +128,37 @@ struct State_ {
     // shortcut: jobs share a serial budget; yield between chunks if foreground latency needs preemption.
     job: Arc<Mutex<()>>,
     ping: Arc<Mutex<Sidecar>>,
+    requests: Mutex<Requests>,
+}
+
+#[derive(Default)]
+struct Requests {
+    next_id: u32,
+    active: HashMap<u32, Arc<AtomicBool>>,
+}
+
+impl Requests {
+    fn begin(&mut self) -> Result<u32, String> {
+        self.next_id = self.next_id.checked_add(1).ok_or("Request IDs exhausted")?;
+        self.active.insert(self.next_id, Arc::new(AtomicBool::new(false)));
+        Ok(self.next_id)
+    }
+
+    fn cancel(&mut self, id: u32) {
+        if let Some(request) = self.active.remove(&id) { request.store(true, Ordering::Release); }
+    }
 }
 
 impl State_ {
+    fn request(&self, id: Option<u32>) -> Result<Option<Arc<AtomicBool>>, String> {
+        id.map(|id| self.requests.lock().map_err(|e| e.to_string())?.active.get(&id).cloned().ok_or_else(|| "Request aborted".into())).transpose()
+    }
+
     /// Drops (and so kills) every idle sidecar. try_lock: never hang quit behind a running job; the child's watchdog covers that case.
     fn kill_sidecars(&self) {
+        if let Ok(mut requests) = self.requests.lock() {
+            for (_, request) in requests.active.drain() { request.store(true, Ordering::Release); }
+        }
         for connection in [&self.work, &self.ingest, &self.ping] {
             if let Ok(mut s) = connection.try_lock() { *s = Sidecar::default(); }
         }
@@ -167,6 +210,7 @@ fn spawn(background: bool) -> Result<Process, String> {
         .env("TANGENT_WORK_CLASS", if background { "background" } else { "foreground" })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
+    if let Some(log) = devmode::file() { cmd.stderr(log); } // dev mode: Python tracebacks land in dev.log
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     #[cfg(windows)]
@@ -189,23 +233,25 @@ fn spawn(background: bool) -> Result<Process, String> {
 
 #[cfg(test)]
 fn call(s: &mut Sidecar, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
-    call_progress(s, method, params, timeout, |_| {})
+    call_progress(s, method, params, timeout, None, |_| {})
 }
 
-fn call_progress(s: &mut Sidecar, method: &str, params: Value, timeout: Duration, mut progress: impl FnMut(Value)) -> Result<Value, String> {
+fn call_progress(s: &mut Sidecar, method: &str, params: Value, timeout: Duration, request: Option<&AtomicBool>, mut progress: impl FnMut(Value)) -> Result<Value, String> {
+    check_request(request)?;
     if s.proc.is_none() { s.proc = Some(spawn(method == "ingest_pdf")?); }
-    s.next_id += 1;
-    let id = s.next_id;
+    let id = s.next_id + 1;
+    let line = json!({"id": id, "method": method, "params": params}).to_string();
+    check_request(request)?;
+    s.next_id = id;
     let process = s.proc.as_mut().unwrap();
     let response = (|| {
-        let stdin = process.stdin.as_mut().ok_or("sidecar stdin is closed")?;
-        writeln!(stdin, "{}", json!({"id": id, "method": method, "params": params})).map_err(|e| e.to_string())?;
-        stdin.flush().map_err(|e| e.to_string())?;
+        let input = process.input.as_ref().ok_or("sidecar stdin is closed")?;
+        input.send(line).map_err(|_| SIDECAR_EXITED.to_string())?;
         loop {
             let line = process.lines.recv_timeout(timeout).map_err(|e| match e {
                 mpsc::RecvTimeoutError::Timeout => "sidecar timed out".to_string(),
                 // No respawn/retry here: the job fails and only the next request starts a fresh sidecar.
-                mpsc::RecvTimeoutError::Disconnected => "sidecar exited unexpectedly; retry to restart it".to_string(),
+                mpsc::RecvTimeoutError::Disconnected => SIDECAR_EXITED.to_string(),
             })??;
             let r: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
             if r["id"] != id { return Err(format!("id mismatch: {}", r["id"])); }
@@ -229,15 +275,47 @@ fn call_progress(s: &mut Sidecar, method: &str, params: Value, timeout: Duration
     }
 }
 
+/// Foreground work (section text, formulas, TTS) shares one serial budget. Ingest stays out of it: it is one call per
+/// PDF on its own background-QoS sidecar, and a 600-page book (with thermal pauses) would otherwise stall every video.
+fn takes_job_lock(method: &str) -> bool { !matches!(method, "ping" | "ingest_pdf") }
+
+fn check_request(request: Option<&AtomicBool>) -> Result<(), String> {
+    if request.is_some_and(|request| request.load(Ordering::Acquire)) { Err("Request aborted".into()) } else { Ok(()) }
+}
+
 #[tauri::command]
-async fn sidecar_call(app: tauri::AppHandle, state: State<'_, State_>, method: String, params: Value, timeout_ms: Option<u64>) -> Result<Value, String> {
+fn begin_request(state: State<'_, State_>) -> Result<u32, String> {
+    state.requests.lock().map_err(|e| e.to_string())?.begin()
+}
+
+#[tauri::command]
+fn cancel_request(state: State<'_, State_>, request_id: u32) -> Result<(), String> {
+    state.requests.lock().map_err(|e| e.to_string())?.cancel(request_id);
+    Ok(())
+}
+
+fn lock_job<'a>(job: &'a Mutex<()>, request: Option<&AtomicBool>) -> Result<std::sync::MutexGuard<'a, ()>, String> {
+    if request.is_none() { return job.lock().map_err(|e| e.to_string()); }
+    loop {
+        check_request(request)?;
+        match job.try_lock() {
+            Ok(guard) => return Ok(guard),
+            Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+#[tauri::command]
+async fn sidecar_call(app: tauri::AppHandle, state: State<'_, State_>, method: String, params: Value, timeout_ms: Option<u64>, request_id: Option<u32>) -> Result<Value, String> {
+    let request = state.request(request_id)?;
     let connection = state.connection(&method);
     let job = Arc::clone(&state.job);
     tauri::async_runtime::spawn_blocking(move || {
-        let _job = if method == "ping" { None } else { Some(job.lock().map_err(|e| e.to_string())?) };
+        let _job = if takes_job_lock(&method) { Some(lock_job(&job, request.as_deref())?) } else { None };
         let path = params.get("path").cloned().unwrap_or(Value::Null);
         let mut sidecar = connection.lock().map_err(|e| e.to_string())?;
-        call_progress(&mut sidecar, &method, params, Duration::from_millis(timeout_ms.unwrap_or(300_000)), |value| {
+        call_progress(&mut sidecar, &method, params, Duration::from_millis(timeout_ms.unwrap_or(300_000)), request.as_deref(), |value| {
             let _ = app.emit("ingest-progress", json!({"path": path, "progress": value}));
         })
     }).await.map_err(|e| e.to_string())?
@@ -271,8 +349,6 @@ fn exit_on_signal(app: tauri::AppHandle) {
     });
 }
 
-#[tauri::command]
-fn dev_log(msg: String) { eprintln!("[webview] {msg}"); } // dev diagnostics: webview events land in the terminal log
 
 /// Message shown when Linux cannot composite the window. `None` means rendering looks available.
 #[cfg(any(test, target_os = "linux"))]
@@ -345,6 +421,7 @@ pub fn run() {
         .register_uri_scheme_protocol("setup", |_, request| bootstrap::response(request))
         .on_menu_event(|app, event| menu::on_click(app, event.id().0.as_str()))
         .setup(|app| {
+            devmode::setup(app.handle());
             menu::install(app.handle())?;
             #[cfg(target_os = "linux")]
             warn_graphics(app.handle());
@@ -359,7 +436,7 @@ pub fn run() {
                 if bootstrap::runtime().is_err() { window.app_handle().exit(0); }
             }
         })
-        .invoke_handler(tauri::generate_handler![bootstrap::bootstrap_status, bootstrap::bootstrap_start, bootstrap::bootstrap_cancel, checks::launch_checks, pages::pdf_page, sidecar_call, llm::llm_complete, dev_log, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
+        .invoke_handler(tauri::generate_handler![bootstrap::bootstrap_status, bootstrap::bootstrap_start, bootstrap::bootstrap_cancel, checks::launch_checks, pages::pdf_page, sidecar_call, llm::llm_complete, begin_request, cancel_request, devmode::dev_log, devmode::dev_mode, devmode::set_dev_mode, videos::save_video_bundle, videos::list_video_bundles, videos::load_video_bundle, videos::delete_video_bundle, store::store_read, store::store_write, store::store_delete, store::get_secret, store::set_secret, menu::sync_menu])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, e| {
@@ -384,6 +461,31 @@ mod tests {
             done"#])
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         Sidecar { proc: Some(Process::new(child)), next_id: 0 }
+    }
+
+    #[test]
+    fn ingest_does_not_hold_the_foreground_job_lock() {
+        assert!(!takes_job_lock("ingest_pdf") && !takes_job_lock("ping"));
+        assert!(takes_job_lock("section_text") && takes_job_lock("enrich_formulas") && takes_job_lock("tts_align"));
+    }
+
+    #[test]
+    fn canceled_sidecar_request_leaves_the_job_queue_without_the_lock() {
+        let state = State_::default();
+        let id = state.requests.lock().unwrap().begin().unwrap();
+        let request = state.request(Some(id)).unwrap().unwrap();
+        let held = state.job.lock().unwrap();
+        let job = Arc::clone(&state.job);
+        let (tx, rx) = mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            tx.send(lock_job(&job, Some(&request)).map(|_| ())).unwrap();
+        });
+        state.requests.lock().unwrap().cancel(id);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err(), "Request aborted");
+        assert!(state.request(Some(id)).is_err(), "a delayed work command must also be rejected");
+        drop(held);
+        waiter.join().unwrap();
+        assert!(lock_job(&state.job, None).is_ok(), "the next request can use the queue");
     }
 
     #[test]
@@ -467,6 +569,17 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn sidecar_timeout_covers_a_blocked_request_write() {
+        let child = Command::new("/bin/sleep").arg("3").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut sidecar = Sidecar { proc: Some(Process::new(child)), next_id: 0 };
+        let large_request = json!({"markdown": "x".repeat(1024 * 1024)});
+        let error = call(&mut sidecar, "section_text", large_request, Duration::from_millis(100)).unwrap_err();
+        assert_eq!(error, "sidecar timed out");
+        assert!(sidecar.proc.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn drop_kills_grandchild_and_dead_child_fails_without_respawn() {
         use std::os::unix::process::CommandExt;
         // sh -> background sleep (grandchild); after Drop both must be gone.
@@ -506,7 +619,7 @@ mod tests {
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let mut sidecar = Sidecar { proc: Some(Process::new(child)), next_id: 0 };
         let mut events = vec![];
-        let result = call_progress(&mut sidecar, "ingest_pdf", json!({}), Duration::from_secs(3), |p| events.push(p)).unwrap();
+        let result = call_progress(&mut sidecar, "ingest_pdf", json!({}), Duration::from_secs(3), None, |p| events.push(p)).unwrap();
         assert_eq!(result, "done");
         assert_eq!(events, vec![json!({"completed":20,"total":41,"paused":false})]);
     }

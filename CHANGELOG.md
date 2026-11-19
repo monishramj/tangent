@@ -6,6 +6,25 @@ Historical seed: v0.1.2 is tagged; v0.1.1 and v0.1.3 are taken from version-bump
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-18
+
+### Added
+- Codex CLI as an AI provider, with per-provider setup checks.
+- Antigravity as an experimental AI provider (Gemini subscriptions): sandboxed, stopped the moment it tries a tool, with a warning in setup.
+- Read scanned or handwritten PDFs page by page with Claude vision.
+- Multi-PDF videos start from the folder page; source menu can move a source to a folder or delete it.
+- Developer mode that logs to dev.log.
+
+### Changed
+- Leaving or retrying a video cancels its work; duplicate requests are shared.
+- Checkpoint questions get more time, so long multi-source videos still get them.
+- Each video starts on a fresh audio engine.
+
+### Fixed
+- Playback stopping with "Load failed" whenever a scene was skipped.
+- Generation stalling while a big PDF was being read; preparation errors spinning forever.
+- Outline for PDFs that merge several chapters; "Couldn't build" shown while a video was still preparing.
+
 ## [0.2.0] - 2026-11-16
 
 First public beta for macOS, Windows and Linux.

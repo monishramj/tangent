@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { getChoice, providers, setChoice } from "./registry";
+import { getChoice, providers, selectedProvider, setChoice } from "./registry";
 import { tauriProvider } from "./tauriProvider";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("out") }));
@@ -25,11 +25,39 @@ it("rejects without invoking when already aborted", async () => {
   expect(invoke).not.toHaveBeenCalled();
 });
 
-it("registry has claude and codex; choice defaults to claude and persists", () => {
-  expect(Object.keys(providers)).toEqual(["claude", "codex"]);
+it("cancels the exact LLM request when its caller leaves", async () => {
+  const c = new AbortController();
+  let finish!: (value: string) => void;
+  vi.mocked(invoke)
+    .mockResolvedValueOnce(23)
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const complete = tauriProvider("claude").complete("prompt", { signal: c.signal });
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ requestId: 23 })));
+  const rejected = expect(complete).rejects.toMatchObject({ name: "AbortError" });
+  c.abort();
+  expect(invoke).toHaveBeenCalledWith("cancel_request", { requestId: 23 });
+  finish("late result");
+  await rejected;
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "cancel_request")).toHaveLength(1);
+});
+
+it("defaults to Claude and persists recognized provider choices", () => {
+  expect(Object.keys(providers)).toEqual(["claude", "codex", "agy"]);
   expect(getChoice()).toBe("claude");
   setChoice("codex");
   expect(getChoice()).toBe("codex");
-  localStorage.setItem("tangent.provider", "bogus");
-  expect(getChoice()).toBe("claude");
+  setChoice("agy");
+  expect(getChoice()).toBe("agy");
+  for (const invalid of ["bogus", "constructor", "__proto__"]) {
+    localStorage.setItem("tangent.provider", invalid);
+    expect(getChoice()).toBe("claude");
+  }
+});
+
+it("uses the current provider through a handler created before Settings changes", async () => {
+  await selectedProvider.complete("default");
+  setChoice("codex");
+  await selectedProvider.complete("script", { model: "sonnet", images: ["QUJD"] });
+  expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ provider: "claude", prompt: "default" }));
+  expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ provider: "codex", prompt: "script", model: "sonnet", images: ["QUJD"] }));
 });

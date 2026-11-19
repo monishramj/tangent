@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import FirstLaunch from "./FirstLaunch";
 import type { LaunchChecks } from "./checks";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 const states: Record<string, LaunchChecks> = {
   missing: { installed: "missing", version: null, signedIn: "skipped" },
@@ -81,4 +81,18 @@ it("uses no green/red, shows pending login as not checked, and copies the instal
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   expect(writeText).toHaveBeenCalledWith("curl -fsSL https://claude.ai/install.sh | bash");
   expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+});
+
+it("lets a first-time user pick Codex and ignores an older Claude check", async () => {
+  let finishClaude!: (result: LaunchChecks) => void;
+  const check = vi.fn((provider: string) => provider === "claude"
+    ? new Promise<LaunchChecks>(resolve => { finishClaude = resolve; })
+    : Promise.resolve({ ...states.ok, version: "codex-cli 0.167.2" }));
+  render(<FirstLaunch check={check} onContinue={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "codex" } });
+  expect(await screen.findByText("You're logged in to Codex.")).toBeTruthy();
+  finishClaude(states.missing);
+  await waitFor(() => expect(check).toHaveBeenCalledWith("codex"));
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(localStorage.getItem("tangent.provider")).toBe("codex");
 });

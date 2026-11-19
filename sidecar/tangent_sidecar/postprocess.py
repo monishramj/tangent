@@ -38,6 +38,13 @@ def _level(n, prev, sizes):
     return min(n["level"], prev + 1) if prev else n["level"]
 
 
+def _next_chapter(n, numbered):
+    """'8. Design' right after 7.x.y sections starts chapter 8 (merged PDFs); '4. Item' under 7.1.3 does not."""
+    m = NUMBERED.match(n["title"])
+    return bool(m and numbered and "." not in m[1]
+                and int(m[1]) == int(NUMBERED.match(numbered["title"])[1].split(".")[0]) + 1)
+
+
 def _fix_ligatures(text):
     text = "".join(unicodedata.normalize("NFKC", c) if "ﬀ" <= c <= "ﬆ" else c for c in text)
 
@@ -290,7 +297,8 @@ def postprocess(ir, pdf_path=None):
                 n["level"] = roman["level"] + 1
             elif DOTTED.match(n["title"]):
                 numbered = n
-            elif re.match(r"chapter\b", n["title"], re.I):
+            elif re.match(r"chapter\b", n["title"], re.I) or _next_chapter(n, numbered):
+                n["level"] = 1
                 numbered = None
             elif numbered and not re.match(r"(chapter|section)\b", n["title"], re.I):
                 n["level"] = numbered["level"] + 1
@@ -311,7 +319,11 @@ def postprocess(ir, pdf_path=None):
         if hits:
             n["needs_math_check"] = True
     # Reparenting changes page spans too; propagate only after the final tree exists.
+    # Ingest unions pages into Docling's ancestors, which may not be ours: rebuild own pages from passages.
     for n in reversed(kept):
-        n["anchors"] = [{"page": p} for p in sorted(
-            {a["page"] for s in [n, *n["children"]] for a in s["anchors"]})]
+        own = {a["page"] for a in n["anchors"]}
+        if n.get("passages") and own:
+            own = {min(own)} | {b["page"] for q in n["passages"] for b in q.get("boxes", [])} \
+                | {a["page"] for e in n.get("exercises", []) for a in e.get("anchors", [])}
+        n["anchors"] = [{"page": p} for p in sorted(own | {a["page"] for c in n["children"] for a in c["anchors"]})]
     return {**ir, "sections": roots, "outline_version": 1}
