@@ -1,24 +1,28 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
+import { traced } from "../devlog";
 
 export type Anchor = { page: number };
 export type SectionIR = { id: string; title: string; level: number; anchors: Anchor[]; children: SectionIR[]; [k: string]: unknown };
 /** Undecoded formula: its markdown spot holds the token ⟨formula n⟩ until enrichFormulas decodes it for a video. */
 export type PendingFormula = { page: number; bbox: number[]; orig: string };
-export type IR = { sections: SectionIR[]; outline_version?: number; formulas?: Record<string, PendingFormula> };
+/** transcribed: a scanned/handwritten PDF read page by page with Claude vision (one section per page). */
+export type IR = { sections: SectionIR[]; outline_version?: number; formulas?: Record<string, PendingFormula>; transcribed?: boolean };
 export type SectionRef = { id: string; title: string; level: number; anchors: Anchor[] };
 
-const call = <T>(method: string, params: Record<string, unknown>) => invoke<T>("sidecar_call", { method, params });
+const call = <T>(method: string, params: Record<string, unknown>, signal?: AbortSignal) => traced<T>("sidecar_call", method, { method, params }, signal);
 
 /** Pass assetsDir (see figuresDir) so figure PNGs land where the webview's asset protocol can load them. */
 export const ingestPdf = (path: string, assetsDir?: string) => call<IR>("ingest_pdf", assetsDir ? { path, assets_dir: assetsDir } : { path });
 export const pdfInfo = (path: string) => call<{ pages: number }>("pdf_info", { path });
+/** scanned: no text layer on the first pages (scan or handwriting). */
+export const pdfScan = (path: string) => call<{ pages: number; scanned: boolean }>("pdf_info", { path, scan: true });
 export const figuresDir = async (sourceId: string) => join(await appDataDir(), "figures", sourceId);
-export const enrichFormulas = (ir: IR, path: string, ids: string[]) => call<IR>("enrich_formulas", { ir, path, ids });
+export const enrichFormulas = (ir: IR, path: string, ids: string[], pages?: [number, number], signal?: AbortSignal) => call<IR>("enrich_formulas", { ir, path, ids, ...(pages ? { pages } : {}) }, signal);
 export const repairSections =(ir: IR, path: string) => call<IR>("repair_sections", { ir, path });
 export const listSections = (ir: IR) => call<SectionRef[]>("list_sections", { ir });
 
-export const sectionText = (ir: IR, id: string) => call<string>("section_text", { ir, id });
+export const sectionText = (ir: IR, id: string, signal?: AbortSignal) => call<string>("section_text", { ir, id }, signal);
 
 export type SectionFigure = { id: string; caption: string; image_path: string };
 /** Figures extracted for a section and its descendants (same scope as sectionText). */
@@ -74,9 +78,9 @@ export function cachedSectionText(ir: IR, id: string): string {
   return node ? texts(node).filter(t => t.trim()).join("\n\n") : "";
 }
 /** One id: plain sectionText. Several: each preceded by its "## title", in the given order. */
-export async function sectionsText(ir: IR, ids: string[]): Promise<string> {
-  if (ids.length === 1) return sectionText(ir, ids[0]);
-  const parts = await Promise.all(ids.map(async id => `## ${findNode(ir.sections, id)?.title ?? id}\n\n${await sectionText(ir, id)}`));
+export async function sectionsText(ir: IR, ids: string[], signal?: AbortSignal): Promise<string> {
+  if (ids.length === 1) return sectionText(ir, ids[0], signal);
+  const parts = await Promise.all(ids.map(async id => `## ${findNode(ir.sections, id)?.title ?? id}\n\n${await sectionText(ir, id, signal)}`));
   return parts.join("\n\n");
 }
 const uniq = <T extends { id: string }>(xs: T[]) => xs.filter((x, i) => xs.findIndex(y => y.id === x.id) === i);

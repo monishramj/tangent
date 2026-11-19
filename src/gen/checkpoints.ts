@@ -165,7 +165,7 @@ async function groundQuestions(items: Checkpoint[], paragraphs: SourceParagraph[
 
 ${dataRule(tags)}
 ${dataBlock("question", JSON.stringify(candidates))}
-${dataReminder(tags)}`, { model: "haiku" })));
+${dataReminder(tags)}`, { model: "haiku", timeoutMs: CHECKPOINT_TIMEOUT_MS })));
       for (const c of candidates) {
         const matches = verdicts.filter(v => v && typeof v === "object" && "id" in v && v.id === c.id);
         if (matches.length === 1 && z.object({ id: z.string(), supported: z.literal(true) }).safeParse(matches[0]).success) supported.add(c.id);
@@ -174,6 +174,9 @@ ${dataReminder(tags)}`, { model: "haiku" })));
   }
   return items.filter(c => c.source === "textbook" || supported.has(c.id));
 }
+
+// Long multi-PDF videos (60+ scenes) blew the 120 s default and shipped with no checkpoints.
+const CHECKPOINT_TIMEOUT_MS = 300_000;
 
 export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, figures = [], passages = [], provider, sceneSources }: {
   sectionMarkdown: string; exercises: Exercise[]; scenes: string[]; figures?: CheckpointFigure[]; passages?: SourceParagraph[]; provider: LLMProvider;
@@ -185,7 +188,7 @@ export async function generateCheckpoints({ sectionMarkdown, exercises, scenes, 
   const paragraphs = passages.length ? passages : sectionMarkdown.split(/\n\s*\n/).filter(p => p.trim()).map((markdown, i) => ({ id: `p${i + 1}`, markdown }));
   const input = { sectionMarkdown: paragraphs.map(p => `[${p.id}] ${p.markdown}`).join("\n\n"), exercises, scenes, figures };
   const srcs = figures.map(f => f.src);
-  const run = async (retry?: string[]) => accept(z.array(z.unknown()).parse(parseJson(await provider.complete(promptFor(input, retry)))), scenes.length, srcs);
+  const run = async (retry?: string[]) => accept(z.array(z.unknown()).parse(parseJson(await provider.complete(promptFor(input, retry), { timeoutMs: CHECKPOINT_TIMEOUT_MS }))), scenes.length, srcs);
   let first: ReturnType<typeof accept>;
   try { first = await run(); } catch { return []; }
   let selected = first;

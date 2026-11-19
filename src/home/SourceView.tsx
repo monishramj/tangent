@@ -1,13 +1,13 @@
 import { plainError } from '../plainError';
-import { isPhotoSource, TRANSCRIPTION_LABEL } from "../gen/transcribe";
+import { isPhotoSource, MAX_TRANSCRIBE_PAGES, readerName, TRANSCRIPTION_LABEL } from "../gen/transcribe";
 import { useEffect, useRef, useState } from 'react';
-import { Add01Icon, ArrowLeft01Icon, ArrowRight01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
+import { Add01Icon, ArrowLeft01Icon, File02Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
 import Icon from '@/components/Icon';
 import ShinyText from '@/components/ShinyText';
 import LoadingCircle from '@/components/LoadingCircle';
 import Page from '@/player/PdfPage';
 import type { Passage, RenderPage } from '@/follow/types';
-import { DETAIL_LEVELS, estimateMinutesFor, type DetailLevel } from '../gen/script';
+import { estimateMinutesFor, type DetailLevel } from '../gen/script';
 import type { LoadProgress } from '../library';
 import { preparationLabel, type IngestItem } from './ingestQueue';
 import type { VideoBundle } from '../storage/videos';
@@ -15,29 +15,25 @@ import { isOfficeSource } from '../storage/library';
 import { pdfInfo, pdfPage, topSelected, type SectionRef } from './api';
 import { PreparationOverlay, LibraryShell, VideoList, type SourceSummary } from './LibraryView';
 import SectionPicker from './SectionPicker';
+import GenerationPanel from './GenerationPanel';
 
 export type SourceViewProps = {
   source: SourceSummary; folderName?: string; sections: SectionRef[]; videos: VideoBundle[];
   onBack: () => void; onHome?: () => void; onSettings?: () => void; onOpenVideo: (video: VideoBundle) => void;
-  onGenerate: (ids: string[], detail: DetailLevel, also?: { sourceId: string; sectionIds: string[] }[]) => void | Promise<void>;
-  /** Other library sources the user can add sections from. Only those with sections are offered. */
-  otherSources?: { id: string; name: string; sections?: SectionRef[] }[];
+  onGenerate: (ids: string[], detail: DetailLevel) => void | Promise<void>;
   /** Open already choosing sections (dev proof page). */
   seedSelection?: string[];
   renderPage?: RenderPage;
   onDeleteVideo?: (id: string) => void | Promise<void>;
   passages?: Passage[];
   initialDetail?: DetailLevel; onDetailChange?: (detail: DetailLevel) => void;
-  /** Markdown of one section plus descendants. sourceId is set for a section from another source. */
-  sectionMarkdown?: (id: string, sourceId?: string) => string;
+  /** Markdown of one section plus descendants (length estimate). */
+  sectionMarkdown?: (id: string) => string;
+  /** Scanned PDF read by text recognition: offer a page-by-page Claude read (handwriting). */
+  scan?: { pages: number; onRead: () => void };
   preparation?: IngestItem<unknown>; loading?: string; progress?: LoadProgress; error?: string; cleanupPending?: boolean; warning?: string; onRetryCleanup?: () => void;
 };
-const detailLabel: Record<DetailLevel, string> = { overview: 'Overview', standard: 'Standard', detailed: 'Detailed', complete: 'Complete' };
-const detailHint: Record<DetailLevel, string> = {
-  overview: 'Key ideas only. Shortest video.', standard: 'Key ideas, main definitions and examples.',
-  detailed: 'Every idea, example and important caveat.', complete: 'Covers everything in the section. Longest video.',
-};
-function pages(section: SectionRef) {
+export function pages(section: SectionRef) {
   if (!section.anchors.length) return '';
   const nums = section.anchors.map(a => a.page), lo = Math.min(...nums), hi = Math.max(...nums);
   return lo === hi ? `p. ${lo}` : `pp. ${lo}-${hi}`;
@@ -52,23 +48,18 @@ export default function SourceView(props: SourceViewProps) {
   const [detail, setDetail] = useState<DetailLevel>(props.initialDetail ?? 'standard');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
-  const [extras, setExtras] = useState<{ sourceId: string; name: string; sectionId: string; title: string }[]>([]);
-  const [add, setAdd] = useState<null | { pick?: string; selected: Set<string> }>(null);
   const makeButton = useRef<HTMLButtonElement>(null);
-  const others = (props.otherSources ?? []).filter(s => s.sections?.length);
-  useEffect(() => { setTab('sections'); setSelecting(props.seedSelection != null); setSelected(new Set(props.seedSelection ?? [])); setExtras([]); setAdd(null); setError(''); }, [source.id, props.seedSelection]);
+  useEffect(() => { setTab('sections'); setSelecting(props.seedSelection != null); setSelected(new Set(props.seedSelection ?? [])); setError(''); }, [source.id, props.seedSelection]);
   const ids = topSelected(sections, selected);
   const minutesFor = (level: DetailLevel) => estimateMinutesFor([
     ...ids.map(id => ({ title: sections.find(s => s.id === id)?.title ?? id, markdown: props.sectionMarkdown?.(id) ?? "" })),
-    ...extras.map(e => ({ title: e.title, markdown: props.sectionMarkdown?.(e.sectionId, e.sourceId) ?? "" })),
   ], level);
-  const count = ids.length + extras.length;
-  const cancel = () => { setSelecting(false); setSelected(new Set()); setExtras([]); setAdd(null); requestAnimationFrame(() => makeButton.current?.focus()); };
+  const count = ids.length;
+  const cancel = () => { setSelecting(false); setSelected(new Set()); requestAnimationFrame(() => makeButton.current?.focus()); };
   const generate = async () => {
     if (!count || generating) return;
     setGenerating(true); setError('');
-    const also = [...extras.reduce((m, e) => m.set(e.sourceId, [...(m.get(e.sourceId) ?? []), e.sectionId]), new Map<string, string[]>())].map(([sourceId, sectionIds]) => ({ sourceId, sectionIds }));
-    try { if (also.length) await props.onGenerate(ids, detail, also); else await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video. ${plainError(e)}`); }
+    try { await props.onGenerate(ids, detail); } catch (e) { setError(`Couldn't make the video. ${plainError(e)}`); }
     finally { setGenerating(false); }
   };
   return <LibraryShell onHome={props.onHome ?? props.onBack} onSettings={props.onSettings} wide>
@@ -76,6 +67,7 @@ export default function SourceView(props: SourceViewProps) {
     <div className="tl-heading tl-source-heading"><span className="tl-file-icon">{source.thumbnailUrl ? <img src={source.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}<PreparationOverlay item={props.preparation} /></span><div><p className="tl-eyebrow">READING MATERIAL</p><h1>{source.name}</h1><p>{source.pageCount ? `${source.pageCount} pages · ` : ''}{sections.length} sections{props.preparation && ` · ${preparationLabel(props.preparation)}`}</p></div></div>
     {(error || props.error) && <p className="tl-error" role="alert">{error || props.error}</p>}
     {isPhotoSource(source.pdfPath) && <p className="tl-empty">{TRANSCRIPTION_LABEL}</p>}
+    {props.scan && <ScanOffer {...props.scan} />}
     <div className="tl-source-grid"><section className="tl-source-main">
       <div className="tl-source-toolbar"><div className="tl-tabs" role="tablist" aria-label="Source view">
         {(['sections', 'pdf'] as const).map(value => <button id={`source-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`source-panel-${value}`} tabIndex={tab === value ? 0 : -1}
@@ -86,39 +78,24 @@ export default function SourceView(props: SourceViewProps) {
           {props.cleanupPending && <p className="tl-status" role="status">Tidying section titles…</p>}
           {!props.cleanupPending && props.warning && <p className="tl-status" role="status">{props.warning}</p>}
           {props.onRetryCleanup && !props.cleanupPending && <button className="tl-text-button" onClick={props.onRetryCleanup}>{props.sections.length ? 'Retry section titles' : 'Retry PDF'}</button>}
-          {selecting && !add && <div className="tl-selection-head"><span>Choose sections<small>{count ? `${count} selected` : 'Click a title or its brace'}</small></span><button className="tl-text-button" onClick={() => setSelected(selected.size === sections.length ? new Set() : new Set(sections.map(s => s.id)))}>{selected.size === sections.length ? 'Clear selection' : 'Select all'}</button>{others.length > 0 && <button className="tl-text-button" type="button" onClick={() => setAdd({ selected: new Set() })}>Add another source</button>}</div>}
-          {extras.length > 0 && !add && <ul aria-label="Selected sections" className="tl-sections">{[
-            ...ids.map(id => ({ key: id, name: source.name, title: sections.find(s => s.id === id)?.title ?? id })),
-            ...extras.map(e => ({ key: `${e.sourceId}/${e.sectionId}`, name: e.name, title: e.title })),
-          ].map(row => <li className="tl-section-row" key={row.key}><span>{row.name}</span><small>{row.title}</small></li>)}</ul>}
+          {selecting && <div className="tl-selection-head"><span>Choose sections<small>{count ? `${count} selected` : 'Click a title or its brace'}</small></span><button className="tl-text-button" onClick={() => setSelected(selected.size === sections.length ? new Set() : new Set(sections.map(s => s.id)))}>{selected.size === sections.length ? 'Clear selection' : 'Select all'}</button></div>}
           {!sections.length && <p className="tl-empty">No sections found in this PDF. You can still view the original.</p>}
-          {selecting && add && !add.pick && <div aria-label="Add another source"><p className="tl-status">Add another source</p>{others.map(s => <button key={s.id} type="button" className="tl-section-row" onClick={() => setAdd({ pick: s.id, selected: new Set(extras.filter(e => e.sourceId === s.id).map(e => e.sectionId)) })}>{s.name}</button>)}<button type="button" className="tl-text-button" onClick={() => setAdd(null)}>Back</button></div>}
-          {selecting && add?.pick && (() => {
-            const other = others.find(s => s.id === add.pick);
-            if (!other?.sections) return null;
-            const rows = other.sections;
-            return <><SectionPicker label={other.name} rows={rows.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={add.selected} onChange={selected => setAdd({ pick: other.id, selected })} />
-              <div className="tl-generation-bottom"><button type="button" className="tl-text-button" onClick={() => setAdd({ selected: new Set() })}>Back</button><button type="button" className="tl-primary" disabled={!add.selected.size} onClick={() => {
-                const chosen = topSelected(rows, add.selected);
-                setExtras(prev => [...prev.filter(e => e.sourceId !== other.id), ...chosen.map(id => ({ sourceId: other.id, name: other.name, sectionId: id, title: rows.find(r => r.id === id)?.title ?? id }))]);
-                setAdd(null);
-              }}>Add sections</button></div></>;
-          })()}
-          {!add && <SectionPicker browse={!selecting} rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />}
-          {selecting && !add && <div className="tl-generation"><div className="tl-generation-top"><span id="video-detail-label">Detail level</span></div>
-            <div className="tl-detail" role="radiogroup" aria-labelledby="video-detail-label">{DETAIL_LEVELS.map(d => {
-              const minutes = minutesFor(d);
-              const length = minutes ? `about ${minutes} min` : "";
-              return <label key={d} className={detail === d ? "tl-picked" : ""}><input type="radio" name="video-detail" value={d} checked={detail === d} aria-label={length ? `${detailLabel[d]}, ${length}` : detailLabel[d]} onChange={() => { setDetail(d); props.onDetailChange?.(d); }} /><span>{detailLabel[d]}</span>{length && <small>{length}</small>}</label>;
-            })}</div>
-            <p>{detailHint[detail]} Sections and detail set the length.</p><div className="tl-generation-bottom"><button className="tl-text-button" disabled={generating} onClick={cancel}>Cancel</button><button className="tl-primary" disabled={!count || generating} onClick={() => void generate()}>{generating ? 'Starting…' : `Make video${count ? ` · ${count} selected` : ''}`}<Icon icon={ArrowRight01Icon} size={16} /></button></div>
-          </div>}
+          <SectionPicker browse={!selecting} rows={sections.map(section => ({ id: section.id, title: section.title, level: section.level, pages: pages(section) }))} selected={selected} onChange={setSelected} />
+          {selecting && <GenerationPanel count={count} detail={detail} onDetail={d => { setDetail(d); props.onDetailChange?.(d); }} minutesFor={minutesFor} generating={generating} onCancel={cancel} onMake={() => void generate()} />}
         </>}
       </div> : <div role="tabpanel" id="source-panel-pdf" aria-labelledby="source-tab-pdf" className="tl-pdf-panel">
         {textSource ? <>{isPhotoSource(source.pdfPath) && <p>{TRANSCRIPTION_LABEL}</p>}<SourceText passages={props.passages ?? []} /></> : <PdfPages key={source.pdfPath} source={source} renderPage={props.renderPage ?? pdfPage} />}
       </div>}
     </section><aside className="tl-source-videos"><h2>Videos<span>{videos.length}</span></h2><VideoList videos={videos} onOpen={props.onOpenVideo} onDelete={props.onDeleteVideo} label="Videos from this source" /><p>Every video you make from this PDF lives here.</p></aside></div>
   </LibraryShell>;
+}
+
+function ScanOffer({ pages, onRead }: { pages: number; onRead: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const fits = pages <= MAX_TRANSCRIBE_PAGES, ai = readerName();
+  return <div className="tl-scan-offer" role="note"><span><strong>This PDF is a scan.</strong>{fits ? ` Handwritten notes read better with ${ai}.` : ` Text recognition read it; ${ai} can read handwriting in PDFs up to ${MAX_TRANSCRIBE_PAGES} pages.`}</span>
+    {fits && (confirm ? <><small>{ai} will read {pages} {pages === 1 ? 'page' : 'pages'}. This uses your {ai} limit.</small><button className="tl-primary" onClick={onRead}>Read {pages} {pages === 1 ? 'page' : 'pages'}</button><button className="tl-text-button" onClick={() => setConfirm(false)}>Cancel</button></>
+      : <button className="tl-quiet" onClick={() => setConfirm(true)}>Read with {ai}</button>)}</div>;
 }
 
 function SourceText({ passages }: { passages: Passage[] }) {

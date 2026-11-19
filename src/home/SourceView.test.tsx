@@ -118,27 +118,6 @@ it('shows the source text for a Word doc instead of PDF pages', () => {
   expect(pdfInfo).not.toHaveBeenCalled();
 });
 
-it('adds sections from a second source and names the source on each pick', () => {
-  const onGenerate = vi.fn();
-  const sections = [{ id: 's1', title: 'Heaps', level: 1, anchors: [{ page: 2 }] }];
-  const slides = [{ id: 's2', title: 'Lecture', level: 1, anchors: [] }];
-  setup({ sections, onGenerate, otherSources: [{ id: 'slides', name: 'Week.pptx', sections: slides }] });
-  expect(screen.queryByRole('button', { name: 'Add another source' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
-  fireEvent.click(screen.getByRole('treeitem', { name: /Heaps/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add another source' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Week.pptx' }));
-  fireEvent.click(screen.getByRole('treeitem', { name: /Lecture/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add sections' }));
-  const picked = screen.getByRole('list', { name: 'Selected sections' });
-  expect(picked.textContent).toContain('Book.pdf');
-  expect(picked.textContent).toContain('Heaps');
-  expect(picked.textContent).toContain('Week.pptx');
-  expect(picked.textContent).toContain('Lecture');
-  fireEvent.click(screen.getByRole('button', { name: /Make video/ }));
-  expect(onGenerate).toHaveBeenCalledWith(['s1'], 'standard', [{ sourceId: 'slides', sectionIds: ['s2'] }]);
-});
-
 it('labels the photo source and its text panel as transcription', () => {
   setup({ source: { id: 'photo', name: 'notes.jpg', pdfPath: '/notes.jpg' },
     passages: [{ id: 'photo-p1', markdown: 'Value: [illegible]', boxes: [] }] });
@@ -172,4 +151,14 @@ it('keeps the same brace hierarchy when switching from browsing to selection and
   expect(screen.getAllByRole('treeitem').every(row => !row.hasAttribute('aria-selected'))).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Make a video' }));
   expect(screen.getAllByRole('treeitem').every(row => row.getAttribute('aria-selected') === 'false')).toBe(true);
+});
+
+it('offers a confirmed Claude read for a scanned PDF', () => {
+  const onRead = vi.fn();
+  setup({ scan: { pages: 12, onRead } });
+  expect(screen.getByText('This PDF is a scan.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Read with Claude' }));
+  expect(screen.getByText(/Claude will read 12 pages/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Read 12 pages' }));
+  expect(onRead).toHaveBeenCalledTimes(1);
 });

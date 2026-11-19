@@ -435,6 +435,13 @@ fn prune(root: &Path, limit: u64, target: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// PNG bytes of one page of a library PDF, for vision transcription of scanned or handwritten notes.
+pub(crate) fn page_png(base: &Path, path: &Path, page: u32, resource: Option<&Path>) -> Result<Vec<u8>, String> {
+    let path = validate_pdf(base, path)?;
+    let rendered = cached_page(base, &path, page, 1600, resource)?;
+    fs::read(&rendered.path).map_err(|e| format!("Cannot read rendered page: {e}"))
+}
+
 #[tauri::command]
 pub async fn pdf_page(app: AppHandle, path: String, page: u32, width: u32) -> Result<Page, String> {
     tauri::async_runtime::spawn_blocking(move || {

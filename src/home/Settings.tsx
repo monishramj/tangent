@@ -13,9 +13,12 @@ import { version } from "../../package.json";
 import logo from "../../assets/tangent-icon.png";
 import ShortcutsSection from "./settings/Shortcuts";
 import FirstLaunch from "@/firstLaunch/FirstLaunch";
-import { markChecksPassed } from "@/firstLaunch/checks";
+import ProviderSelect from "@/firstLaunch/ProviderSelect";
+import { getChoice, setChoice, type ProviderName } from "@/llm/registry";
+import { markChecksPassed, runLaunchChecks } from "@/firstLaunch/checks";
+import { devMode, setDevMode } from "@/devlog";
 
-const sections = ["General", "Setup", "Playback", "Keyboard shortcuts", "Updates & About"] as const;
+const sections = ["General", "Setup", "Playback", "Keyboard shortcuts", "Updates & About", "Developer"] as const;
 const speeds = [0.75, 1, 1.25, 1.5, 1.75, 2];
 function read(key: string, fallback: string) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -36,7 +39,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
     <div className="tl-settings-layout">
       <nav className="tl-settings-nav" aria-label="Settings sections">{sections.map(name => <button type="button" key={name} aria-current={section === name ? 'page' : undefined} aria-controls={`settings-${sections.indexOf(name)}`} onClick={() => setSection(name)}>{name}</button>)}</nav>
       <div className="tl-settings">
-      <div id="settings-0" hidden={section !== 'General'}><h2>General</h2><GiphySetting /></div>
+      <div id="settings-0" hidden={section !== 'General'}><h2>General</h2><ProviderSetting /><GiphySetting /></div>
       <div id="settings-1" hidden={section !== 'Setup'}>{section === 'Setup' && <FirstLaunch heading="h2" onContinue={() => { try { markChecksPassed(); } catch { /* already in the app */ } }} />}</div>
       <div id="settings-2" hidden={section !== 'Playback'}><section aria-labelledby="playback-heading"><h2 id="playback-heading">Playback defaults</h2>
         <label className="tl-setting-row" htmlFor="default-speed"><span>Speed<small>Used when a video opens.</small></span><Select id="default-speed" value={speed} onChange={e => { if (save('tangent.speed', e.target.value)) setSpeed(e.target.value); }}>{speeds.map(s => <option key={s} value={s}>{s === 1 ? 'Normal' : `${s}×`}</option>)}</Select></label>
@@ -45,9 +48,30 @@ export default function Settings({ onBack }: { onBack: () => void }) {
       </section></div>
       <div id="settings-3" hidden={section !== 'Keyboard shortcuts'}><ShortcutsSection /></div>
       <div id="settings-4" hidden={section !== 'Updates & About'}><Updates /></div>
+      <div id="settings-5" hidden={section !== 'Developer'}><DeveloperSetting /></div>
       </div>
     </div>
   </LibraryShell>;
+}
+
+function ProviderSetting() {
+  const [provider, setProvider] = useState(getChoice);
+  const [installations, setInstallations] = useState<ProviderName[]>();
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let live = true;
+    void runLaunchChecks().then(result => { if (live) setInstallations(result?.installations); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const change = (name: ProviderName) => {
+    try { setChoice(name); setProvider(name); setError(""); }
+    catch { setError("Couldn't save the AI provider on this computer."); }
+  };
+  return <>
+    <ProviderSelect value={provider} onChange={change} installations={installations} />
+    {error && <p role="alert">{error}</p>}
+  </>;
 }
 
 function GiphySetting() {
@@ -75,6 +99,23 @@ function GiphySetting() {
   );
 }
 
+function DeveloperSetting() {
+  const desktop = '__TAURI_INTERNALS__' in window;
+  const [on, setOn] = useState(false);
+  const [path, setPath] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { if (desktop) void devMode().then(([value, p]) => { setOn(value); setPath(p); }).catch(() => {}); }, [desktop]);
+  const toggle = async (value: boolean) => {
+    try { await setDevMode(value); setOn(value); setError(''); }
+    catch (e) { setError(`Couldn't change developer mode. ${plainError(e)}`); }
+  };
+  return <section aria-labelledby="developer-heading"><h2 id="developer-heading">Developer</h2>
+    <label className="tl-setting-row" htmlFor="dev-mode"><span>Developer mode<small>Log each generation step, sidecar and AI provider call, and Python errors to a file for debugging.</small></span>
+      <Select id="dev-mode" value={on ? 'on' : 'off'} disabled={!desktop} onChange={e => void toggle(e.target.value === 'on')}><option value="off">Off</option><option value="on">On</option></Select></label>
+    {on && path && <p className="text-sm text-subtle">Log: <code className="select-all">{path}</code> (Python errors start logging after the next relaunch).</p>}
+    {error && <p role="alert" className="text-sm text-muted">{error}</p>}
+  </section>;
+}
 
 function Updates() {
   const desktop = '__TAURI_INTERNALS__' in window;

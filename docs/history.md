@@ -1,7 +1,17 @@
 # Tangent history
+- 2026-11-18 Antigravity selectable as experimental: sandboxed, tool calls killed on sight, warning in setup. Released as v0.2.1.
+- 2026-11-18 Checkpoints get a 300 s timeout so long multi-PDF videos still get them.
+- 2026-11-18 Skip cards play again (CSP allowed `data:` audio); each video gets a fresh AudioContext after a silent-playback report.
+- 2026-11-18 Added selectable Codex CLI inference and provider-specific startup checks. Claude is the default and Antigravity is unavailable pending isolation controls.
+- 2026-11-17 Video generation now cancels abandoned requests, shares duplicate work, preserves decoded formula batches, and times out stalled sidecar writes.
 - 2026-11-16: Added a music-led Tangent demo film and isolated recording source in `demo/`; real saved lesson/Q&A replay, shortened generation wait, CC BY 4.0 music credit. No production behavior changed.
 
 Verbatim dated narrative moved out of `CLAUDE.md` (T1, 2026-11-15). Newest first. Prepend one line per finished task.
+
+- 2026-11-18 Source menu: move-to-folder as menu items (select was unusable), Delete source (with its videos, file kept).
+- 2026-11-18 Scanned/handwritten PDFs can be read page by page with Claude vision ("Read with Claude" on the source page).
+- 2026-11-18 Multi-PDF videos start from the folder page (collapsed per-PDF picker); source page is single-PDF.
+- 2026-11-17 Video generation stalled: big-PDF ingest held the global sidecar lock (now exempt); prep errors spun forever (fixed); Developer mode logs to dev.log.
 
 - 2026-11-16 Player no longer shows "Couldn't build this video." while a video is still preparing (formula decode); the waiting placeholder stream now stays open. Test in App.generation.test.tsx.
 

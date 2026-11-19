@@ -137,6 +137,8 @@ def pdf_info(params):
     pdf = pypdfium2.PdfDocument(str(Path(params["path"]).expanduser().resolve(strict=True)))
     try:
         result = {"pages": len(pdf)}
+        if params.get("scan"):
+            result["scanned"] = _scanned(pdf)
         if params.get("preview") and len(pdf):
             page = pdf[0]
             bitmap = page.render(scale=0.35)
@@ -150,6 +152,23 @@ def pdf_info(params):
         return result
     finally:
         pdf.close()
+
+
+def _scanned(pdf, sample=5, min_chars=25):
+    """No usable text layer on the first pages: a scan or photographed notes (handwriting needs vision, not OCR)."""
+    n = min(len(pdf), sample)
+    if not n:
+        return False
+    chars = 0
+    for i in range(n):
+        page = pdf[i]
+        text = page.get_textpage()
+        try:
+            chars += len("".join(text.get_text_range().split()))
+        finally:
+            text.close()
+            page.close()
+    return chars / n < min_chars
 
 
 def _assets_root():
@@ -490,6 +509,9 @@ def enrich_formulas(params):
         return ir
     text = "\n".join(section_text(ir, i) for i in params["ids"])
     wanted = {n: pending[n] for n in dict.fromkeys(FORMULA_TOKEN.findall(text)) if n in pending}
+    if params.get("pages"):  # optional [lo, hi]: the caller decodes big selections in short batches
+        lo, hi = params["pages"]
+        wanted = {n: f for n, f in wanted.items() if lo <= f["page"] <= hi}
     if not wanted:
         return ir
     path = Path(params["path"]).expanduser().resolve(strict=True)

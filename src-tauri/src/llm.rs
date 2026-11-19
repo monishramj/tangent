@@ -1,8 +1,10 @@
 //! `llm_complete`: runs a headless coding-agent CLI for the webview (which cannot spawn processes).
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use tauri::Manager;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 /// Built-in Claude Code tools denied as defense in depth (`--tools ""` already removes them all).
@@ -11,15 +13,33 @@ pub const CLAUDE_DENIED_TOOLS: &str = "Bash,Read,Write,Edit,Glob,Grep,WebFetch,W
 /// Env for the claude child: no CLAUDE.md discovery and no auto-memory, so nothing on disk leaks into prompts.
 pub const CLAUDE_ENV: [(&str, &str); 2] = [("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"), ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1")];
 
-/// (binary, args); the prompt goes on stdin. `out_file` is where codex writes its final message.
-/// Prompts carry untrusted textbook/student text, so the agent runs with no tools, no MCP servers, no
-/// user/project settings (hooks), no slash commands, no saved session, and (see `complete`) an empty temp cwd.
+/// Antigravity (experimental): its print mode always has tools (run_command, write_file, ...) and runs them without asking,
+/// and write_file ignores --sandbox. No flag or session setting turns them off (agy 1.5.9). So we watch the stream and
+/// kill the process tree the moment any step other than plain text starts; tested 3/3 to beat write_file.
+pub const AGY_TOOL_BLOCKED: &str = "Antigravity tried to use a tool, so Tangent stopped it. Try again, or switch to Claude or Codex.";
+const AGY_PHOTOS: &str = "Antigravity CLI does not support photo attachments. Switch to Claude for photos.";
+
+pub fn provider_bin(provider: &str) -> Result<&'static str, String> {
+    match provider {
+        "claude" => Ok("claude"),
+        "codex" => Ok("codex"),
+        "agy" => Ok("agy"),
+        p => Err(format!("unknown provider: {p}")),
+    }
+}
+
+/// Prompt on stdin. Codex writes its final message separately from diagnostics.
 pub fn build_args(provider: &str, system: Option<&str>, out_file: &Path, with_images: bool, model: Option<&str>) -> Result<(&'static str, Vec<String>), String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    match provider {
+    let bin = provider_bin(provider)?;
+    let strong = match model.unwrap_or("haiku") {
+        "haiku" => false,
+        "sonnet" => true,
+        m => return Err(format!("unknown model {m}")),
+    };
+    match bin {
         "claude" => {
-            // Allowlisted: the webview picks the tier per stage (script = sonnet), default haiku.
-            let model = match model.unwrap_or("haiku") { m @ ("haiku" | "sonnet") => m, m => return Err(format!("unknown model {m}")) };
+            let model = if strong { "sonnet" } else { "haiku" };
             let mut a = s(&["-p", "--model", model,
                 "--tools", "", "--disallowedTools", CLAUDE_DENIED_TOOLS,
                 "--strict-mcp-config", "--setting-sources", "",
@@ -34,20 +54,39 @@ pub fn build_args(provider: &str, system: Option<&str>, out_file: &Path, with_im
             }
             Ok(("claude", a))
         }
-        // codex has no system-prompt flag; the caller prepends it to stdin (see `stdin_for`). Images are ignored.
         "codex" => {
-            let mut a = s(&["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "--output-last-message"]);
+            let model = if strong { "gpt-6.2-astra" } else { "gpt-6.2-sol" };
+            let mut a = s(&["--no-daemon", "--ask-for-approval", "never", "exec",
+                "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                "--ignore-user-config", "--ignore-rules", "--color", "never", "--model", model,
+                "--config", "mcp_servers={}", "--config", "web_search=\"disabled\"",
+                "--config", "project_doc_max_bytes=0",
+                "--disable", "shell_tool", "--disable", "view_image", "--disable", "hooks",
+                "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
+                "--disable", "browser_use", "--disable", "computer_use", "--disable", "image_generation",
+                "--enable", "skip_host_skill_discovery", "--output-last-message"]);
             a.push(out_file.to_string_lossy().into_owned());
-            a.push("-".into()); // prompt from stdin
-            Ok(("codex", a))
+            a.push("-".into());
+            Ok((bin, a))
         }
-        p => Err(format!("unknown provider: {p}")),
+        "agy" => {
+            if with_images { return Err(AGY_PHOTOS.into()); }
+            let model = if strong { "gemini-3.8-flash-high" } else { "gemini-3.8-flash-medium" };
+            // -p= with stream-json reads the prompt from stdin; --sandbox restricts run_command (not write_file).
+            Ok((bin, s(&["--model", model, "--sandbox", "--disable-slash-commands",
+                "--input-format", "stream-json", "--output-format", "stream-json", "-p="])))
+        }
+        _ => unreachable!(),
     }
 }
 
 pub fn stdin_for(provider: &str, prompt: &str, system: Option<&str>, images: &[String]) -> String {
     match (provider, system) {
         ("codex", Some(sys)) => format!("{sys}\n\n{prompt}"),
+        ("agy", _) => {
+            let text = system.map_or_else(|| prompt.to_string(), |sys| format!("{sys}\n\n{prompt}"));
+            format!("{}\n", serde_json::json!({ "event": "user", "message": { "role": "user", "content": [{ "type": "text", "text": text }] } }))
+        }
         ("claude", _) if !images.is_empty() => claude_stream_input(prompt, images),
         _ => prompt.to_string(),
     }
@@ -79,13 +118,33 @@ pub fn parse_stream_result(stdout: &str) -> Result<String, String> {
     Ok(text)
 }
 
+/// True for any agy stream step that is not the prompt or plain model text (tool calls, subagents, unknown kinds).
+pub fn agy_disallowed_step(line: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else { return false };
+    v["event"] == "step_update" && !matches!(v["step_update"]["step_type"].as_str(), Some("user_input" | "agent_response"))
+}
+
+/// The response of agy's final `result` event.
+pub fn parse_agy_result(stdout: &str) -> Result<String, String> {
+    let ev = stdout.lines().rev()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
+        .find(|v| v["event"] == "result")
+        .ok_or("agy: no result event in stream-json output")?;
+    let r = &ev["result"];
+    if r["status"] != "SUCCESS" { return Err(format!("agy: {}", r["error"].as_str().filter(|e| !e.is_empty()).unwrap_or("failed"))); }
+    Ok(r["response"].as_str().unwrap_or_default().to_string())
+}
+
 /// A fresh empty directory to run the CLI in, so a relative path or project config can't reach the app's files.
 pub fn scratch_dir() -> Result<PathBuf, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let dir = std::env::temp_dir().join(format!("tangent-llm-{}-{}-{}", std::process::id(), nanos, N.fetch_add(1, Ordering::Relaxed)));
-    std::fs::create_dir(&dir).map_err(|e| format!("scratch dir: {e}"))?;
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(|e| format!("scratch dir: {e}"))?;
     Ok(dir)
 }
 
@@ -122,17 +181,21 @@ fn resolve_with(bin: &str, dirs: &[PathBuf], exts: &[String]) -> Option<PathBuf>
     }).find(|path| path.is_file())
 }
 
-pub fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], model: Option<&str>) -> Result<String, String> {
-    let images: &[String] = if provider == "claude" { images } else { &[] };
+fn complete(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], model: Option<&str>, request: Option<&AtomicBool>) -> Result<String, String> {
     let cwd = scratch_dir()?;
-    let r = run(provider, prompt, system, timeout_ms, images, &cwd, model);
+    let r = run(provider, prompt, system, timeout_ms, images, &cwd, model, request);
     let _ = std::fs::remove_dir_all(&cwd);
     r
 }
 
-fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], cwd: &Path, model: Option<&str>) -> Result<String, String> {
+fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u64>, images: &[String], cwd: &Path, model: Option<&str>, request: Option<&AtomicBool>) -> Result<String, String> {
     let out_file = cwd.join("last-message.txt");
-    let (bin, args) = build_args(provider, system, &out_file, !images.is_empty(), model)?;
+    let (bin, mut args) = build_args(provider, system, &out_file, !images.is_empty(), model)?;
+    if provider == "codex" && !images.is_empty() {
+        let stdin = args.pop().unwrap();
+        args.extend(codex_images(cwd, images)?);
+        args.push(stdin);
+    }
     let home = home_dir();
     let dirs = search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
     let exe = resolve(bin, &dirs).ok_or_else(|| format!("{bin} not found in PATH, ~/.local/bin or /opt/homebrew/bin"))?;
@@ -140,33 +203,54 @@ fn run(provider: &str, prompt: &str, system: Option<&str>, timeout_ms: Option<u6
     let mut cmd = Command::new(exe);
     cmd.args(args).current_dir(cwd).env("PATH", new_path);
     if provider == "claude" { cmd.envs(CLAUDE_ENV); }
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let input = stdin_for(provider, prompt, system, images);
+    crate::check_request(request)?;
     let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let input = stdin_for(provider, prompt, system, images);
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.unwrap_or(120_000));
+    let (status, stdout, stderr) = collect(&mut child, input, deadline, request, provider)?;
+    if !status.success() { return Err(format!("{provider} exited {status}: {}", stderr.trim())); }
+    if provider == "codex" { std::fs::read_to_string(&out_file).map_err(|e| format!("codex: missing final response: {e}")) }
+    else if provider == "agy" { parse_agy_result(&stdout) }
+    else if !images.is_empty() { parse_stream_result(&stdout) }
+    else { Ok(stdout) }
+}
+
+fn collect(child: &mut Child, input: String, deadline: Instant, request: Option<&AtomicBool>, provider: &str) -> Result<(ExitStatus, String, String), String> {
     let mut stdin = child.stdin.take().unwrap();
     std::thread::spawn(move || { let _ = stdin.write_all(input.as_bytes()); }); // dropped -> EOF
     let (mut so, mut se) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
-    let out = std::thread::spawn(move || { let mut s = String::new(); let _ = so.read_to_string(&mut s); s });
+    let tripped = std::sync::Arc::new(AtomicBool::new(false));
+    let (trip, watch) = (tripped.clone(), provider == "agy");
+    let out = std::thread::spawn(move || {
+        let (mut s, mut line, mut r) = (String::new(), String::new(), std::io::BufReader::new(so));
+        while r.read_line(&mut line).unwrap_or(0) > 0 {
+            if watch && agy_disallowed_step(&line) { trip.store(true, std::sync::atomic::Ordering::Release); }
+            s.push_str(&line);
+            line.clear();
+        }
+        s
+    });
     let err = std::thread::spawn(move || { let mut s = String::new(); let _ = se.read_to_string(&mut s); s });
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms.unwrap_or(120_000));
-    let status = loop {
-        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? { break st; }
+    let result = (|| loop {
+        crate::check_request(request)?;
+        if tripped.load(std::sync::atomic::Ordering::Acquire) { break Err(AGY_TOOL_BLOCKED.to_string()); }
+        if out.is_finished() && err.is_finished() {
+            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? { break Ok(status); }
+        }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("{provider} timed out"));
+            break Err(format!("{provider} timed out"));
         }
         std::thread::sleep(Duration::from_millis(25)); // ponytail: polling; fine at LLM latencies
-    };
-    let (stdout, stderr) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
-    if !status.success() { return Err(format!("{provider} exited {status}: {}", stderr.trim())); }
-    if provider == "codex" { Ok(std::fs::read_to_string(&out_file).unwrap_or_default()) }
-    else if !images.is_empty() { parse_stream_result(&stdout) }
-    else { Ok(stdout) }
+    })();
+    if result.is_err() { crate::checks::kill_tree(child); }
+    Ok((result?, out.join().unwrap_or_default(), err.join().unwrap_or_default()))
 }
 
 /// Bounded photo-only read; never enable Claude's Read tool for untrusted notes.
@@ -198,28 +282,46 @@ fn photo_image(base: &Path, path: &Path) -> Result<String, String> {
         else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" }
         else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { "image/webp" }
         else { return Err("Cannot decode this photo. Export HEIC as JPG or PNG and try again".into()); };
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for c in bytes.chunks(3) {
-        let n = ((c[0] as u32) << 16) | ((c.get(1).copied().unwrap_or(0) as u32) << 8) | c.get(2).copied().unwrap_or(0) as u32;
-        encoded.push(ALPHABET[((n >> 18) & 63) as usize] as char);
-        encoded.push(ALPHABET[((n >> 12) & 63) as usize] as char);
-        encoded.push(if c.len() > 1 { ALPHABET[((n >> 6) & 63) as usize] as char } else { '=' });
-        encoded.push(if c.len() > 2 { ALPHABET[(n & 63) as usize] as char } else { '=' });
-    }
+    let encoded = STANDARD.encode(bytes);
     Ok(if mime == "image/png" { encoded } else { format!("data:{mime};base64,{encoded}") })
 }
 
+fn codex_images(cwd: &Path, images: &[String]) -> Result<Vec<String>, String> {
+    images.iter().enumerate().map(|(i, image)| {
+        let (suffix, data) = image.strip_prefix("data:image/jpeg;base64,").map(|d| ("jpg", d))
+            .or_else(|| image.strip_prefix("data:image/webp;base64,").map(|d| ("webp", d)))
+            .unwrap_or(("png", image.as_str()));
+        if data.len() > (5_usize * 1024 * 1024).div_ceil(3) * 4 {
+            return Err("Image is too large; choose one under 5 MiB".into());
+        }
+        let bytes = STANDARD.decode(data).map_err(|_| "Invalid base64 image")?;
+        if bytes.len() > 5 * 1024 * 1024 {
+            return Err("Image is too large; choose one under 5 MiB".into());
+        }
+        let path = cwd.join(format!("attachment-{i}.{suffix}"));
+        std::fs::write(&path, bytes).map_err(|e| format!("Cannot prepare image: {e}"))?;
+        Ok(format!("--image={}", path.display()))
+    }).collect()
+}
+
 #[tauri::command]
-pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>, photo_path: Option<String>) -> Result<String, String> {
+pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: String, system: Option<String>, timeout_ms: Option<u64>, images: Option<Vec<String>>, model: Option<String>, photo_path: Option<String>, pdf_page: Option<u32>, request_id: Option<u32>) -> Result<String, String> {
+    let request = app.state::<crate::State_>().request(request_id)?;
     tauri::async_runtime::spawn_blocking(move || {
+        crate::check_request(request.as_deref())?;
         let mut images = images.unwrap_or_default();
         if let Some(path) = photo_path {
-            if provider != "claude" || !images.is_empty() { return Err("Photo transcription requires Claude and one photo".into()); }
+            provider_bin(&provider)?;
+            if provider == "agy" { return Err(AGY_PHOTOS.into()); }
+            if !images.is_empty() { return Err("Photo transcription accepts one photo".into()); }
             let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
-            images.push(photo_image(&base, Path::new(&path))?);
+            // pdf_page: photo_path is a library PDF (scanned/handwritten notes); send that page rendered by PDFium.
+            images.push(match pdf_page {
+                Some(page) => STANDARD.encode(crate::pages::page_png(&base, Path::new(&path), page, app.path().resource_dir().ok().as_deref())?),
+                None => photo_image(&base, Path::new(&path))?,
+            });
         }
-        complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref())
+        complete(&provider, &prompt, system.as_deref(), timeout_ms, &images, model.as_deref(), request.as_deref())
     })
         .await
         .map_err(|e| e.to_string())?
@@ -228,6 +330,39 @@ pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn cancel_reaps_a_running_llm_child() {
+        use std::os::unix::process::CommandExt;
+        use std::sync::atomic::Ordering;
+
+        let mut child = Command::new("/bin/sleep").arg("30")
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let request = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(40));
+                request.store(true, Ordering::Release);
+            });
+            let result = collect(&mut child, String::new(), Instant::now() + Duration::from_secs(2), Some(&request), "test provider");
+            assert_eq!(result.unwrap_err(), "Request aborted");
+        });
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deadline_covers_pipes_inherited_after_llm_child_exits() {
+        use std::os::unix::process::CommandExt;
+
+        let mut child = Command::new("/bin/sh").args(["-c", "sleep 1 & exit 0"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let result = collect(&mut child, String::new(), Instant::now() + Duration::from_millis(150), None, "test provider");
+        assert_eq!(result.unwrap_err(), "test provider timed out");
+    }
 
     #[test]
     fn photo_reads_are_bounded_and_reject_other_files() {
@@ -300,7 +435,6 @@ mod tests {
         assert_eq!(c[0]["source"]["media_type"], "image/png");
         assert_eq!(c[0]["source"]["data"], "AAAA");
         assert_eq!(c[1]["text"], "what is this?");
-        assert_eq!(stdin_for("codex", "q", None, &["AAAA".into()]), "q"); // codex ignores images
     }
 
     #[test]
@@ -315,13 +449,76 @@ mod tests {
     fn codex_args_read_only_last_message() {
         let (b, a) = build_args("codex", None, Path::new("/tmp/o.txt"), false, None).unwrap();
         assert_eq!(b, "codex");
-        assert_eq!(a[0], "exec");
+        assert!(a.contains(&"exec".into()));
+        for flag in ["--no-daemon", "--ephemeral", "--ignore-user-config", "--ignore-rules"] {
+            assert!(a.contains(&flag.into()));
+        }
+        for setting in ["mcp_servers={}", "web_search=\"disabled\"", "project_doc_max_bytes=0"] {
+            assert!(a.windows(2).any(|pair| pair == ["--config", setting]));
+        }
+        for flag in ["hooks", "shell_tool", "view_image", "apps", "plugins", "browser_use", "computer_use"] {
+            assert!(a.windows(2).any(|pair| pair == ["--disable", flag]));
+        }
+        assert!(a.windows(2).any(|pair| pair == ["--model", "gpt-6.2-sol"]));
+        let (_, strong) = build_args("codex", None, Path::new("/tmp/o.txt"), true, Some("sonnet")).unwrap();
+        assert!(strong.windows(2).any(|pair| pair == ["--model", "gpt-6.2-astra"]));
         let i = a.iter().position(|x| x == "--sandbox").unwrap();
         assert_eq!(a[i + 1], "read-only");
         let j = a.iter().position(|x| x == "--output-last-message").unwrap();
         assert_eq!(a[j + 1], "/tmp/o.txt");
         assert_eq!(a.last().unwrap(), "-");
         assert!(build_args("nope", None, Path::new("/x"), false, None).is_err());
+    }
+
+    #[test]
+    fn codex_stages_images_for_attachment() {
+        let dir = scratch_dir().unwrap();
+        let args = codex_images(&dir, &["QUJD".into(), "data:image/jpeg;base64,/9j/".into()]).unwrap();
+        assert_eq!(args, ["attachment-0.png", "attachment-1.jpg"].map(|name| format!("--image={}", dir.join(name).display())));
+        assert_eq!(std::fs::read(dir.join("attachment-0.png")).unwrap(), b"ABC");
+        assert_eq!(std::fs::read(dir.join("attachment-1.jpg")).unwrap(), [0xff, 0xd8, 0xff]);
+        assert!(codex_images(&dir, &["invalid?".into()]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn agy_args_sandboxed_stream_json_and_photos_refused() {
+        let (bin, a) = build_args("agy", None, Path::new("/x"), false, None).unwrap();
+        assert_eq!(bin, "agy");
+        for f in ["--sandbox", "--disable-slash-commands", "-p="] { assert!(a.contains(&f.to_string()), "{f}"); }
+        assert!(a.windows(2).any(|p| p == ["--input-format", "stream-json"]) && a.windows(2).any(|p| p == ["--output-format", "stream-json"]));
+        assert!(a.windows(2).any(|p| p == ["--model", "gemini-3.8-flash-medium"]));
+        assert!(!a.iter().any(|x| x.contains("dangerously")));
+        assert!(build_args("agy", None, Path::new("/x"), false, Some("sonnet")).unwrap().1.windows(2).any(|p| p == ["--model", "gemini-3.8-flash-high"]));
+        assert_eq!(build_args("agy", None, Path::new("/x"), true, None).unwrap_err(), AGY_PHOTOS);
+        let input: serde_json::Value = serde_json::from_str(&stdin_for("agy", "hi", Some("sys"), &[])).unwrap();
+        assert_eq!(input["event"], "user");
+        assert_eq!(input["message"]["content"][0]["text"], "sys\n\nhi");
+    }
+
+    #[test]
+    fn agy_stream_watch_and_result() {
+        let step = |t: &str| format!(r#"{{"event":"step_update","step_update":{{"step_type":"{t}","state":"ACTIVE"}}}}"#);
+        assert!(!agy_disallowed_step(&step("user_input")) && !agy_disallowed_step(&step("agent_response")));
+        assert!(agy_disallowed_step(&step("tool")) && agy_disallowed_step(&step("subagent")));
+        assert!(!agy_disallowed_step(r#"{"event":"init","init":{"tools":["run_command"]}}"#) && !agy_disallowed_step("not json"));
+        assert_eq!(parse_agy_result(r#"{"event":"result","result":{"status":"SUCCESS","response":"OK\n"}}"#).unwrap(), "OK\n");
+        assert_eq!(parse_agy_result(r#"{"event":"result","result":{"status":"ERROR","response":"","error":"auth"}}"#).unwrap_err(), "agy: auth");
+        assert!(parse_agy_result("").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agy_tool_step_kills_the_child() {
+        use std::os::unix::process::CommandExt;
+        let script = r#"echo '{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE"}}'; sleep 5; touch never"#;
+        let mut child = Command::new("/bin/sh").args(["-c", script])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .process_group(0).spawn().unwrap();
+        let started = Instant::now();
+        let result = collect(&mut child, String::new(), Instant::now() + Duration::from_secs(4), None, "agy");
+        assert_eq!(result.unwrap_err(), AGY_TOOL_BLOCKED);
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

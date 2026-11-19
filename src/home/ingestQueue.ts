@@ -38,9 +38,11 @@ export function ingestQueue<T>(read: (path: string, report: (progress: LoadProgr
       }
     } finally { running = false; }
   };
-  const enqueue = (path: string, retry = false) => {
+  /** retry re-reads a failed/warned item; 'force' re-reads a finished one too (e.g. Read with Claude). */
+  const enqueue = (path: string, retry: boolean | 'force' = false) => {
     const existing = items.find(item => item.path === path);
-    if (existing && !(retry && (existing.status === 'failed' || existing.warning))) return existing;
+    if (existing && retry !== 'force' && !(retry && (existing.status === 'failed' || existing.warning))) return existing;
+    if (existing && retry === 'force' && isPreparingStatus(existing.status)) return existing;
     let resolve!: (value: T) => void, reject!: (error: unknown) => void;
     const result = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
     // Background imports may have no source view awaiting their result.
@@ -66,7 +68,7 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
     // untidied titles are usable (sections/IR exist), so they warn instead of throwing.
     const ir = await loadIr(path, report, store);
     const sections = await listSections(ir);
-    if (isPhotoSource(path)) return { ir, sections };
+    if (isPhotoSource(path) || ir.transcribed) return { ir, sections }; // page/photo titles need no tidying
     stage('tidying', { ir, sections });
     const cleaned = await sectionTitles(sourceFor(path).id, sections, ir, store, provider, true);
     const value = { ir, sections: cleaned.sections };
@@ -90,7 +92,7 @@ export function sourceQueue(store: JsonStore, provider: LLMProvider, savePreview
       const ir = await cachedIr(source.pdfPath, store);
       if (!ir || ir.outline_version !== 1) return;
       const sections = await listSections(ir);
-      if (isPhotoSource(source.pdfPath)) { queue.restore(source.pdfPath, { ir, sections }); return; }
+      if (isPhotoSource(source.pdfPath) || ir.transcribed) { queue.restore(source.pdfPath, { ir, sections }); return; }
       const cleaned = await sectionTitles(source.id, sections, ir, store);
       const warning = cleaned.incomplete ? 'Some titles not tidied' : !isOfficeSource(source.pdfPath) && !isPhotoSource(source.pdfPath) && (!source.thumbnailUrl || !source.pageCount) ? 'No preview' : undefined;
       queue.restore(source.pdfPath, { ir, sections: cleaned.sections }, warning);
@@ -102,4 +104,5 @@ export function preparationLabel(item: IngestItem<unknown>) {
   return item.status === 'queued' ? 'Queued' : item.status === 'reading' ? (item.progress && item.progress.fraction === undefined ? 'Reading' : `Reading ${Math.round((item.progress?.fraction ?? 0) * 100)}%`)
     : item.status === 'tidying' ? 'Tidying titles' : item.status === 'preview' ? 'Making preview' : item.status === 'done' ? 'Ready' : 'Failed';
 }
-export const isPreparing = (item?: IngestItem<unknown>) => !!item && item.status !== 'done' && item.status !== 'failed';
+const isPreparingStatus = (status: IngestItem<unknown>['status']) => status !== 'done' && status !== 'failed';
+export const isPreparing = (item?: IngestItem<unknown>) => !!item && isPreparingStatus(item.status);

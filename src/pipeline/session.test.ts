@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { startSession } from "./session";
 import type { PipelineEvent } from "./streamVideo";
@@ -15,9 +15,13 @@ const audio = { wavPath: "/fake.wav", sec: 6,
   words: Array.from({ length: 3 }, (_, i) => [{ word: "Arrays", start: i * 2, end: i * 2 + 1 }, { word: "grow.", start: i * 2 + 1, end: i * 2 + 2 }]).flat(),
   segments: Array.from({ length: 3 }, (_, i) => ({ start: i * 2, end: i * 2 + 2 })) };
 beforeEach(() => { vi.mocked(invoke).mockReset(); });
+afterEach(() => vi.unstubAllGlobals());
 
-it("runs a section with real defaults through fake IPC and returns playable scenes and status", async () => {
+it.each(["claude", "codex"])("generates playable scenes with %s through fake IPC", async provider => {
+  vi.stubGlobal("localStorage", { getItem: () => provider === "codex" ? "codex" : null });
   vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "begin_request") return 1;
+    if (command === "cancel_request") return null;
     const a = args as { prompt: string; params: { out_path: string } };
     if (command === "llm_complete") return route(a.prompt);
     return { wav_path: a.params.out_path, sec: audio.sec, words: audio.words, segments: audio.segments };
@@ -31,7 +35,9 @@ it("runs a section with real defaults through fake IPC and returns playable scen
   expect(events[1]).toMatchObject({ type: "checkpoints", items: [] });
   expect(events[0]).toMatchObject({ type: "scene", sceneId: "scene-1", wavPath: expect.stringMatching(/^\/tmp\/tangent-.*\.wav$/) });
   expect(session.status()).toBe("done");
-  expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ provider: "claude", prompt: expect.stringContaining("Source arrays.") }));
+  expect(invoke).toHaveBeenCalledWith("llm_complete", expect.objectContaining({ provider, model: "sonnet", prompt: expect.stringContaining("Source arrays.") }));
+  expect(invoke).toHaveBeenCalledWith("sidecar_call", expect.objectContaining({ method: "tts_align", requestId: 1 }));
+  expect(invoke).toHaveBeenCalledWith("cancel_request", { requestId: 1 });
 });
 
 it("accepts provider and TTS overrides without IPC", async () => {

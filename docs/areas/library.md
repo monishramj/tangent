@@ -13,6 +13,10 @@ Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Scrollbars hidden app-wide (`src/index.css`); scrolling still works.
 
 ## Log
+- 2026-11-18 Row menus no longer open under later rows: folder-row and .tl-content entry animations use fill `backwards` (a kept transform made each row a stacking context) and any row/heading with an open menu gets z-index 40. CSS only; checked in rebuilt app.
+- 2026-11-18 Source row menu: folders are menuitemradio items (the native <select> inside the focus-closing popover closed before a pick landed in WKWebView) plus "Delete…" with inline confirm; delete removes the source, its cached IR and the videos it owns (bundle recovery would otherwise restore it), never the file. Compose rows: "1 section", "Not transcribed yet". Evidence: Home tests.
+- 2026-11-17 Make video panel stays pinned in short windows (<650px, incl. the default 800x600) in compact form; before, a 1926-section outline meant scrolling past every row to reach it. CSS only; not rebuilt.
+- 2026-11-18 Multi-PDF videos moved to the folder page: "Make a video" in the folder header lists each PDF as a collapsed row (expand to pick, "N picked" badge, still-reading rows disabled), pinned GenerationPanel shows "N sections from M PDFs". Source page is single-PDF again (Add another source page and checkbox removed). Home.startPicks builds the run (first pick owns the video). Evidence: FolderCompose tests, vitest 1116.
 
 - 2026-11-16 Polish B (P1-2/5/12): library/home/settings errors go through `plainError`; FirstLaunch is neutral (hollow/filled dots, "Not checked yet", copyable install command); folder emoji grayscale via CSS. Tests added; visuals unchecked in a browser.
 

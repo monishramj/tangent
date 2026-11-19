@@ -155,3 +155,5 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { display
 
 }
 .ui-field:focus-visible { outline:none;border-color:var(--focus); }
+.ui-menu-heading { display:block;font-size:11px;color:var(--fg-subtle);padding:6px 12px 2px; }
+.ui-menu-rule { display:block;height:1px;background:var(--line);margin:6px 4px; }

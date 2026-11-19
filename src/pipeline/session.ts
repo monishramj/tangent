@@ -1,12 +1,12 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { providers } from "../llm/registry";
+import { selectedProvider } from "../llm/registry";
 import { sidecarTts } from "./sidecarTts";
 import { streamVideo } from "./streamVideo";
 
 type StreamOptions = Parameters<typeof streamVideo>[0];
 
 /** Start one IR section; consume with for-await and observe status() on the same stream. */
-export function startSession({ irSection, provider = providers.claude, ttsAlign = sidecarTts, signal, onStatus, onProgress, gifSearch, detail, sources }: {
+export function startSession({ irSection, provider = selectedProvider, ttsAlign = sidecarTts, signal, onStatus, onProgress, gifSearch, detail, sources }: {
   irSection: { markdown: string; figures?: { id: string; caption: string; image_path: string }[]; exercises?: StreamOptions["exercises"]; passages?: StreamOptions["passages"] };
   sources?: StreamOptions["sources"];
   onProgress?: StreamOptions["onProgress"];

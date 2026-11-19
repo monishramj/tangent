@@ -33,6 +33,7 @@ Token agreement is a conservative guard, not proof of mathematical equivalence; 
 - Lazy decoding costs ~73s for 5 pages (~15s/page), slow before a video; later decode during script writing in parallel (not implemented).
 
 ## Log
+- 2026-11-18 Handwritten/scanned PDFs: `pdf_info {scan}` flags PDFs with no text layer (first 5 pages, <25 chars/page). Source page offers "Read with Claude" (confirmed, <=60 pages); `chooseTranscription` sets `transcribe-<id>` and drops the IR, loadIr then runs `transcribePdf` (one section per page, photo prompt, page anchors, unverified provenance) and the queue skips title tidying. Rust: `llm_complete` `pdf_page` sends a PDFium render of a library PDF page. Evidence: sidecar/transcribe/library/SourceView tests. Not verified on real handwriting.
 
 - 2026-11-16: Merged-chapter PDFs (pypdf concat of STAT 350 ch. 7-11) nested ch. 8-11 under ch. 7 and gave ch. 7 all 621 pages, so "7." built a whole-book video and decoded every formula. Fix: "N." right after (N-1).x headings starts a top-level chapter; parent pages rebuilt from own passages + children. Evidence: sidecar tests 123 pass; Monish's cached IR repaired in place (ch. 7 = pp. 1-102). Not verified: a fresh ingest of the merged PDF.
 - 2026-11-16 Step 18: JPG/PNG/WEBP photos use faithful Claude transcription, one IR passage per paragraph/region, LaTeX and `[illegible]` preserved; passages/sections carry `unverified-source`. Cached in the existing FIFO; no title rewrite or PDF preview.

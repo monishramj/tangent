@@ -1,5 +1,5 @@
-//! Read-only Claude Code status for the first-launch screen.
-//! Fixed argv only: `--version` and `auth status`. Never `claude -p` (that spends quota).
+//! Read-only CLI install and sign-in status for the first-launch screen.
+//! Fixed argv only. Never sends a model prompt.
 use serde::Serialize;
 use serde_json::Value;
 use std::io::Read;
@@ -13,6 +13,8 @@ const OUT_CAP: usize = 64 * 1024;
 
 const VERSION_ARGS: &[&str] = &["--version"];
 const AUTH_ARGS: &[&str] = &["auth", "status", "--json"];
+const CODEX_AUTH_ARGS: &[&str] = &["login", "status"];
+const PROVIDERS: [&str; 3] = ["claude", "codex", "agy"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeKind { Ok, Missing, Timeout, Failed }
@@ -26,9 +28,10 @@ pub struct LaunchChecks {
     pub installed: String,
     pub version: Option<String>,
     pub signed_in: String,
+    pub installations: Vec<&'static str>,
 }
 
-pub fn assess(version: &Probe, auth: Option<&Probe>) -> LaunchChecks {
+fn assess(version: &Probe, auth: Option<&Probe>, logged_in: fn(&Probe) -> Option<bool>) -> LaunchChecks {
     let ver = (version.kind == ProbeKind::Ok).then(|| version_line(&version.out)).flatten();
     let installed = match version.kind {
         ProbeKind::Missing => "missing",
@@ -41,14 +44,14 @@ pub fn assess(version: &Probe, auth: Option<&Probe>) -> LaunchChecks {
         match auth {
             None => "skipped",
             Some(p) if p.kind == ProbeKind::Timeout => "timeout",
-            Some(p) => match logged_in(&p.out) {
+            Some(p) => match logged_in(p) {
                 Some(true) => "ok",
                 Some(false) => "signed_out",
                 None => "failed",
             },
         }
     };
-    LaunchChecks { installed: installed.into(), version: ver, signed_in: signed_in.into() }
+    LaunchChecks { installed: installed.into(), version: ver, signed_in: signed_in.into(), installations: vec![] }
 }
 
 /// First non-empty line, capped. Drop anything that looks like an account or a secret.
@@ -60,11 +63,19 @@ fn version_line(out: &str) -> Option<String> {
 }
 
 /// `loggedIn` only. The status JSON also carries email and org fields; those stay here.
-fn logged_in(out: &str) -> Option<bool> {
+fn claude_logged_in(probe: &Probe) -> Option<bool> {
+    let out = &probe.out;
     let start = out.find('{')?;
     let end = out.rfind('}')?;
     if end < start { return None; }
     serde_json::from_str::<Value>(&out[start..=end]).ok()?.get("loggedIn")?.as_bool()
+}
+
+fn codex_logged_in(probe: &Probe) -> Option<bool> {
+    if probe.kind == ProbeKind::Ok && probe.out.lines().any(|line| line.starts_with("Logged in using ")) {
+        return Some(true);
+    }
+    probe.out.lines().any(|line| line.trim() == "Not logged in").then_some(false)
 }
 
 struct Drain {
@@ -104,7 +115,7 @@ impl Drain {
     }
 }
 
-fn kill_tree(child: &mut Child) {
+pub(crate) fn kill_tree(child: &mut Child) {
     #[cfg(unix)]
     unsafe { libc::killpg(child.id() as i32, libc::SIGKILL); }
     #[cfg(windows)]
@@ -132,7 +143,7 @@ pub fn run_probe(exe: &Path, args: &[&str], timeout: Duration) -> Probe {
     };
     let deadline = Instant::now() + timeout;
     let stdout = start_drain(child.stdout.take().unwrap(), deadline, OUT_CAP);
-    let stderr = start_drain(child.stderr.take().unwrap(), deadline, 0); // discard; may contain account text
+    let stderr = start_drain(child.stderr.take().unwrap(), deadline, if args == CODEX_AUTH_ARGS { OUT_CAP } else { 0 });
     // try_wait reaps, so a later call returns None. Remember the first status and keep waiting for EOF.
     let mut status = None;
     let status = loop {
@@ -154,31 +165,63 @@ pub fn run_probe(exe: &Path, args: &[&str], timeout: Duration) -> Probe {
         if status.is_some() && stdout.done.load(Ordering::Acquire) && stderr.done.load(Ordering::Acquire) { break status.unwrap(); }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let out = String::from_utf8_lossy(&stdout.finish()).into_owned();
-    let _ = stderr.finish();
+    let mut out = String::from_utf8_lossy(&stdout.finish()).into_owned();
+    let err = stderr.finish();
+    if !err.is_empty() {
+        out.push('\n');
+        out.push_str(&String::from_utf8_lossy(&err));
+    }
     Probe { kind: if status.success() { ProbeKind::Ok } else { ProbeKind::Failed }, out }
 }
 
-pub fn claude_checks() -> LaunchChecks {
+fn provider_checks(provider: &str) -> Result<LaunchChecks, String> {
+    let bin = crate::llm::provider_bin(provider)?;
     let home = crate::llm::home_dir();
     let dirs = crate::llm::search_dirs(&std::env::var("PATH").unwrap_or_default(), &home);
-    let Some(exe) = crate::llm::resolve("claude", &dirs) else {
-        return assess(&Probe { kind: ProbeKind::Missing, out: String::new() }, None);
+    let exe = crate::llm::resolve(bin, &dirs);
+    let timeout = Duration::from_secs(8);
+    let version = exe.as_deref().map_or_else(
+        || Probe { kind: ProbeKind::Missing, out: String::new() },
+        |exe| run_probe(exe, VERSION_ARGS, timeout),
+    );
+    let (auth_args, parse): (_, fn(&Probe) -> Option<bool>) = match provider {
+        "codex" => (Some(CODEX_AUTH_ARGS), codex_logged_in),
+        "claude" => (Some(AUTH_ARGS), claude_logged_in),
+        _ => (None, |_| None),
     };
-    let version = run_probe(&exe, VERSION_ARGS, Duration::from_secs(8));
-    if version.kind != ProbeKind::Ok { return assess(&version, None); }
-    let auth = run_probe(&exe, AUTH_ARGS, Duration::from_secs(8));
-    assess(&version, Some(&auth))
+    let auth = exe.as_deref().zip(auth_args).filter(|_| version.kind == ProbeKind::Ok)
+        .map(|(exe, args)| run_probe(exe, args, timeout));
+    let mut result = assess(&version, auth.as_ref(), parse);
+    result.installations = PROVIDERS.into_iter().filter(|bin| crate::llm::resolve(bin, &dirs).is_some()).collect();
+    if provider == "agy" && result.installed == "ok" { result.signed_in = "experimental".into(); } // agy has no login-status command
+    Ok(result)
 }
 
 #[tauri::command]
-pub async fn launch_checks() -> Result<LaunchChecks, String> {
-    tauri::async_runtime::spawn_blocking(claude_checks).await.map_err(|e| e.to_string())
+pub async fn launch_checks(provider: Option<String>) -> Result<LaunchChecks, String> {
+    tauri::async_runtime::spawn_blocking(move || provider_checks(provider.as_deref().unwrap_or("claude")))
+        .await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assess(version: &Probe, auth: Option<&Probe>) -> LaunchChecks {
+        super::assess(version, auth, claude_logged_in)
+    }
+
+    #[test]
+    fn codex_status_uses_login_command_and_returns_no_account_details() {
+        assert_eq!(CODEX_AUTH_ARGS, ["login", "status"]);
+        let version = probe(ProbeKind::Ok, "codex-cli 0.162.0");
+        let signed_in = probe(ProbeKind::Ok, "warning\nLogged in using ChatGPT");
+        let signed_out = probe(ProbeKind::Failed, "Not logged in");
+        assert_eq!(super::assess(&version, Some(&signed_in), codex_logged_in).signed_in, "ok");
+        assert_eq!(super::assess(&version, Some(&signed_out), codex_logged_in).signed_in, "signed_out");
+        assert_eq!(super::assess(&version, Some(&probe(ProbeKind::Failed, "Failed")), codex_logged_in).signed_in, "failed");
+        assert!(provider_checks("--help").is_err());
+    }
 
     fn probe(kind: ProbeKind, out: &str) -> Probe { Probe { kind, out: out.into() } }
 
@@ -192,7 +235,7 @@ mod tests {
     #[test]
     fn not_installed_skips_login() {
         let r = assess(&probe(ProbeKind::Missing, ""), None);
-        assert_eq!(r, LaunchChecks { installed: "missing".into(), version: None, signed_in: "skipped".into() });
+        assert_eq!(r, LaunchChecks { installed: "missing".into(), version: None, signed_in: "skipped".into(), installations: vec![] });
     }
 
     #[test]

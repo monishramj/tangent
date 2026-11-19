@@ -1,11 +1,11 @@
-// One seam for every model backend: ClaudeCodeCLI (batch stages), Ollama (tutor fast path), API-key providers later.
+// One seam for every model backend: desktop CLI providers and the Node-side Claude batch runner.
 export type CompleteOpts = {
   system?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
-  /** Base64 PNGs (no data: prefix) shown to the model before the prompt. Providers without vision ignore them. */
+  /** Base64 PNGs (no data: prefix) shown to the model before the prompt. Providers without vision reject attachments. */
   images?: string[];
-  /** Claude tier for this call (default haiku). Other providers ignore it. */
+  /** Fast (haiku) or strong (sonnet) tier. The provider maps the tier to its own model. */
   model?: "haiku" | "sonnet";
 };
 export interface LLMProvider {

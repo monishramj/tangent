@@ -20,6 +20,8 @@ export function moveSource(library: Library, id: string, folderId: string | null
   if (folderId && !library.folders.some(f => f.id === folderId)) throw new Error('Folder no longer exists.');
   return { ...library, sources: library.sources.map(s => s.id === id ? { ...s, folderId } : s) };
 }
+/** Removes the source from the library only; the file on disk is never touched. */
+export const removeSource = (library: Library, id: string): Library => ({ ...library, sources: library.sources.filter(s => s.id !== id) });
 export function addSource(library: Library, path: string, folderId?: string | null): Library {
   const source = sourceFor(path), existing = library.sources.find(s => s.id === source.id);
   if (existing) return folderId === undefined ? library : moveSource(library, source.id, folderId);

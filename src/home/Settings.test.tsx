@@ -11,6 +11,7 @@ vi.mock('@/update', () => ({ checkForUpdate: api.checkForUpdate, installUpdate: 
 
 beforeEach(() => {
   vi.resetAllMocks();
+  localStorage.clear();
   api.getVersion.mockResolvedValue('0.1.1');
   api.checkForUpdate.mockResolvedValue(null);
   api.installUpdate.mockResolvedValue(false);
@@ -99,7 +100,7 @@ it('shows the Claude checks on Setup and keeps Continue off until they pass', as
   expect(screen.getByText("Claude Code isn't installed.")).toBeTruthy();
   expect(screen.queryByText(/ollama/i)).toBeNull();
   expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(invoke).toHaveBeenCalledWith('launch_checks');
+  expect(invoke).toHaveBeenCalledWith('launch_checks', { provider: 'claude' });
 });
 
 it('navigates sections without losing playback changes and mounts the shortcuts section', () => {
@@ -119,4 +120,20 @@ it('records the time of a successful manual check', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
   await screen.findByText('Tangent is up to date.');
   expect(screen.getByText(/Last checked/).querySelector('time')?.dateTime).toBeTruthy();
+});
+
+it('shows installed providers and uses the saved choice for Setup', async () => {
+  Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {} });
+  vi.mocked(invoke).mockResolvedValue({
+    installed: 'ok', version: '0.167.2', signedIn: 'ok', installations: ['codex', 'agy'],
+  });
+  render(<Settings onBack={() => {}} />);
+  expect(await screen.findByRole('option', { name: 'Claude Code · Not installed' })).toBeTruthy();
+  expect(screen.getByRole('option', { name: 'Codex · Installed' })).toBeTruthy();
+  expect((screen.getByRole('option', { name: 'Antigravity · Installed · Experimental' }) as HTMLOptionElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('AI provider'), { target: { value: 'codex' } });
+  expect(localStorage.getItem('tangent.provider')).toBe('codex');
+  fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
+  expect(await screen.findByText("You're logged in to Codex.")).toBeTruthy();
+  expect(invoke).toHaveBeenCalledWith('launch_checks', { provider: 'codex' });
 });

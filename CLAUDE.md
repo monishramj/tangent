@@ -20,7 +20,7 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 ```
 - Shell: Tauri (Rust core, WKWebView), Python sidecar via uv (Docling, PocketTTS, MMS_FA) -> [packaging](docs/areas/packaging.md)
 - Ingest: PDF -> IR with passages/bboxes, lazy formulas -> [ingest](docs/areas/ingest.md)
-- Generation: `claude -p` (haiku; sonnet for script), grounding, TTS, gifs -> [gen](docs/areas/gen.md)
+- Generation: Claude (default), Codex CLI or Antigravity (experimental), grounding, TTS, gifs -> [gen](docs/areas/gen.md)
 - Engine: `packages/motion` (DSL, templates, PixiJS stage; no app imports) -> [motion](docs/areas/motion.md)
 - Player: audio-clock playback, panels, textbook follow -> [player](docs/areas/player.md)
 - Library: sources-first home, folders, bundles, uploads queue -> [library](docs/areas/library.md)
@@ -49,7 +49,7 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - Full list in `docs/history.md` ("Open issues").
 
 ## Decisions (one-liners; full log in docs/history.md)
-- Parser Docling (MIT); voice PocketTTS alba; LLM `claude -p` haiku, script on sonnet (keep `llm.rs` and `claudeCli.ts` allowlists in sync).
+- Parser Docling (MIT); voice PocketTTS alba; LLM Claude by default (Haiku/Sonnet), optional Codex (Sol/Astra), Antigravity experimental (tools can't be disabled: sandbox + kill on any tool step), strong tier for scripts. Keep Claude allowlists in `llm.rs` and `claudeCli.ts` in sync.
 - Templates first over raw DSL; picture templates over flowcharts (max 1 diagram/scene).
 - Computed visuals and numeric grounding are deterministic; fail closed per beat, not per video.
 - No API keys stored until needed; secrets are owner-only files, only `giphy` webview-readable.

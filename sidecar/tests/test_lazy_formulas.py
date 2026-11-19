@@ -139,3 +139,15 @@ def test_fidelity_splices_all_surfaces_and_counts(capsys):
     assert done["formula_disagreements"] == 2
     assert done["formula_fidelity"]["2"]["fidelity"] == "fallback"
     assert done["formula_fidelity"]["1"]["fidelity"] == "unverified"
+
+
+def test_enrich_page_window_decodes_only_that_batch(tmp_path, monkeypatch):
+    ir = ingest.document_to_ir(doc_with(["", ""]), tmp_path)
+    seen = []
+    monkeypatch.setattr(ingest, "_convert_pdf", lambda path, pages=None, formulas=False:
+                        seen.append(pages) or doc_with([r"x^2+y", r"a \cdot b"]))
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    ids = [s["id"] for s in ir["sections"]]
+    out = ingest.enrich_formulas({"path": str(pdf), "ir": ir, "ids": ids, "pages": [2, 2]})
+    assert seen == [(2, 2)] and set(out["formulas"]) == {"1"}

@@ -11,13 +11,13 @@ import AnimatedList from '@/components/AnimatedList';
 import ShinyText from '@/components/ShinyText';
 import { Settings01Icon } from '@hugeicons/core-free-icons';
 import TextField from '@/components/ui/TextField';
-import Select from '@/components/ui/Select';
 import Menu from '@/components/ui/Menu';
 import { isOfficeSource } from '../storage/library';
 import { videoDuration, type VideoBundle } from '../storage/videos';
 import type { LoadProgress } from '../library';
 import { isPreparing, preparationLabel, type IngestItem } from './ingestQueue';
 import logo from '../../assets/tangent-icon.png';
+import FolderCompose, { type FolderComposeProps } from './FolderCompose';
 import './views.css';
 
 export type SourceSummary = {
@@ -41,7 +41,11 @@ export type LibraryViewProps = {
   onRenameFolder: (id: string, name: string) => Mutation;
   onDeleteFolder: (id: string) => Mutation;
   onMoveSource: (id: string, folderId: string | null) => Mutation;
+  /** Removes a source and the videos made from it (the file on disk stays). */
+  onDeleteSource?: (id: string) => Mutation;
   onDeleteVideo?: (id: string) => Mutation;
+  /** Folder page "Make a video": pick sections across the folder's PDFs. */
+  compose?: FolderComposeProps;
   over?: boolean; loading?: string; progress?: LoadProgress; error?: string; onRetry?: () => void;
 };
 
@@ -96,10 +100,12 @@ export default function LibraryView(props: LibraryViewProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  useEffect(() => { setForm(null); setError(''); setOpening(null); setClosing(false); }, [folder?.id]);
+  useEffect(() => { setForm(null); setError(''); setOpening(null); setClosing(false); setComposing(false); }, [folder?.id]);
   const cancelOpening = () => { if (timer.current) clearTimeout(timer.current); setOpening(null); };
   const closeFolder = (done: () => void) => {
     cancelOpening();
@@ -131,7 +137,7 @@ export default function LibraryView(props: LibraryViewProps) {
     {(folder || allFolders) && <button className="tl-back" onClick={() => { if (folder) closeFolder(onBack); else { cancelOpening(); setAllFolders(false); } }}><Icon icon={ArrowLeft01Icon} size={16} />{folder && allFolders ? 'All folders' : 'Home'}</button>}
     <div className={`tl-content ${folder ? 'tl-folder-view' : ''} ${closing ? 'tl-closing' : ''}`} inert={closing || undefined} style={folder ? { '--folder-exit-delay': `${Math.min(Math.max(0, sources.length - 1) * 60, 300)}ms` } as CSSProperties : undefined} key={folder?.id ?? (allFolders ? 'all' : 'home')}>
       <div className="tl-heading"><div><h1>{folder ? <><span className="tl-heading-emoji" aria-hidden>{folder.emoji || '📚'}</span>{folder.name}</> : isAllFolders ? 'All folders.' : 'library'}</h1>{(folder || isAllFolders) && <p>{folder ? `${folder.sourceCount} ${folder.sourceCount === 1 ? 'PDF' : 'PDFs'}` : 'Everything, in its place.'}</p>}</div>
-        {folder ? <Menu label="Folder actions" trigger={<Icon icon={MoreHorizontalIcon} size={20} />}><button role="menuitem" tabIndex={-1} onClick={() => startForm('rename')}>Rename folder</button><button role="menuitem" tabIndex={-1} onClick={() => startForm('delete')}>Delete folder</button></Menu>
+        {folder ? <div className="tl-heading-actions">{props.compose && !composing && <button className="tl-primary" disabled={!props.compose.sources.some(s => s.sections?.length)} onClick={() => setComposing(true)}>Make a video <Icon icon={Add01Icon} size={16} /></button>}<Menu label="Folder actions" trigger={<Icon icon={MoreHorizontalIcon} size={20} />}><button role="menuitem" tabIndex={-1} onClick={() => startForm('rename')}>Rename folder</button><button role="menuitem" tabIndex={-1} onClick={() => startForm('delete')}>Delete folder</button></Menu></div>
           : <button className="tl-text-button" onClick={() => startForm('create')}><Icon icon={Add01Icon} size={17} />New folder</button>}
       </div>
       {form && <section className="tl-form" aria-label={form === 'create' ? 'Create folder' : form === 'rename' ? 'Rename folder' : 'Delete folder'}>
@@ -152,7 +158,8 @@ export default function LibraryView(props: LibraryViewProps) {
           <button className="tl-book-caption" onClick={() => openFolder(f.id)}><strong>{f.name}</strong><small>{f.sourceCount} {f.sourceCount === 1 ? 'PDF' : 'PDFs'}</small>{(f.sources ?? []).filter(s => props.uploads?.some(item => item.path === s.pdfPath && item.status !== 'done')).map(s => <small key={s.pdfPath}>{s.name} · {preparationLabel(props.uploads!.find(item => item.path === s.pdfPath)!)}</small>)}</button>{(f.sources ?? []).filter(s => props.uploads?.some(item => item.path === s.pdfPath && item.status === 'failed')).map(s => <button key={s.pdfPath} className="tl-text-button" aria-label={`Retry ${s.name}`} onClick={() => props.onRetryUpload?.(s.pdfPath!)}>Retry {s.name}</button>)}
         </div>)}</div>{!allFolders && <div className="tl-shelf-edge" />}</> : <p className="tl-empty">Folders are optional. Add one for a class, or keep your PDFs below.</p>}
       </section>}
-      {!isAllFolders && <>
+      {folder && composing && props.compose && <FolderCompose {...props.compose} onCancel={() => setComposing(false)} />}
+      {!isAllFolders && !composing && <>
         {folder && sourceList()}
         <SpotlightCard data-testid="dropzone" spotlightColor="#fff" intensity={0.07} borderGlow={0.3} className="tl-drop"
           style={{ '--spotlight-card-surface': dragOver || props.over ? 'rgba(255,255,255,0.05)' : 'transparent', '--spotlight-card-border': dragOver || props.over ? 'var(--line-hover)' : 'var(--line)', '--spotlight-card-shadow': 'none' } as CSSProperties}
@@ -175,7 +182,15 @@ export default function LibraryView(props: LibraryViewProps) {
       <button className="tl-file-open" onClick={() => onOpenSource(s.id)}><span className="tl-file-icon">{s.thumbnailUrl ? <img src={s.thumbnailUrl} alt="" /> : <Icon icon={File02Icon} size={21} />}<PreparationOverlay item={upload} /></span><span><strong>{s.name}</strong><small>{/\.pptx$/i.test(s.pdfPath) ? 'Slides' : isOfficeSource(s.pdfPath) ? 'Document' : isPhotoSource(s.pdfPath) ? 'Photo' : `PDF${s.pageCount ? ` · ${s.pageCount} pages` : ''}`}{upload && ` · ${preparationLabel(upload)}`}</small>{upload?.status === 'reading' && <span className="tl-loading" role="status"><progress aria-label={`Reading ${s.name}`} value={upload.progress?.fraction} max={1} /><small>{upload.progress?.label}</small></span>}</span><Icon icon={ArrowRight01Icon} size={18} /></button>
       {props.heldPhotos?.includes(s.pdfPath) && !upload && <button className="tl-text-button" aria-label={`Transcribe ${s.name} again`} onClick={() => props.onTranscribe?.(s.pdfPath)}>Transcribe again</button>}
       {upload?.status === 'failed' && <button className="tl-text-button" aria-label={`Retry ${s.name}`} title={upload.error} onClick={() => props.onRetryUpload?.(s.pdfPath)}>Retry</button>}
-      <Menu form label={`Move ${s.name}`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}><label>Move to folder<Select aria-label={`Folder for ${s.name}`} value={s.folderId ?? ''} disabled={busy} onChange={e => void mutate(() => props.onMoveSource(s.id, e.target.value || null))}><option value="">No folder</option>{folders.map(f => <option value={f.id} key={f.id}>{f.name}</option>)}</Select></label></Menu>
+      {/* Plain menu items, not a <select>: a native picker steals focus and the popup closed before a choice landed. */}
+      <Menu label={`Actions for ${s.name}`} menuLabel={`${s.name} actions`} trigger={<Icon icon={MoreHorizontalIcon} size={18} />}>
+        <span className="ui-menu-heading">Move to folder</span>
+        {[{ id: '', name: 'No folder' }, ...folders].map(f => <button key={f.id || 'none'} type="button" role="menuitemradio" aria-checked={(s.folderId ?? '') === f.id} tabIndex={-1} disabled={busy}
+          onClick={() => { if ((s.folderId ?? '') !== f.id) void mutate(() => props.onMoveSource(s.id, f.id || null)); }}>{f.name}{(s.folderId ?? '') === f.id && <span aria-hidden>✓</span>}</button>)}
+        {props.onDeleteSource && <><span className="ui-menu-rule" role="separator" /><button type="button" role="menuitem" tabIndex={-1} onClick={() => setConfirmDelete(s.id)}>Delete…</button></>}
+      </Menu>
+      {confirmDelete === s.id && <div className="tl-confirm tl-source-confirm" role="group" aria-label={`Delete ${s.name}`}><span>Remove {s.name} and its videos from Tangent? The file stays on your computer.</span>
+        <button className="tl-text-button" disabled={busy} onClick={() => void mutate(async () => { await props.onDeleteSource!(s.id); setConfirmDelete(null); })}>Delete</button><button className="tl-text-button" disabled={busy} onClick={() => setConfirmDelete(null)}>Keep</button></div>}
     </li>; })}</ul>;
   }
 }

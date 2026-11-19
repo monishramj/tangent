@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Scene } from "@motion/dsl/schema";
 
-export type GifSearch = (query: string) => Promise<string | null>;
+export type GifSearch = (query: string, signal?: AbortSignal) => Promise<string | null>;
 const BANNED = /\b(nsfw|sexy|gore|blood|drunk)\b/i;
 
 // Secrets are an owner-only file in app data (the Keychain prompted for the login password on every unsigned rebuild). A non-secret localStorage flag says whether a
@@ -30,10 +30,10 @@ export const resetGiphyKey = () => { key = undefined; };
 
 /** GIPHY's most relevant hit for the query. Top-1, not a random pick from the top few: lower ranks drift off-topic. */
 export function giphySearch(apiKey: string, fetchFn: typeof fetch = fetch): GifSearch {
-  return async query => {
+  return async (query, signal) => {
     if (BANNED.test(query)) return null;
     const url = `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}&limit=3&rating=pg-13&lang=en`;
-    const r = await fetchFn(url);
+    const r = await fetchFn(url, { signal });
     if (!r.ok) return null;
     const hits = ((await r.json()) as { data?: { images?: Record<string, { url?: string }> }[] }).data ?? [];
     const urls = hits.map(h => h.images?.downsized_medium?.url ?? h.images?.fixed_height?.url).filter((u): u is string => !!u);
@@ -42,10 +42,13 @@ export function giphySearch(apiKey: string, fetchFn: typeof fetch = fetch): GifS
 }
 
 /** Fill `src` on gif objects that only have a query. Failures leave the placeholder card. */
-export async function resolveGifs(scene: Scene, search: GifSearch | null): Promise<void> {
+export async function resolveGifs(scene: Scene, search: GifSearch | null, signal?: AbortSignal): Promise<void> {
   if (!search) return;
   await Promise.all(scene.objects.map(async o => {
     if (o.type !== "gif" || o.src || !o.query) return;
-    try { o.src = (await search(o.query)) ?? undefined; } catch { /* keep the card */ }
+    try {
+      const src = await (signal ? search(o.query, signal) : search(o.query));
+      if (!signal?.aborted) o.src = src ?? undefined;
+    } catch { /* keep the card */ }
   }));
 }
