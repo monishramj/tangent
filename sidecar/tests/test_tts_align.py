@@ -150,7 +150,7 @@ def test_json_lines_keeps_stdout_clean_and_recovers(models, tmp_path, monkeypatc
 
 @pytest.mark.slow
 def test_real_tts_align(tmp_path):
-    text = (Path(__file__).resolve().parents[2] / "spikes/tts/script.txt").read_text().splitlines()[0]
+    text = "Heapify fixes one broken spot in a heap."
     started = time.perf_counter()
     reply = handle({"id": 1, "method": "tts_align", "params": {
         "text": text, "out_path": str(tmp_path / "real.wav"),

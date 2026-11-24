@@ -1,4 +1,5 @@
 # Tangent history
+- 2026-11-24 Audit cleanups: deleted spikes/ (tagged), GlassSurface, home-design + section-picker dev pages, usage script; deny-list drift test; doc drift fixed.
 - 2026-11-18 Antigravity selectable as experimental: sandboxed, tool calls killed on sight, warning in setup. Released as v0.2.1.
 - 2026-11-18 Checkpoints get a 300 s timeout so long multi-PDF videos still get them.
 - 2026-11-18 Skip cards play again (CSP allowed `data:` audio); each video gets a fresh AudioContext after a silent-playback report.

@@ -14,8 +14,7 @@
     "test": "vitest run --maxWorkers=2",
     "check": "tsc --noEmit && vitest run --maxWorkers=2",
     "test:focused": "vitest run --maxWorkers=2 --passWithNoTests",
-    "heavy": "bash scripts/heavy.sh",
-    "usage": "python3 scripts/usage.py"
+    "heavy": "bash scripts/heavy.sh"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.3.3",

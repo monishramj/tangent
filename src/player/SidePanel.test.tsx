@@ -203,27 +203,3 @@ it("pill tabs preserve the badge and support arrow wraparound, Home and End", ()
   }
   expect(screen.getByRole("tablist").contains(screen.getByRole("button", { name: "Close panel" }))).toBe(false);
 });
-
-it("defers the glass displacement map until an active drag ends", () => {
-  vi.useFakeTimers();
-  try {
-    let notify: () => void = () => {};
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: () => void) { notify = callback; }
-      observe() {} disconnect() {}
-    });
-    setup();
-    const wrapper = screen.getByRole("separator").parentElement!;
-    const glass = wrapper.lastElementChild!;
-    Object.defineProperties(glass, { offsetWidth: { value: 500 }, offsetHeight: { value: 600 } });
-    glass.getBoundingClientRect = () => ({ width: 500, height: 600 }) as DOMRect;
-    const map = glass.querySelector("feImage")!;
-    const before = map.getAttribute("href");
-    wrapper.dataset.resizing = "true";
-    act(() => { notify(); vi.advanceTimersByTime(750); });
-    expect(map.getAttribute("href")).toBe(before);
-    delete wrapper.dataset.resizing;
-    act(() => { vi.advanceTimersByTime(250); });
-    expect(decodeURIComponent(map.getAttribute("href")!)).toContain('width="500"');
-  } finally { vi.useRealTimers(); }
-});

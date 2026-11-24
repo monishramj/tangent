@@ -32,8 +32,8 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - **Out of v1:** animated branches, voice input, new course components, extra style packs, zyBooks/web capture.
 - **v2:** MP4 export, power-user editor, Pro usage meter, Klipy.
 
-## Current state (2026-11-15)
-- v0.1.2 published (GitHub Releases, Tauri updater); v0.1.3 built locally, not published.
+## Current state (2026-11-24)
+- v0.2.0 is Latest on GitHub Releases (Tauri updater); v0.2.1 is a Draft, unpublished.
 - Pipeline works end to end: PDF -> IR (background FIFO preparation) -> script -> templated scenes -> TTS -> streamed playback -> saved bundles.
 - Lazy formula decoding (only for selected sections), fp32 formula model, background-QoS ingest.
 - Library, Settings, keybinds registry, native macOS menu bar, multi-PDF upload, textbook follow-along done.
@@ -45,7 +45,6 @@ PDF -> Docling IR (cached) -> Outline -> Script (beats) -> math-to-speech -> TTS
 - Cached IRs predating passages are not re-ingested (open question: "Re-read PDF" action).
 - Windows/Linux builds are still unexercised on a machine here; owner-only secrets, the sidecar job, and the packaged runtime path are in code and waiting on CI.
 - First-scene latency unmeasured since planning call removal.
-- GlassSurface refraction unsupported in WKWebView (plain blur fallback).
 - Full list in `docs/history.md` ("Open issues").
 
 ## Decisions (one-liners; full log in docs/history.md)

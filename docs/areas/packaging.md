@@ -1,6 +1,7 @@
 # Packaging, Tauri shell, release, security
 
 Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
+- (2026-11-24) Audit cleanups: removed `spikes/` (tag `archive/spikes-2026-11`), `scripts/usage.py`, and the home-design/section-picker dev pages. Fixed the Antigravity line (was "refuses prompts"; gen.md is current). Not verified: Windows/Linux.
 
 
 ## Contract
@@ -70,7 +71,7 @@ Proof without ML installation: `scripts/heavy.sh cargo test --manifest-path src-
   Claude uses empty tools/settings, strict MCP, disabled slash commands and no session persistence in an empty cwd.
   Codex exec uses read-only and no approvals, ignores user config/rules, disables shell, file-image tools, hooks, MCP, plugins, apps, web and agent features, and uses ephemeral sessions.
   Codex still uses its existing auth and can create internal diagnostics. Antigravity’s [headless permissions](https://antigravity.google/docs/cli/headless/) govern tool approval and headless mode can load user settings/extensions and resume conversations.
-  Tangent reports Antigravity installation but refuses prompts before spawning it. `agy models` reported signed out, and 67 Rust library tests passed.
+  Antigravity is selectable as experimental (sandboxed, tool calls killed); see `gen.md` 2026-11-18.
 
 - 2026-11-17 Generation cancellation reaps LLM children and skips queued Python work before it reaches the sidecar.
   Timeouts cover blocked sidecar writes and LLM pipes held open by child processes.

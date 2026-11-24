@@ -32,7 +32,7 @@ start/end times are seconds, rounded to milliseconds; `sec` is WAV duration.
 
 Tests: `cd sidecar && uv run pytest` uses fake TTS/alignment models and excludes
 `slow` by default. Opt in with `uv run pytest -m slow -s`; the single integration
-test uses the first sentence of `spikes/tts/script.txt`, reports end-to-end
+test uses a fixed one-sentence script, reports end-to-end
 compute/audio RTF (including cold model load), and checks word count, bounds,
 monotonic timestamps, and positive durations. No warm-up synthesis is performed.
 

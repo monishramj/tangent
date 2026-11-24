@@ -6,14 +6,10 @@ Updated 2026-11-15. Nothing below is started until Monish says go.
 **Not in v1:** tutor branches, voice questions, new course components, extra styles, zyBooks/web capture.
 **v2:** MP4 export, editor, usage meter, Klipy.
 
-## Status 2026-11-15 (night)
-- Done: ~8 of 26 steps (CI, slim CLAUDE.md, mockups, long-PDF fix, style slips + tutor, testing guide, cleaner scene changes #15, flaky-test quarantine).
-- Merged into v1 this wave: #13 testing guide, #14 flaky test quarantine, #15 scene changes.
-- Open PRs: #16 run cool (green, has merge CONFLICT with v1: rebase needed), #17 faster first scene (CI running; owner must listen to one video for the join), #18 picker mockups round 2 (CI running; dev server left at http://127.0.0.1:5199/src/dev/section-picker.html, pid 27494).
-- Failed/stalled: none. Codex needs approval prompts answered by hand (workers ran with the owner approving).
-- Next 4 jobs: rebase+merge #16; step 7 formula test (alone, ch7/ch8 PDFs, 5 pages); step 9 build picker (after mockup choice); step 12 fact-check (after #17 merges).
-- Owner decisions pending: picker variant (round 2: 1 curl tip, 2 midpoint pinch, 3 curl elbows; owner said mockups not final); listen check for step 11; MIT licence; Windows/Linux testers.
-
+## Status 2026-11-24
+- Shipped: v0.2.0 (Latest). v0.2.1 is a Draft (scene-skip audio, merged-chapter outline, prep-spin fixes); publish after CI is green.
+- Done since 11-15: run-cool ingest, section picker, generation accuracy/fact-check, PPTX/DOCX + photo adapters, multi-source videos, Windows/Linux fixes, Antigravity as experimental.
+- Open: updater 0.2.0 -> 0.2.1 never exercised; one real end-to-end chapter run + first-scene latency; owner listen check on an installed build; Windows/Linux VM smoke; Anthropic `claude -p` terms and git-history purge (owner).
 
 ## How the work runs
 

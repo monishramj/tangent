@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark; /* light-dark() in GlassSurface etc. picks the dark values */
+  color-scheme: dark; /* light-dark() picks the dark values */
   --bg: #000000;
   --surface: #0a0a0a;
   --surface-2: #171717;
@@ -59,7 +59,7 @@ body {
   }
 }
 
-/* Tinted glass (React Bits GlassSurface look, monochrome) */
+/* Tinted glass (monochrome) */
 .glass {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
   border: 1px solid var(--line);
@@ -71,7 +71,7 @@ body {
   background: linear-gradient(180deg, rgba(23, 23, 23, 0.82), rgba(10, 10, 10, 0.72));
 }
 
-/* Paused play button: plain frosted glass (GlassSurface's url() backdrop refraction is unsupported in WKWebView). */
+/* Paused play button: plain frosted glass. */
 .play-glass {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid var(--line);

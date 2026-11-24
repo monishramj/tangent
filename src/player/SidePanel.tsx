@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { ArrowLeft02Icon, ArrowUp02Icon, Cancel01Icon, BookOpen01Icon, BubbleChatIcon, CheckListIcon, TextAlignLeftIcon, PlayIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import Icon from "@/components/Icon";
 import PillTabs from "@/components/PillTabs";
-import GlassSurface from "@/components/GlassSurface";
+import Glass from "@/components/Glass";
 import ShinyText from "@/components/ShinyText";
 import type { Thread } from "@/storage/store";
 import type { Line } from "@/tutor/narration";
@@ -94,7 +94,7 @@ export default function SidePanel(p: Props) {
           resize(width + (e.key === "ArrowLeft" ? 24 : -24));
         }
       }} />
-    <GlassSurface width="100%" height="100%" borderRadius={16} backgroundOpacity={0.18}>
+    <Glass className="size-full overflow-hidden rounded-2xl">
     <div role="dialog" aria-label="Side panel" className="flex size-full flex-col overflow-hidden rounded-2xl">
       <header className="flex items-center gap-1 p-2">
         <PillTabs value={p.tab} onValueChange={p.onTab} items={tabs.map(([value, label, icon]) => ({
@@ -107,7 +107,7 @@ export default function SidePanel(p: Props) {
       {p.tab === "checks" && p.checks}
       {p.tab === "textbook" && p.textbook}
     </div>
-    </GlassSurface>
+    </Glass>
     </div>
   );
 }

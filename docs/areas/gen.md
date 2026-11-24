@@ -2,6 +2,7 @@
 
 Area note. Read with `CLAUDE.md`. Newest Log entries first, ≤ 6 lines each.
 - Design: [generation-accuracy.md](../generation-accuracy.md)
+- (2026-11-24) Rust test `claude_deny_list_matches_claude_cli_ts` (llm.rs) fails if the Claude deny list drifts from `src/llm/claudeCli.ts`.
 
 ## Contract
 

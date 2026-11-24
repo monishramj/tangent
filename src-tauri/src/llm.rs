@@ -331,6 +331,13 @@ pub async fn llm_complete(app: tauri::AppHandle, provider: String, prompt: Strin
 mod tests {
     use super::*;
 
+    #[test]
+    fn claude_deny_list_matches_claude_cli_ts() {
+        let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/llm/claudeCli.ts")).unwrap();
+        let line = ts.lines().find(|l| l.contains("export const CLAUDE_DENIED_TOOLS")).unwrap();
+        assert!(line.contains(&format!("\"{CLAUDE_DENIED_TOOLS}\"")), "deny list drifted from src/llm/claudeCli.ts");
+    }
+
     #[cfg(unix)]
     #[test]
     fn cancel_reaps_a_running_llm_child() {

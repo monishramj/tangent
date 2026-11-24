@@ -7,9 +7,3 @@ Workers wrap heavy commands with `scripts/heavy.sh` and run `scripts/reap.sh --k
 - `scripts/reap.sh` lists heavy processes, parents, CPU, age, and cwd without changing anything.
 - `scripts/reap.sh --kill-orphans` sends TERM only to PPID-1 processes or processes in deleted Orca worktrees.
 - The main checkout and unknown cwd are protected unless `--all`; inspect the list first.
-- `python3 scripts/usage.py --since 2026-11-15T08:23:57Z` reports tangent token totals by agent/model.
-- Add `--by worktree`, `--all` (all projects), or `--json`; `bun run usage --since …` also works.
-- Claude messages are deduplicated; Codex uses the last full session total for sessions active since the cutoff.
-- Input includes cache reads/writes; cached input and reasoning are subsets, so do not add them again.
-- Cursor's local tracking/chat databases and CLI state are inspected; absent counts are reported without estimates.
-- `python3 scripts/usage.py --selftest` checks sample accounting; no models or dependencies are needed.
